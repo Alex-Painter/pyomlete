@@ -1,31 +1,17 @@
-from anthropic import beta_tool
-from pydantic import BaseModel
-from pymongo import MongoClient
+import json
+import asyncio
+
+from anthropic import beta_async_tool
 from dotenv import load_dotenv
 
-import voyageai
-import os
-import json
+from lib.db import async_db, vo
+from lib.types import SimilarIngredients
 
 load_dotenv()
 
-vo = voyageai.Client()
 
-uri = f"mongodb+srv://{os.environ.get('DB_USER')}:{os.environ.get('DB_PASS')}@cluster0.a9l1yfq.mongodb.net/?appName=Cluster0"
-db_client = MongoClient(uri)
-
-
-class SimilarIngredient(BaseModel):
-    name: str
-    score: float
-
-
-class SimilarIngredients(BaseModel):
-    dict[str, list[SimilarIngredient]]
-
-
-@beta_tool
-def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngredients:
+@beta_async_tool
+async def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngredients:
     """Search the vector database for existing ingredients. You must use this after you have created a recipe to check if an ingredient you suggested already exists in the database in some semantically similar form.
 
     Args:
@@ -33,15 +19,35 @@ def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngredients:
     Returns:
       A dict mapping the original ingredient name to a list of semantically similar ingredients with similarity scores.
     """
-    print(ingredient_names)
     # a. Embeds "chopped tomatoes" via your embedding model
     embed_results = vo.embed(
         texts=ingredient_names, model="voyage-4", output_dimension=2048
     )
 
     # b. Runs Atlas vector search
-    db = db_client.get_database("omlete")
-    search_result = db.ingredients.aggregate(
+    vector_searches = await asyncio.gather(
+        *[_generate_vector_searches(e) for e in embed_results.embeddings]
+    )
+
+    async def collect_cursor(cursor):
+        return [doc async for doc in cursor]
+
+    search_results = await asyncio.gather(*[collect_cursor(c) for c in vector_searches])
+
+    # c. Returns top 3 matches with similarity scores
+    r = [
+        {
+            "query": ingredient_names[i],
+            "matches": [doc for doc in results if doc["score"] >= 0.9],
+        }
+        for i, results in enumerate(search_results)
+    ]
+
+    return json.dumps(r)
+
+
+def _generate_vector_searches(embedding: list[float]):
+    return async_db.ingredients.aggregate(
         [
             {
                 "$vectorSearch": {
@@ -50,7 +56,7 @@ def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngredients:
                     "numCandidates": 60,
                     "limit": 3,
                     "path": "embedding",
-                    "queryVector": embed_results.embeddings[0],
+                    "queryVector": embedding,
                 }
             },
             {
@@ -64,10 +70,3 @@ def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngredients:
             },
         ]
     )
-
-    # c. Returns top 3 matches with similarity scores
-    search_json = []
-    for result in search_result:
-        search_json.append(result)
-
-    return json.dumps(search_json)
