@@ -26,10 +26,6 @@ class IngredientModelResponse(IngredientRecipe):
     )
 
 
-class IngredientDB(Ingredient):
-    embedding: list[float]
-
-
 class Recipe(BaseModel):
     title: str
     instructions: list[str]
@@ -37,10 +33,6 @@ class Recipe(BaseModel):
 
 class RecipeModelResponse(Recipe):
     ingredients: list[IngredientModelResponse]
-
-
-class RecipeDB(Recipe):
-    ingredients: list[IngredientRecipe]
 
 
 class SimilarIngredient(BaseModel):

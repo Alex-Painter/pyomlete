@@ -4,7 +4,8 @@ import asyncio
 from anthropic import beta_async_tool
 from dotenv import load_dotenv
 
-from lib.db import async_db, vo
+from data_models import IngredientDocument
+from lib.db import vo
 from lib.types import SimilarIngredients
 
 load_dotenv()
@@ -19,22 +20,14 @@ async def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngred
     Returns:
       A dict mapping the original ingredient name to a list of semantically similar ingredients with similarity scores.
     """
-    # a. Embeds "chopped tomatoes" via your embedding model
     embed_results = vo.embed(
         texts=ingredient_names, model="voyage-4", output_dimension=2048
     )
 
-    # b. Runs Atlas vector search
-    vector_searches = await asyncio.gather(
-        *[_generate_vector_searches(e) for e in embed_results.embeddings]
+    search_results = await asyncio.gather(
+        *[_search_by_embedding(e) for e in embed_results.embeddings]
     )
 
-    async def collect_cursor(cursor):
-        return [doc async for doc in cursor]
-
-    search_results = await asyncio.gather(*[collect_cursor(c) for c in vector_searches])
-
-    # c. Returns top 3 matches with similarity scores
     r = [
         {
             "query": ingredient_names[i],
@@ -46,8 +39,8 @@ async def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngred
     return json.dumps(r)
 
 
-def _generate_vector_searches(embedding: list[float]):
-    return async_db.ingredients.aggregate(
+async def _search_by_embedding(embedding: list[float]) -> list[dict]:
+    return await IngredientDocument.aggregate(
         [
             {
                 "$vectorSearch": {
@@ -69,4 +62,4 @@ def _generate_vector_searches(embedding: list[float]):
                 }
             },
         ]
-    )
+    ).to_list()
