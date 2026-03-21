@@ -24,7 +24,7 @@ services:
     rootDir: client
     plan: free
     buildCommand: npm ci && npm run build
-    startCommand: node dist/server/server.js
+    startCommand: node server.mjs
     envVars:
       # Set to the deployed backend URL, e.g. https://omlete-api.onrender.com
       # See setup notes below for wiring /api proxy in Nitro
