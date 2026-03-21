@@ -14,7 +14,17 @@ const config = defineConfig({
   plugins: [
     devtools(),
     tsconfigPaths({ projects: ['./tsconfig.json'] }),
-    tanstackStart(),
+    tanstackStart({
+      server: {
+        routeRules: {
+          '/api/**': {
+            proxy: process.env.VITE_API_URL
+              ? `https://${process.env.VITE_API_URL}/**`
+              : 'http://localhost:8000/**',
+          },
+        },
+      },
+    }),
     viteReact(),
     tailwindcss(),
     devtoolsJson(),
