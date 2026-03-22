@@ -3,7 +3,9 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useMutation } from '@tanstack/react-query'
 import { ImageIcon, Loader2, UploadCloud, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { RecipeCard, type Recipe } from '@/components/RecipeCard'
+import { RecipeCard } from '@/components/RecipeCard'
+import type { Recipe } from '@/components/RecipeCard'
+import { apiFetch } from '@/lib/api'
 import '@/index.css'
 
 export const Route = createFileRoute('/')({ component: App })
@@ -26,11 +28,10 @@ function App() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${
-                tab === t
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${tab === t
                   ? 'bg-slate-700 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               {t === 'generate' ? 'Generate' : 'Extract from Images'}
             </button>
@@ -48,7 +49,7 @@ function GenerateTab() {
 
   const { mutate, data, isPending } = useMutation({
     mutationFn: async (p: string): Promise<Recipe> => {
-      const res = await fetch('/api/recipes/generate/', {
+      const res = await apiFetch('/api/recipes/generate/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: p }),
@@ -96,7 +97,7 @@ function ExtractTab() {
     mutationFn: async (fs: File[]): Promise<Recipe[]> => {
       const form = new FormData()
       fs.forEach((f) => form.append('files', f))
-      const res = await fetch('/api/recipes/extract-from-images/', {
+      const res = await apiFetch('/api/recipes/extract-from-images/', {
         method: 'POST',
         body: form,
       })
