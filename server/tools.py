@@ -1,18 +1,14 @@
 import json
-import asyncio
 
 from anthropic import beta_async_tool
-from dotenv import load_dotenv
 
-from data_models import IngredientDocument
-from lib.db import vo
-from lib.types import SimilarIngredients
+from ingredient_service import IngredientService
 
-load_dotenv()
+_service = IngredientService()
 
 
 @beta_async_tool
-async def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngredients:
+async def find_similar_ingredients(ingredient_names: list[str]) -> str:
     """Search the vector database for existing ingredients. You must use this after you have created a recipe to check if an ingredient you suggested already exists in the database in some semantically similar form.
 
     Args:
@@ -20,46 +16,5 @@ async def find_similar_ingredients(ingredient_names: list[str]) -> SimilarIngred
     Returns:
       A dict mapping the original ingredient name to a list of semantically similar ingredients with similarity scores.
     """
-    embed_results = vo.embed(
-        texts=ingredient_names, model="voyage-4", output_dimension=2048
-    )
-
-    search_results = await asyncio.gather(
-        *[_search_by_embedding(e) for e in embed_results.embeddings]
-    )
-
-    r = [
-        {
-            "query": ingredient_names[i],
-            "matches": [doc for doc in results if doc["score"] >= 0.9],
-        }
-        for i, results in enumerate(search_results)
-    ]
-
-    return json.dumps(r)
-
-
-async def _search_by_embedding(embedding: list[float]) -> list[dict]:
-    return await IngredientDocument.aggregate(
-        [
-            {
-                "$vectorSearch": {
-                    "exact": False,
-                    "index": "vector_index",
-                    "numCandidates": 60,
-                    "limit": 3,
-                    "path": "embedding",
-                    "queryVector": embedding,
-                }
-            },
-            {
-                "$project": {
-                    "_id": 0,
-                    "embedding": 0,
-                    "aliases": 0,
-                    "category": 0,
-                    "score": {"$meta": "vectorSearchScore"},
-                }
-            },
-        ]
-    ).to_list()
+    matches = await _service.find_similar(ingredient_names)
+    return json.dumps([m.model_dump() for m in matches])
