@@ -7,7 +7,7 @@ import devtoolsJson from 'vite-plugin-devtools-json'
 
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-// import { nitro } from 'nitro/vite'
+import { nitro } from 'nitro/vite'
 import path from 'node:path'
 
 const config = defineConfig({
@@ -25,6 +25,7 @@ const config = defineConfig({
         },
       },
     }),
+    nitro(),
     viteReact(),
     tailwindcss(),
     devtoolsJson(),
