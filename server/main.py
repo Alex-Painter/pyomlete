@@ -6,6 +6,7 @@ from anthropic import AsyncAnthropic, transform_schema
 from beanie import init_beanie
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import TypeAdapter
 
 from data_models import IngredientDocument, RecipeDocument
@@ -33,6 +34,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "https://pyomlete-client.onrender.com",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 router = APIRouter(prefix="/api")
 
 

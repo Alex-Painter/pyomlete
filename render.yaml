@@ -3,6 +3,7 @@ services:
   - type: web
     name: omlete-api
     runtime: python
+    region: oregon
     rootDir: server
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -19,17 +20,13 @@ services:
 
   # TanStack Start (Nitro SSR) frontend
   - type: web
-    name: omlete-client
+    name: pyomlete-client
     runtime: node
+    region: oregon
     rootDir: client
     plan: free
-    buildCommand: npm ci && npm run build
-    startCommand: node server.mjs
+    buildCommand: npm install && npm run build
+    startCommand: node .output/server/index.mjs
     envVars:
-      # Set to the deployed backend URL, e.g. https://omlete-api.onrender.com
-      # See setup notes below for wiring /api proxy in Nitro
       - key: VITE_API_URL
-        fromService:
-          name: omlete-api
-          type: web
-          property: host
+        value: https://omlete-api.onrender.com
