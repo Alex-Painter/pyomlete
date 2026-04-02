@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from anthropic import AsyncAnthropic, transform_schema
 from beanie import init_beanie
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile
+from fastapi import APIRouter, FastAPI, UploadFile
 from pydantic import TypeAdapter
 
 from data_models import IngredientDocument, RecipeDocument
@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+router = APIRouter(prefix="/api")
 
 
 async def _save_recipe(recipe: RecipeModelResponse) -> RecipeDocument:
@@ -58,7 +59,7 @@ async def _save_recipe(recipe: RecipeModelResponse) -> RecipeDocument:
     return db_recipe
 
 
-@app.post("/recipes/generate/")
+@router.post("/recipes/generate/")
 async def create_recipe(prompt: RecipePrompt):
     system_message = {
         "role": "user",
@@ -106,6 +107,9 @@ async def _extract_and_save(file: UploadFile) -> RecipeDocument:
     return await _save_recipe(recipe)
 
 
-@app.post("/recipes/extract-from-images/")
+@router.post("/recipes/extract-from-images/")
 async def extract_recipes_from_images(files: list[UploadFile]):
     return await asyncio.gather(*[_extract_and_save(f) for f in files])
+
+
+app.include_router(router)
