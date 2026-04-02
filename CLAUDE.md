@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Overview
 
 Omlete is a full-stack AI-powered recipe management app. Users provide ingredients (text or images) and Claude AI generates/extracts recipes. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Render.com.
@@ -5,7 +9,6 @@ Omlete is a full-stack AI-powered recipe management app. Users provide ingredien
 ## Commands
 
 ### Frontend (`/client`)
-
 ```bash
 npm run dev        # Start Vite dev server (port 5173, proxies /api → localhost:8000)
 npm run build      # Production build
@@ -15,17 +18,14 @@ npm run check      # Format + auto-fix linting
 ```
 
 ### Backend (`/server`)
-
 ```bash
 uvicorn main:app --reload   # Start FastAPI dev server (port 8000)
 ```
-
 Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 
 ## Architecture
 
 ### Frontend (`/client/src/`)
-
 - **TanStack Start** (React meta-framework with Nitro SSR) + **TanStack Router** for routing
 - **TanStack Query** for server state; routes are in `src/routes/`
 - `src/lib/api.ts` — `apiFetch()` wrapper using `VITE_API_URL` env var
@@ -33,14 +33,12 @@ Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 - Route tree auto-generated at `src/routeTree.gen.ts` — do not edit manually
 
 ### Backend (`/server/`)
-
 - **FastAPI** with two endpoints: `POST /recipes/generate/` and `POST /recipes/extract-from-images/`
 - **Beanie** (async MongoDB ODM) with two document types in `data_models/`: `IngredientDocument` (with 2048-dim Voyage-4 embeddings) and `RecipeDocument`
 - `tools.py` — defines the `find_similar_ingredients` Claude tool, which runs a MongoDB `$vectorSearch` to find semantically similar existing ingredients (threshold ≥ 0.9)
 - `lib/db.py` — MongoDB connection (Motor) and Voyage AI client setup
 
 ### AI / Data Flow
-
 1. Request hits FastAPI → images encoded to base64 if needed
 2. Claude Opus 4.5 called with system prompt + `find_similar_ingredients` tool
 3. Claude generates structured JSON recipe, calling the tool for ingredient lookups
@@ -48,14 +46,12 @@ Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 5. Recipe document saved and returned as JSON
 
 ### Deployment
-
 - `render.yaml` defines two Render services: `omlete-api` (Python) and `omlete-client` (Node)
 - Frontend uses `VITE_API_URL` at build time to point to the backend service URL
 
 ## Environment Variables
 
 **Backend** (`.env` in `/server/`):
-
 - `ANTHROPIC_API_KEY`
 - `VOYAGE_API_KEY`
 - `DB_USER`, `DB_PASS` — MongoDB credentials
@@ -65,7 +61,6 @@ Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 ## shadcn Components
 
 Install new shadcn components with:
-
 ```bash
 npx shadcn@latest add <component>
 ```
