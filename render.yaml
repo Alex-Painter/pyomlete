@@ -30,3 +30,6 @@ services:
     envVars:
       - key: VITE_API_URL
         value: https://omlete-api.onrender.com
+
+previewsEnabled: true
+previewsExpireAfterDays: 3
