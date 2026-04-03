@@ -1,5 +1,6 @@
 import {
   HeadContent,
+  Link,
   Scripts,
   createRootRouteWithContext,
 } from '@tanstack/react-router'
@@ -26,12 +27,46 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        title: 'Omlete',
       },
     ],
   }),
   shellComponent: RootDocument,
 })
+
+function NavBar() {
+  const linkClass =
+    'px-3 py-1.5 rounded-md text-sm font-medium transition-colors'
+  const activeClass = 'text-white bg-slate-700'
+  const inactiveClass = 'text-slate-400 hover:text-slate-200'
+
+  return (
+    <nav className="bg-slate-900 border-b border-slate-800">
+      <div className="max-w-2xl mx-auto px-4 flex items-center gap-6 h-14">
+        <Link to="/" className="text-xl font-bold tracking-tight text-white mr-4">
+          Omlete
+        </Link>
+        <Link
+          to="/"
+          className={linkClass}
+          activeProps={{ className: `${linkClass} ${activeClass}` }}
+          inactiveProps={{ className: `${linkClass} ${inactiveClass}` }}
+          activeOptions={{ exact: true }}
+        >
+          Create
+        </Link>
+        <Link
+          to="/recipes"
+          className={linkClass}
+          activeProps={{ className: `${linkClass} ${activeClass}` }}
+          inactiveProps={{ className: `${linkClass} ${inactiveClass}` }}
+        >
+          My Recipes
+        </Link>
+      </div>
+    </nav>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
@@ -39,8 +74,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="bg-slate-900">
         <TanStackQueryProvider>
+          <NavBar />
           {children}
           <TanStackDevtools
             config={{

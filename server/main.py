@@ -3,15 +3,15 @@ import base64
 from contextlib import asynccontextmanager
 
 from anthropic import AsyncAnthropic, transform_schema
-from beanie import init_beanie
+from beanie import PydanticObjectId, init_beanie
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, UploadFile
+from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import TypeAdapter
 
 from data_models import IngredientDocument, RecipeDocument
 from lib.db import get_motor_client, vo
-from lib.types import IngredientRecipe, RecipeModelResponse, RecipePrompt
+from lib.types import IngredientRecipe, RatingUpdate, RecipeModelResponse, RecipePrompt
 from tools import find_similar_ingredients
 
 load_dotenv()
@@ -120,6 +120,39 @@ async def _extract_and_save(file: UploadFile) -> RecipeDocument:
 @router.post("/recipes/extract-from-images/")
 async def extract_recipes_from_images(files: list[UploadFile]):
     return await asyncio.gather(*[_extract_and_save(f) for f in files])
+
+
+@router.get("/recipes/")
+async def list_recipes():
+    recipes = await RecipeDocument.find_all().sort("-created_at").to_list()
+    return [
+        {
+            "id": str(r.id),
+            "title": r.title,
+            "ingredient_count": len(r.ingredients),
+            "rating": r.rating,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in recipes
+    ]
+
+
+@router.get("/recipes/{recipe_id}")
+async def get_recipe(recipe_id: PydanticObjectId):
+    recipe = await RecipeDocument.get(recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    return recipe
+
+
+@router.patch("/recipes/{recipe_id}/rating")
+async def update_rating(recipe_id: PydanticObjectId, body: RatingUpdate):
+    recipe = await RecipeDocument.get(recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    recipe.rating = body.rating
+    await recipe.save()
+    return {"id": str(recipe.id), "rating": recipe.rating}
 
 
 app.include_router(router)

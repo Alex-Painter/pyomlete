@@ -53,3 +53,7 @@ class QueryMatch(BaseModel):
 
 class SimilarIngredients(BaseModel):
     list[QueryMatch]
+
+
+class RatingUpdate(BaseModel):
+    rating: int = Field(ge=1, le=5)
