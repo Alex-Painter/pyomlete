@@ -31,10 +31,18 @@ Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 - `src/lib/api.ts` — `apiFetch()` wrapper using `VITE_API_URL` env var
 - shadcn/ui components (New York style) in `src/components/ui/`
 - Route tree auto-generated at `src/routeTree.gen.ts` — do not edit manually
+- **Pages:** Create (`/`), My Recipes (`/recipes`), Recipe Detail (`/recipe/$recipeId`), Meal Plan (`/meal-plan`)
+- **Shared components:** `StarRating` (interactive 1-5 stars), `RecipeCard` (recipe display)
 
 ### Backend (`/server/`)
 
-- **FastAPI** with two endpoints: `POST /recipes/generate/` and `POST /recipes/extract-from-images/`
+- **FastAPI** with endpoints for recipe CRUD, rating, and meal planning:
+  - `POST /recipes/generate/` and `POST /recipes/extract-from-images/` — AI-powered recipe creation
+  - `GET /recipes/` — list all recipes (summary)
+  - `GET /recipes/{id}` — full recipe detail
+  - `PATCH /recipes/{id}/rating` — update star rating (1-5)
+  - `POST /meal-plan/suggest/` — suggest random recipes for a meal plan
+  - `POST /meal-plan/shopping-list/` — generate combined shopping list from selected recipes
 - **Beanie** (async MongoDB ODM) with two document types in `data_models/`: `IngredientDocument` (with 2048-dim Voyage-4 embeddings) and `RecipeDocument`
 - `tools.py` — defines the `find_similar_ingredients` Claude tool, which runs a MongoDB `$vectorSearch` to find semantically similar existing ingredients (threshold ≥ 0.9)
 - `lib/db.py` — MongoDB connection (Motor) and Voyage AI client setup

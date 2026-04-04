@@ -63,6 +63,14 @@ function NavBar() {
         >
           My Recipes
         </Link>
+        <Link
+          to="/meal-plan"
+          className={linkClass}
+          activeProps={{ className: `${linkClass} ${activeClass}` }}
+          inactiveProps={{ className: `${linkClass} ${inactiveClass}` }}
+        >
+          Meal Plan
+        </Link>
       </div>
     </nav>
   )
