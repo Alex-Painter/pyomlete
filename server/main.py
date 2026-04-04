@@ -1,5 +1,7 @@
 import asyncio
 import base64
+import random
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from anthropic import AsyncAnthropic, transform_schema
@@ -11,7 +13,16 @@ from pydantic import TypeAdapter
 
 from data_models import IngredientDocument, RecipeDocument
 from lib.db import get_motor_client, vo
-from lib.types import IngredientRecipe, RatingUpdate, RecipeModelResponse, RecipePrompt
+from beanie.operators import In
+from lib.types import (
+    IngredientRecipe,
+    MealPlanRequest,
+    RatingUpdate,
+    RecipeModelResponse,
+    RecipePrompt,
+    ShoppingListItem,
+    ShoppingListRequest,
+)
 from tools import find_similar_ingredients
 
 load_dotenv()
@@ -153,6 +164,43 @@ async def update_rating(recipe_id: PydanticObjectId, body: RatingUpdate):
     recipe.rating = body.rating
     await recipe.save()
     return {"id": str(recipe.id), "rating": recipe.rating}
+
+
+@router.post("/meal-plan/suggest/")
+async def suggest_meal_plan(body: MealPlanRequest):
+    exclude_oids = [PydanticObjectId(eid) for eid in body.exclude_ids]
+    pipeline: list[dict] = []
+    if exclude_oids:
+        pipeline.append({"$match": {"_id": {"$nin": exclude_oids}}})
+    pipeline.append({"$sample": {"size": body.days}})
+    recipes = await RecipeDocument.aggregate(pipeline).to_list()
+    # If not enough from $sample (few docs), fall back to fetch all and sample
+    if len(recipes) < body.days:
+        if exclude_oids:
+            all_recipes = await RecipeDocument.find(
+                {"_id": {"$nin": exclude_oids}}
+            ).to_list()
+        else:
+            all_recipes = await RecipeDocument.find_all().to_list()
+        count = min(body.days, len(all_recipes))
+        return random.sample(all_recipes, count)
+    return recipes
+
+
+@router.post("/meal-plan/shopping-list/")
+async def generate_shopping_list(body: ShoppingListRequest):
+    oids = [PydanticObjectId(rid) for rid in body.recipe_ids]
+    recipes = await RecipeDocument.find(In(RecipeDocument.id, oids)).to_list()
+    totals: dict[tuple[str, str], float] = defaultdict(float)
+    for recipe in recipes:
+        for ing in recipe.ingredients:
+            totals[(ing.name, ing.unit)] += ing.amount
+    items = [
+        ShoppingListItem(name=name, unit=unit, amount=round(amount, 2))
+        for (name, unit), amount in totals.items()
+    ]
+    items.sort(key=lambda x: x.name.lower())
+    return items
 
 
 app.include_router(router)

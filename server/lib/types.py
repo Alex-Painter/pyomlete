@@ -57,3 +57,18 @@ class SimilarIngredients(BaseModel):
 
 class RatingUpdate(BaseModel):
     rating: int = Field(ge=1, le=5)
+
+
+class MealPlanRequest(BaseModel):
+    days: int = Field(ge=1, le=7)
+    exclude_ids: list[str] = []
+
+
+class ShoppingListRequest(BaseModel):
+    recipe_ids: list[str]
+
+
+class ShoppingListItem(BaseModel):
+    name: str
+    unit: str
+    amount: float
