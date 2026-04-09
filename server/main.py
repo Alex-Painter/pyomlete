@@ -184,6 +184,9 @@ async def suggest_meal_plan(body: MealPlanRequest):
             all_recipes = await RecipeDocument.find_all().to_list()
         count = min(body.days, len(all_recipes))
         return random.sample(all_recipes, count)
+    # aggregate returns raw dicts with ObjectId _id — convert for JSON serialization
+    for r in recipes:
+        r["_id"] = str(r["_id"])
     return recipes
 
 
