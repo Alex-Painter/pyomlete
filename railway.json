@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.railway.com/railway.schema.json",
+  "version": 2,
+  "services": [
+    {
+      "name": "omlete-api",
+      "source": {
+        "root": "server"
+      },
+      "build": {
+        "builder": "NIXPACKS"
+      },
+      "deploy": {
+        "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT",
+        "healthcheckPath": "/api/recipes/"
+      }
+    },
+    {
+      "name": "omlete-client",
+      "source": {
+        "root": "client"
+      },
+      "build": {
+        "builder": "NIXPACKS",
+        "buildCommand": "npm install && npm run build"
+      },
+      "deploy": {
+        "startCommand": "node .output/server/index.mjs"
+      },
+      "variables": {
+        "VITE_API_URL": "${{omlete-api.RAILWAY_PUBLIC_DOMAIN}}"
+      }
+    }
+  ]
+}
