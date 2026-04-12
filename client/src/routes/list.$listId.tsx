@@ -255,9 +255,9 @@ function ListDetailPage() {
 
   return (
     <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
-      <div className="max-w-6xl mx-auto px-4 py-6 flex gap-6">
+      <div className="flex">
         {/* Main content */}
-        <div className="flex-1 min-w-0 max-w-2xl">
+        <div className="flex-1 min-w-0 max-w-2xl mx-auto px-4 py-6">
           {/* Header */}
           <div className="flex items-center gap-3 mb-2">
             <Link to="/" className="text-slate-400 hover:text-white transition-colors">
@@ -389,19 +389,17 @@ function ListDetailPage() {
           </div>
         </div>
 
-        {/* Desktop sidebar (always visible) */}
-        <div className="hidden lg:block w-80 shrink-0">
-          <div className="sticky top-6">
-            <RecipeSidebar
-              selectedRecipes={selectedRecipes}
-              availableRecipes={availableRecipes}
-              allRecipes={allRecipes}
-              onAdd={(id) => addRecipe.mutate(id)}
-              onRemove={(id) => removeRecipe.mutate(id)}
-              isAdding={addRecipe.isPending}
-              isRemoving={removeRecipe.isPending}
-            />
-          </div>
+        {/* Desktop sidebar — fixed to right edge, full height */}
+        <div className="hidden lg:block fixed right-0 top-14 bottom-0 w-80 border-l border-slate-700/50 overflow-y-auto">
+          <RecipeSidebar
+            selectedRecipes={selectedRecipes}
+            availableRecipes={availableRecipes}
+            allRecipes={allRecipes}
+            onAdd={(id) => addRecipe.mutate(id)}
+            onRemove={(id) => removeRecipe.mutate(id)}
+            isAdding={addRecipe.isPending}
+            isRemoving={removeRecipe.isPending}
+          />
         </div>
       </div>
     </div>
@@ -426,7 +424,7 @@ function RecipeSidebar({
   isRemoving: boolean
 }) {
   return (
-    <div className="bg-slate-800/50 rounded-lg overflow-hidden">
+    <div className="bg-slate-800/50 overflow-hidden lg:rounded-none lg:bg-transparent rounded-lg">
       <div className="px-4 py-3 border-b border-slate-700/50">
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <UtensilsCrossed className="size-4 text-slate-400" />
