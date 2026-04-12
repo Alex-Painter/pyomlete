@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -73,3 +75,22 @@ class ShoppingListItem(BaseModel):
     name: str
     unit: str
     amount: float
+
+
+class ItemCreateRequest(BaseModel):
+    name: str
+    amount: Optional[float] = None
+    unit: Optional[str] = None
+    category: str = "Other"
+
+
+class ItemUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    amount: Optional[float] = None
+    unit: Optional[str] = None
+    category: Optional[str] = None
+    checked: Optional[bool] = None
+
+
+class ListUpdateRequest(BaseModel):
+    name: Optional[str] = None

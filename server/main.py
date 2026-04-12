@@ -14,8 +14,12 @@ from pydantic import TypeAdapter
 from data_models import IngredientDocument, ListDocument, RecipeDocument, UserSettingsDocument
 from lib.db import get_motor_client, vo
 from beanie.operators import In
+from data_models import ItemSource, ListItem
 from lib.types import (
     IngredientRecipe,
+    ItemCreateRequest,
+    ItemUpdateRequest,
+    ListUpdateRequest,
     MealPlanRequest,
     RatingUpdate,
     RecipeModelResponse,
@@ -202,6 +206,133 @@ async def generate_shopping_list(body: ShoppingListRequest):
     ]
     items.sort(key=lambda x: x.name.lower())
     return items
+
+
+# --- Lists ---
+
+
+def _auto_list_name() -> str:
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    monday = now - timedelta(days=now.weekday())
+    return f"Week of {monday.strftime('%b %d')}"
+
+
+@router.get("/lists/")
+async def get_lists():
+    lists = await ListDocument.find_all().sort("-created_at").to_list()
+    results = []
+    for lst in lists:
+        recipe_titles = []
+        if lst.recipes:
+            oids = [PydanticObjectId(rid) for rid in lst.recipes]
+            recipes = await RecipeDocument.find(In(RecipeDocument.id, oids)).to_list()
+            recipe_titles = [r.title for r in recipes]
+        results.append({
+            "id": str(lst.id),
+            "name": lst.name,
+            "created_at": lst.created_at.isoformat() if lst.created_at else None,
+            "item_count": len(lst.items),
+            "checked_count": sum(1 for item in lst.items if item.checked),
+            "recipe_titles": recipe_titles,
+        })
+    return results
+
+
+@router.post("/lists/")
+async def create_list():
+    lst = ListDocument(name=_auto_list_name())
+    await lst.insert()
+    return {"id": str(lst.id), "name": lst.name, "created_at": lst.created_at.isoformat()}
+
+
+@router.get("/lists/{list_id}")
+async def get_list(list_id: PydanticObjectId):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    return {
+        "id": str(lst.id),
+        "name": lst.name,
+        "created_at": lst.created_at.isoformat() if lst.created_at else None,
+        "recipes": lst.recipes,
+        "items": [item.model_dump() for item in lst.items],
+    }
+
+
+@router.patch("/lists/{list_id}")
+async def update_list(list_id: PydanticObjectId, body: ListUpdateRequest):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    if body.name is not None:
+        lst.name = body.name
+    await lst.save()
+    return {"id": str(lst.id), "name": lst.name}
+
+
+@router.delete("/lists/{list_id}")
+async def delete_list(list_id: PydanticObjectId):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    await lst.delete()
+    return {"ok": True}
+
+
+# --- List Items ---
+
+
+@router.post("/lists/{list_id}/items")
+async def add_item(list_id: PydanticObjectId, body: ItemCreateRequest):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    item = ListItem(
+        name=body.name,
+        amount=body.amount,
+        unit=body.unit,
+        category=body.category,
+        sources=[ItemSource(recipe_id=None, amount=body.amount or 0)],
+    )
+    lst.items.append(item)
+    await lst.save()
+    return item.model_dump()
+
+
+@router.patch("/lists/{list_id}/items/{item_id}")
+async def update_item(list_id: PydanticObjectId, item_id: str, body: ItemUpdateRequest):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    for item in lst.items:
+        if item.id == item_id:
+            if body.name is not None:
+                item.name = body.name
+            if body.amount is not None:
+                item.amount = body.amount
+            if body.unit is not None:
+                item.unit = body.unit
+            if body.category is not None:
+                item.category = body.category
+            if body.checked is not None:
+                item.checked = body.checked
+            await lst.save()
+            return item.model_dump()
+    raise HTTPException(status_code=404, detail="Item not found")
+
+
+@router.delete("/lists/{list_id}/items/{item_id}")
+async def delete_item(list_id: PydanticObjectId, item_id: str):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    original_len = len(lst.items)
+    lst.items = [item for item in lst.items if item.id != item_id]
+    if len(lst.items) == original_len:
+        raise HTTPException(status_code=404, detail="Item not found")
+    await lst.save()
+    return {"ok": True}
 
 
 app.include_router(router)
