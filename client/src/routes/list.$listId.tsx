@@ -60,6 +60,8 @@ function ListDetailPage() {
   const queryClient = useQueryClient()
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const [quickAddValue, setQuickAddValue] = useState('')
+  const [quickAddAmount, setQuickAddAmount] = useState('')
+  const [quickAddUnit, setQuickAddUnit] = useState('')
   const [isAdding, setIsAdding] = useState(false)
   const [showSidebar, setShowSidebar] = useState(false)
 
@@ -183,13 +185,18 @@ function ListDetailPage() {
       })
       const { category } = await catRes.json()
 
+      const amount = quickAddAmount.trim() ? parseFloat(quickAddAmount) : undefined
+      const unit = quickAddUnit.trim() || undefined
+
       await apiFetch(`/api/lists/${listId}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, category }),
+        body: JSON.stringify({ name, category, ...(amount != null && !isNaN(amount) ? { amount } : {}), ...(unit ? { unit } : {}) }),
       })
 
       setQuickAddValue('')
+      setQuickAddAmount('')
+      setQuickAddUnit('')
       queryClient.invalidateQueries({ queryKey: ['list', listId] })
     } finally {
       setIsAdding(false)
@@ -310,8 +317,22 @@ function ListDetailPage() {
               type="text"
               value={quickAddValue}
               onChange={(e) => setQuickAddValue(e.target.value)}
-              placeholder="Add an item..."
+              placeholder="Item name..."
               className="flex-1 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+            />
+            <Input
+              type="number"
+              value={quickAddAmount}
+              onChange={(e) => setQuickAddAmount(e.target.value)}
+              placeholder="Qty"
+              className="w-20 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+            />
+            <Input
+              type="text"
+              value={quickAddUnit}
+              onChange={(e) => setQuickAddUnit(e.target.value)}
+              placeholder="Unit"
+              className="w-20 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
             />
             <Button type="submit" disabled={isAdding || !quickAddValue.trim()}>
               {isAdding ? <Loader2 className="animate-spin size-4" /> : <Plus className="size-4" />}
