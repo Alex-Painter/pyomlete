@@ -3,16 +3,26 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  Check,
   ChevronDown,
   ChevronRight,
   Loader2,
   Plus,
+  Star,
   Trash2,
   UtensilsCrossed,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet'
 import { apiFetch } from '@/lib/api'
 
 type ItemSource = {
@@ -43,6 +53,13 @@ type CategoryConfig = {
   order: number
 }
 
+type RecipeSummary = {
+  id: string
+  title: string
+  ingredient_count: number
+  rating: number | null
+}
+
 export const Route = createFileRoute('/list/$listId')({ component: ListDetailPage })
 
 function ListDetailPage() {
@@ -51,6 +68,7 @@ function ListDetailPage() {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const [quickAddValue, setQuickAddValue] = useState('')
   const [isAdding, setIsAdding] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const { data: list, isLoading } = useQuery({
     queryKey: ['list', listId],
@@ -66,6 +84,15 @@ function ListDetailPage() {
       const res = await apiFetch('/api/settings/categories')
       return res.json()
     },
+  })
+
+  const { data: allRecipes } = useQuery({
+    queryKey: ['recipes'],
+    queryFn: async (): Promise<RecipeSummary[]> => {
+      const res = await apiFetch('/api/recipes/')
+      return res.json()
+    },
+    enabled: drawerOpen,
   })
 
   const updateItem = useMutation({
@@ -121,6 +148,34 @@ function ListDetailPage() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['list', listId] })
+    },
+  })
+
+  const addRecipe = useMutation({
+    mutationFn: async (recipeId: string) => {
+      const res = await apiFetch(`/api/lists/${listId}/recipes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipe_id: recipeId }),
+      })
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['list', listId] })
+      queryClient.invalidateQueries({ queryKey: ['lists'] })
+    },
+  })
+
+  const removeRecipe = useMutation({
+    mutationFn: async (recipeId: string) => {
+      const res = await apiFetch(`/api/lists/${listId}/recipes/${recipeId}`, {
+        method: 'DELETE',
+      })
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['list', listId] })
+      queryClient.invalidateQueries({ queryKey: ['lists'] })
     },
   })
 
@@ -189,20 +244,23 @@ function ListDetailPage() {
     itemsByCategory.get(cat)!.push(item)
   }
 
-  // Sort categories by configured order, unknown categories at the end
   const orderedCategories = [...itemsByCategory.entries()].sort(([a], [b]) => {
     const orderA = categoryOrder.get(a) ?? 999
     const orderB = categoryOrder.get(b) ?? 999
     return orderA - orderB
   })
 
-  // Within each category, unchecked first, then checked
   for (const [, items] of orderedCategories) {
     items.sort((a, b) => Number(a.checked) - Number(b.checked))
   }
 
   const totalItems = list.items.length
   const checkedItems = list.items.filter((i) => i.checked).length
+
+  // Recipe drawer data
+  const selectedRecipeIds = new Set(list.recipes)
+  const selectedRecipes = allRecipes?.filter((r) => selectedRecipeIds.has(r.id)) ?? []
+  const availableRecipes = allRecipes?.filter((r) => !selectedRecipeIds.has(r.id)) ?? []
 
   return (
     <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
@@ -217,12 +275,15 @@ function ListDetailPage() {
             variant="outline"
             size="sm"
             className="border-slate-700 text-slate-300 hover:text-white"
-            onClick={() => {
-              // Placeholder — recipe drawer comes in #26
-            }}
+            onClick={() => setDrawerOpen(true)}
           >
             <UtensilsCrossed className="size-4" />
             Recipes
+            {list.recipes.length > 0 && (
+              <span className="ml-1 bg-slate-700 text-xs px-1.5 py-0.5 rounded-full">
+                {list.recipes.length}
+              </span>
+            )}
           </Button>
         </div>
 
@@ -267,7 +328,16 @@ function ListDetailPage() {
         {list.items.length === 0 && (
           <div className="text-center py-12">
             <p className="text-slate-400 mb-2">No items yet</p>
-            <p className="text-sm text-slate-500">Add items above or add recipes to get started</p>
+            <p className="text-sm text-slate-500">
+              Add items above or{' '}
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="text-slate-300 underline underline-offset-2 hover:text-white cursor-pointer"
+              >
+                add recipes
+              </button>{' '}
+              to get started
+            </p>
           </div>
         )}
 
@@ -279,7 +349,6 @@ function ListDetailPage() {
 
             return (
               <div key={category} className="bg-slate-800/50 rounded-lg overflow-hidden">
-                {/* Category header */}
                 <button
                   onClick={() => toggleCategory(category)}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
@@ -295,7 +364,6 @@ function ListDetailPage() {
                   </span>
                 </button>
 
-                {/* Items */}
                 {!isCollapsed && (
                   <div className="px-2 pb-2 space-y-0.5">
                     {items.map((item) => (
@@ -318,6 +386,100 @@ function ListDetailPage() {
           })}
         </div>
       </div>
+
+      {/* Recipe drawer */}
+      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <SheetContent
+          side="right"
+          className="bg-slate-900 border-slate-800 text-white w-full sm:max-w-md overflow-y-auto"
+        >
+          <SheetHeader>
+            <SheetTitle className="text-white">Recipes</SheetTitle>
+            <SheetDescription className="text-slate-400">
+              Add or remove recipes from this list
+            </SheetDescription>
+          </SheetHeader>
+
+          {/* Selected recipes */}
+          {selectedRecipes.length > 0 && (
+            <div className="px-4 pb-4">
+              <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+                On this list
+              </h3>
+              <div className="space-y-1">
+                {selectedRecipes.map((recipe) => (
+                  <div
+                    key={recipe.id}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-slate-800"
+                  >
+                    <Check className="size-4 text-emerald-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{recipe.title}</p>
+                      <p className="text-xs text-slate-400">
+                        {recipe.ingredient_count} ingredients
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => removeRecipe.mutate(recipe.id)}
+                      disabled={removeRecipe.isPending}
+                      className="shrink-0 text-slate-500 hover:text-red-400"
+                    >
+                      <X className="size-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Available recipes */}
+          <div className="px-4 pb-4">
+            <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+              {selectedRecipes.length > 0 ? 'Add more' : 'Add recipes'}
+            </h3>
+            {!allRecipes && (
+              <div className="flex justify-center py-4">
+                <Loader2 className="size-5 animate-spin text-slate-400" />
+              </div>
+            )}
+            {allRecipes && availableRecipes.length === 0 && (
+              <p className="text-sm text-slate-500 py-4 text-center">
+                {allRecipes.length === 0
+                  ? 'No recipes yet. Create some first!'
+                  : 'All recipes are already on this list'}
+              </p>
+            )}
+            <div className="space-y-1">
+              {availableRecipes.map((recipe) => (
+                <button
+                  key={recipe.id}
+                  onClick={() => addRecipe.mutate(recipe.id)}
+                  disabled={addRecipe.isPending}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                >
+                  <Plus className="size-4 text-slate-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{recipe.title}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">
+                        {recipe.ingredient_count} ingredients
+                      </span>
+                      {recipe.rating && (
+                        <span className="flex items-center gap-0.5 text-xs text-amber-500">
+                          <Star className="size-3 fill-current" />
+                          {recipe.rating}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
