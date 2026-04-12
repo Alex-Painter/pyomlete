@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  Pencil,
   Plus,
   Star,
   Trash2,
@@ -412,11 +413,16 @@ function ListDetailPage() {
                         <ItemRow
                           key={item.id}
                           item={item}
+                          units={units ?? []}
+                          categories={sortedCategories.map((c) => c.name)}
                           onToggleCheck={() =>
                             updateItem.mutate({
                               itemId: item.id,
                               updates: { checked: !item.checked },
                             })
+                          }
+                          onUpdate={(updates) =>
+                            updateItem.mutate({ itemId: item.id, updates })
                           }
                           onDelete={() => deleteItem.mutate(item.id)}
                         />
@@ -554,13 +560,107 @@ function RecipeSidebar({
 
 function ItemRow({
   item,
+  units,
+  categories,
   onToggleCheck,
+  onUpdate,
   onDelete,
 }: {
   item: ListItem
+  units: string[]
+  categories: string[]
   onToggleCheck: () => void
+  onUpdate: (updates: Record<string, unknown>) => void
   onDelete: () => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState(item.name)
+  const [editAmount, setEditAmount] = useState(item.amount?.toString() ?? '')
+  const [editUnit, setEditUnit] = useState(item.unit ?? '__none')
+  const [editCategory, setEditCategory] = useState(item.category)
+
+  const handleSave = () => {
+    const updates: Record<string, unknown> = {}
+    const newName = editName.trim()
+    if (newName && newName !== item.name) updates.name = newName
+    const newAmount = editAmount.trim() ? parseFloat(editAmount) : null
+    if (newAmount !== item.amount) updates.amount = newAmount
+    const newUnit = editUnit && editUnit !== '__none' ? editUnit : null
+    if (newUnit !== item.unit) updates.unit = newUnit
+    if (editCategory !== item.category) updates.category = editCategory
+    if (Object.keys(updates).length > 0) onUpdate(updates)
+    setEditing(false)
+  }
+
+  const handleCancel = () => {
+    setEditName(item.name)
+    setEditAmount(item.amount?.toString() ?? '')
+    setEditUnit(item.unit ?? '__none')
+    setEditCategory(item.category)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="px-2 py-2 rounded-md bg-slate-800 space-y-2">
+        <div className="flex gap-2">
+          <Input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            placeholder="Name"
+            className="flex-1 h-8 bg-slate-700 border-slate-600 text-white text-sm"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave()
+              if (e.key === 'Escape') handleCancel()
+            }}
+          />
+          <Input
+            type="number"
+            value={editAmount}
+            onChange={(e) => setEditAmount(e.target.value)}
+            placeholder="Qty"
+            className="w-20 h-8 bg-slate-700 border-slate-600 text-white text-sm"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave()
+              if (e.key === 'Escape') handleCancel()
+            }}
+          />
+          <Select value={editUnit} onValueChange={setEditUnit}>
+            <SelectTrigger className="w-28 h-8 bg-slate-700 border-slate-600 text-white text-sm">
+              <SelectValue placeholder="Unit" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none">No unit</SelectItem>
+              {units.map((u) => (
+                <SelectItem key={u} value={u}>{u}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={editCategory} onValueChange={setEditCategory}>
+            <SelectTrigger className="w-40 h-8 bg-slate-700 border-slate-600 text-white text-sm">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 text-slate-400 hover:text-white">
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave} className="h-7">
+            Save
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className={`flex items-center gap-3 px-2 py-2 rounded-md group transition-opacity ${
@@ -575,13 +675,21 @@ function ItemRow({
 
       <div className={`flex-1 min-w-0 ${item.checked ? 'line-through text-slate-400' : ''}`}>
         <span className="text-sm">{item.name}</span>
-        {item.amount != null && item.unit && (
+        {(item.amount != null || item.unit) && (
           <span className="text-xs text-slate-400 ml-2">
-            {item.amount} {item.unit}
+            {item.amount != null ? item.amount : ''}{item.unit ? ` ${item.unit}` : ''}
           </span>
         )}
       </div>
 
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        onClick={() => setEditing(true)}
+        className="shrink-0 text-slate-600 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <Pencil className="size-3.5" />
+      </Button>
       <Button
         variant="ghost"
         size="icon-xs"
