@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as RecipesRouteImport } from './routes/recipes'
 import { Route as MealPlanRouteImport } from './routes/meal-plan'
 import { Route as CreateRouteImport } from './routes/create'
@@ -16,6 +17,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as RecipeRecipeIdRouteImport } from './routes/recipe.$recipeId'
 import { Route as ListListIdRouteImport } from './routes/list.$listId'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RecipesRoute = RecipesRouteImport.update({
   id: '/recipes',
   path: '/recipes',
@@ -52,6 +58,7 @@ export interface FileRoutesByFullPath {
   '/create': typeof CreateRoute
   '/meal-plan': typeof MealPlanRoute
   '/recipes': typeof RecipesRoute
+  '/settings': typeof SettingsRoute
   '/list/$listId': typeof ListListIdRoute
   '/recipe/$recipeId': typeof RecipeRecipeIdRoute
 }
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/create': typeof CreateRoute
   '/meal-plan': typeof MealPlanRoute
   '/recipes': typeof RecipesRoute
+  '/settings': typeof SettingsRoute
   '/list/$listId': typeof ListListIdRoute
   '/recipe/$recipeId': typeof RecipeRecipeIdRoute
 }
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/create': typeof CreateRoute
   '/meal-plan': typeof MealPlanRoute
   '/recipes': typeof RecipesRoute
+  '/settings': typeof SettingsRoute
   '/list/$listId': typeof ListListIdRoute
   '/recipe/$recipeId': typeof RecipeRecipeIdRoute
 }
@@ -79,6 +88,7 @@ export interface FileRouteTypes {
     | '/create'
     | '/meal-plan'
     | '/recipes'
+    | '/settings'
     | '/list/$listId'
     | '/recipe/$recipeId'
   fileRoutesByTo: FileRoutesByTo
@@ -87,6 +97,7 @@ export interface FileRouteTypes {
     | '/create'
     | '/meal-plan'
     | '/recipes'
+    | '/settings'
     | '/list/$listId'
     | '/recipe/$recipeId'
   id:
@@ -95,6 +106,7 @@ export interface FileRouteTypes {
     | '/create'
     | '/meal-plan'
     | '/recipes'
+    | '/settings'
     | '/list/$listId'
     | '/recipe/$recipeId'
   fileRoutesById: FileRoutesById
@@ -104,12 +116,20 @@ export interface RootRouteChildren {
   CreateRoute: typeof CreateRoute
   MealPlanRoute: typeof MealPlanRoute
   RecipesRoute: typeof RecipesRoute
+  SettingsRoute: typeof SettingsRoute
   ListListIdRoute: typeof ListListIdRoute
   RecipeRecipeIdRoute: typeof RecipeRecipeIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/recipes': {
       id: '/recipes'
       path: '/recipes'
@@ -160,6 +180,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreateRoute: CreateRoute,
   MealPlanRoute: MealPlanRoute,
   RecipesRoute: RecipesRoute,
+  SettingsRoute: SettingsRoute,
   ListListIdRoute: ListListIdRoute,
   RecipeRecipeIdRoute: RecipeRecipeIdRoute,
 }
