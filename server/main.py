@@ -14,8 +14,9 @@ from pydantic import TypeAdapter
 from data_models import IngredientDocument, ListDocument, RecipeDocument, UserSettingsDocument
 from lib.db import get_motor_client, vo
 from beanie.operators import In
-from data_models import ItemSource, ListItem
+from data_models import CategoryConfig, ItemSource, ListItem
 from lib.types import (
+    CategoriesUpdateRequest,
     IngredientRecipe,
     ItemCreateRequest,
     ItemUpdateRequest,
@@ -278,6 +279,31 @@ async def delete_list(list_id: PydanticObjectId):
         raise HTTPException(status_code=404, detail="List not found")
     await lst.delete()
     return {"ok": True}
+
+
+# --- Settings ---
+
+
+async def _get_or_create_settings() -> UserSettingsDocument:
+    settings = await UserSettingsDocument.find_one()
+    if not settings:
+        settings = UserSettingsDocument()
+        await settings.insert()
+    return settings
+
+
+@router.get("/settings/categories")
+async def get_categories():
+    settings = await _get_or_create_settings()
+    return [c.model_dump() for c in settings.categories]
+
+
+@router.put("/settings/categories")
+async def update_categories(body: CategoriesUpdateRequest):
+    settings = await _get_or_create_settings()
+    settings.categories = [CategoryConfig(name=c.name, order=c.order) for c in body.categories]
+    await settings.save()
+    return [c.model_dump() for c in settings.categories]
 
 
 # --- List Items ---

@@ -94,3 +94,12 @@ class ItemUpdateRequest(BaseModel):
 
 class ListUpdateRequest(BaseModel):
     name: Optional[str] = None
+
+
+class CategoryConfigRequest(BaseModel):
+    name: str
+    order: int
+
+
+class CategoriesUpdateRequest(BaseModel):
+    categories: list[CategoryConfigRequest]
