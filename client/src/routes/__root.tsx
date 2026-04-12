@@ -71,6 +71,15 @@ function NavBar() {
         >
           Create
         </Link>
+        <div className="flex-1" />
+        <Link
+          to="/settings"
+          className={linkClass}
+          activeProps={{ className: `${linkClass} ${activeClass}` }}
+          inactiveProps={{ className: `${linkClass} ${inactiveClass}` }}
+        >
+          Settings
+        </Link>
       </div>
     </nav>
   )

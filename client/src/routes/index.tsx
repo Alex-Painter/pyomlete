@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, ShoppingCart } from 'lucide-react'
+import { Copy, Loader2, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 
@@ -35,6 +35,26 @@ function ListsPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['lists'] })
       navigate({ to: '/list/$listId', params: { listId: data.id } })
+    },
+  })
+
+  const duplicateList = useMutation({
+    mutationFn: async (listId: string) => {
+      const res = await apiFetch(`/api/lists/${listId}/duplicate`, { method: 'POST' })
+      return res.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['lists'] })
+      navigate({ to: '/list/$listId', params: { listId: data.id } })
+    },
+  })
+
+  const deleteList = useMutation({
+    mutationFn: async (listId: string) => {
+      await apiFetch(`/api/lists/${listId}`, { method: 'DELETE' })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lists'] })
     },
   })
 
@@ -103,11 +123,43 @@ function ListsPage() {
                   </p>
                 )}
 
-                {list.created_at && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    {new Date(list.created_at).toLocaleDateString()}
-                  </p>
-                )}
+                <div className="flex items-center justify-between mt-2">
+                  {list.created_at && (
+                    <p className="text-xs text-slate-500">
+                      {new Date(list.created_at).toLocaleDateString()}
+                    </p>
+                  )}
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-slate-500 hover:text-white h-7 gap-1.5"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        duplicateList.mutate(list.id)
+                      }}
+                      disabled={duplicateList.isPending}
+                    >
+                      <Copy className="size-3.5" />
+                      Duplicate
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-slate-500 hover:text-red-400 h-7 gap-1.5"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (confirm('Delete this list?')) {
+                          deleteList.mutate(list.id)
+                        }
+                      }}
+                      disabled={deleteList.isPending}
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
               </button>
             ))}
           </div>
