@@ -16,13 +16,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from '@/components/ui/sheet'
 import { apiFetch } from '@/lib/api'
 
 type ItemSource = {
@@ -68,7 +61,7 @@ function ListDetailPage() {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const [quickAddValue, setQuickAddValue] = useState('')
   const [isAdding, setIsAdding] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [showSidebar, setShowSidebar] = useState(false)
 
   const { data: list, isLoading } = useQuery({
     queryKey: ['list', listId],
@@ -92,7 +85,6 @@ function ListDetailPage() {
       const res = await apiFetch('/api/recipes/')
       return res.json()
     },
-    enabled: drawerOpen,
   })
 
   const updateItem = useMutation({
@@ -231,7 +223,7 @@ function ListDetailPage() {
     )
   }
 
-  // Group items by category, sorted by category order
+  // Group items by category
   const sortedCategories = categories
     ? [...categories].sort((a, b) => a.order - b.order)
     : []
@@ -257,229 +249,267 @@ function ListDetailPage() {
   const totalItems = list.items.length
   const checkedItems = list.items.filter((i) => i.checked).length
 
-  // Recipe drawer data
   const selectedRecipeIds = new Set(list.recipes)
   const selectedRecipes = allRecipes?.filter((r) => selectedRecipeIds.has(r.id)) ?? []
   const availableRecipes = allRecipes?.filter((r) => !selectedRecipeIds.has(r.id)) ?? []
 
   return (
     <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
-      <div className="max-w-2xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-2">
-          <Link to="/" className="text-slate-400 hover:text-white transition-colors">
-            <ArrowLeft className="size-5" />
-          </Link>
-          <h1 className="text-xl font-bold flex-1">{list.name}</h1>
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-slate-700 text-slate-300 hover:text-white"
-            onClick={() => setDrawerOpen(true)}
-          >
-            <UtensilsCrossed className="size-4" />
-            Recipes
-            {list.recipes.length > 0 && (
-              <span className="ml-1 bg-slate-700 text-xs px-1.5 py-0.5 rounded-full">
-                {list.recipes.length}
-              </span>
-            )}
-          </Button>
-        </div>
-
-        {/* Progress */}
-        {totalItems > 0 && (
-          <div className="mb-6 ml-8">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="flex-1 h-1.5 bg-slate-700 rounded-full">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all"
-                  style={{ width: `${(checkedItems / totalItems) * 100}%` }}
-                />
-              </div>
-              <span className="text-xs text-slate-400">
-                {checkedItems}/{totalItems}
-              </span>
-            </div>
+      <div className="max-w-6xl mx-auto px-4 py-6 flex gap-6">
+        {/* Main content */}
+        <div className="flex-1 min-w-0 max-w-2xl">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-2">
+            <Link to="/" className="text-slate-400 hover:text-white transition-colors">
+              <ArrowLeft className="size-5" />
+            </Link>
+            <h1 className="text-xl font-bold flex-1">{list.name}</h1>
+            {/* Mobile toggle for sidebar */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="lg:hidden border-slate-700 text-slate-300 hover:text-white"
+              onClick={() => setShowSidebar(!showSidebar)}
+            >
+              <UtensilsCrossed className="size-4" />
+              Recipes
+              {list.recipes.length > 0 && (
+                <span className="ml-1 bg-slate-700 text-xs px-1.5 py-0.5 rounded-full">
+                  {list.recipes.length}
+                </span>
+              )}
+            </Button>
           </div>
-        )}
 
-        {/* Quick add */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            handleQuickAdd()
-          }}
-          className="flex gap-2 mb-6"
-        >
-          <Input
-            type="text"
-            value={quickAddValue}
-            onChange={(e) => setQuickAddValue(e.target.value)}
-            placeholder="Add an item..."
-            className="flex-1 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-          />
-          <Button type="submit" disabled={isAdding || !quickAddValue.trim()}>
-            {isAdding ? <Loader2 className="animate-spin size-4" /> : <Plus className="size-4" />}
-          </Button>
-        </form>
-
-        {/* Empty state */}
-        {list.items.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-slate-400 mb-2">No items yet</p>
-            <p className="text-sm text-slate-500">
-              Add items above or{' '}
-              <button
-                onClick={() => setDrawerOpen(true)}
-                className="text-slate-300 underline underline-offset-2 hover:text-white cursor-pointer"
-              >
-                add recipes
-              </button>{' '}
-              to get started
-            </p>
-          </div>
-        )}
-
-        {/* Categorized items */}
-        <div className="space-y-2">
-          {orderedCategories.map(([category, items]) => {
-            const isCollapsed = collapsedCategories.has(category)
-            const checkedCount = items.filter((i) => i.checked).length
-
-            return (
-              <div key={category} className="bg-slate-800/50 rounded-lg overflow-hidden">
-                <button
-                  onClick={() => toggleCategory(category)}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="size-4 text-slate-500" />
-                  ) : (
-                    <ChevronDown className="size-4 text-slate-500" />
-                  )}
-                  <span className="flex-1 text-left">{category}</span>
-                  <span className="text-xs text-slate-500">
-                    {checkedCount}/{items.length}
-                  </span>
-                </button>
-
-                {!isCollapsed && (
-                  <div className="px-2 pb-2 space-y-0.5">
-                    {items.map((item) => (
-                      <ItemRow
-                        key={item.id}
-                        item={item}
-                        onToggleCheck={() =>
-                          updateItem.mutate({
-                            itemId: item.id,
-                            updates: { checked: !item.checked },
-                          })
-                        }
-                        onDelete={() => deleteItem.mutate(item.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Recipe drawer */}
-      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <SheetContent
-          side="right"
-          className="bg-slate-900 border-slate-800 text-white w-full sm:max-w-md overflow-y-auto"
-        >
-          <SheetHeader>
-            <SheetTitle className="text-white">Recipes</SheetTitle>
-            <SheetDescription className="text-slate-400">
-              Add or remove recipes from this list
-            </SheetDescription>
-          </SheetHeader>
-
-          {/* Selected recipes */}
-          {selectedRecipes.length > 0 && (
-            <div className="px-4 pb-4">
-              <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
-                On this list
-              </h3>
-              <div className="space-y-1">
-                {selectedRecipes.map((recipe) => (
+          {/* Progress */}
+          {totalItems > 0 && (
+            <div className="mb-6 ml-8">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="flex-1 h-1.5 bg-slate-700 rounded-full">
                   <div
-                    key={recipe.id}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-slate-800"
-                  >
-                    <Check className="size-4 text-emerald-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{recipe.title}</p>
-                      <p className="text-xs text-slate-400">
-                        {recipe.ingredient_count} ingredients
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => removeRecipe.mutate(recipe.id)}
-                      disabled={removeRecipe.isPending}
-                      className="shrink-0 text-slate-500 hover:text-red-400"
-                    >
-                      <X className="size-3.5" />
-                    </Button>
-                  </div>
-                ))}
+                    className="h-full bg-emerald-500 rounded-full transition-all"
+                    style={{ width: `${(checkedItems / totalItems) * 100}%` }}
+                  />
+                </div>
+                <span className="text-xs text-slate-400">
+                  {checkedItems}/{totalItems}
+                </span>
               </div>
             </div>
           )}
 
-          {/* Available recipes */}
-          <div className="px-4 pb-4">
-            <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
-              {selectedRecipes.length > 0 ? 'Add more' : 'Add recipes'}
-            </h3>
-            {!allRecipes && (
-              <div className="flex justify-center py-4">
-                <Loader2 className="size-5 animate-spin text-slate-400" />
-              </div>
-            )}
-            {allRecipes && availableRecipes.length === 0 && (
-              <p className="text-sm text-slate-500 py-4 text-center">
-                {allRecipes.length === 0
-                  ? 'No recipes yet. Create some first!'
-                  : 'All recipes are already on this list'}
-              </p>
-            )}
-            <div className="space-y-1">
-              {availableRecipes.map((recipe) => (
-                <button
-                  key={recipe.id}
-                  onClick={() => addRecipe.mutate(recipe.id)}
-                  disabled={addRecipe.isPending}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-slate-800 transition-colors cursor-pointer text-left"
-                >
-                  <Plus className="size-4 text-slate-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{recipe.title}</p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400">
-                        {recipe.ingredient_count} ingredients
-                      </span>
-                      {recipe.rating && (
-                        <span className="flex items-center gap-0.5 text-xs text-amber-500">
-                          <Star className="size-3 fill-current" />
-                          {recipe.rating}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
+          {/* Quick add */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              handleQuickAdd()
+            }}
+            className="flex gap-2 mb-6"
+          >
+            <Input
+              type="text"
+              value={quickAddValue}
+              onChange={(e) => setQuickAddValue(e.target.value)}
+              placeholder="Add an item..."
+              className="flex-1 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+            />
+            <Button type="submit" disabled={isAdding || !quickAddValue.trim()}>
+              {isAdding ? <Loader2 className="animate-spin size-4" /> : <Plus className="size-4" />}
+            </Button>
+          </form>
+
+          {/* Mobile sidebar (toggle) */}
+          {showSidebar && (
+            <div className="lg:hidden mb-6">
+              <RecipeSidebar
+                selectedRecipes={selectedRecipes}
+                availableRecipes={availableRecipes}
+                allRecipes={allRecipes}
+                onAdd={(id) => addRecipe.mutate(id)}
+                onRemove={(id) => removeRecipe.mutate(id)}
+                isAdding={addRecipe.isPending}
+                isRemoving={removeRecipe.isPending}
+              />
             </div>
+          )}
+
+          {/* Empty state */}
+          {list.items.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-slate-400 mb-2">No items yet</p>
+              <p className="text-sm text-slate-500">
+                Add items above or add recipes from the sidebar to get started
+              </p>
+            </div>
+          )}
+
+          {/* Categorized items */}
+          <div className="space-y-2">
+            {orderedCategories.map(([category, items]) => {
+              const isCollapsed = collapsedCategories.has(category)
+              const checkedCount = items.filter((i) => i.checked).length
+
+              return (
+                <div key={category} className="bg-slate-800/50 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleCategory(category)}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="size-4 text-slate-500" />
+                    ) : (
+                      <ChevronDown className="size-4 text-slate-500" />
+                    )}
+                    <span className="flex-1 text-left">{category}</span>
+                    <span className="text-xs text-slate-500">
+                      {checkedCount}/{items.length}
+                    </span>
+                  </button>
+
+                  {!isCollapsed && (
+                    <div className="px-2 pb-2 space-y-0.5">
+                      {items.map((item) => (
+                        <ItemRow
+                          key={item.id}
+                          item={item}
+                          onToggleCheck={() =>
+                            updateItem.mutate({
+                              itemId: item.id,
+                              updates: { checked: !item.checked },
+                            })
+                          }
+                          onDelete={() => deleteItem.mutate(item.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
-        </SheetContent>
-      </Sheet>
+        </div>
+
+        {/* Desktop sidebar (always visible) */}
+        <div className="hidden lg:block w-80 shrink-0">
+          <div className="sticky top-6">
+            <RecipeSidebar
+              selectedRecipes={selectedRecipes}
+              availableRecipes={availableRecipes}
+              allRecipes={allRecipes}
+              onAdd={(id) => addRecipe.mutate(id)}
+              onRemove={(id) => removeRecipe.mutate(id)}
+              isAdding={addRecipe.isPending}
+              isRemoving={removeRecipe.isPending}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RecipeSidebar({
+  selectedRecipes,
+  availableRecipes,
+  allRecipes,
+  onAdd,
+  onRemove,
+  isAdding,
+  isRemoving,
+}: {
+  selectedRecipes: RecipeSummary[]
+  availableRecipes: RecipeSummary[]
+  allRecipes: RecipeSummary[] | undefined
+  onAdd: (id: string) => void
+  onRemove: (id: string) => void
+  isAdding: boolean
+  isRemoving: boolean
+}) {
+  return (
+    <div className="bg-slate-800/50 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-700/50">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <UtensilsCrossed className="size-4 text-slate-400" />
+          Recipes
+        </h2>
+      </div>
+
+      {/* Selected recipes */}
+      {selectedRecipes.length > 0 && (
+        <div className="p-3 border-b border-slate-700/50">
+          <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2 px-1">
+            On this list
+          </h3>
+          <div className="space-y-1">
+            {selectedRecipes.map((recipe) => (
+              <div
+                key={recipe.id}
+                className="flex items-center gap-2 px-2 py-2 rounded-md bg-slate-800"
+              >
+                <Check className="size-3.5 text-emerald-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{recipe.title}</p>
+                  <p className="text-xs text-slate-500">{recipe.ingredient_count} ingredients</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => onRemove(recipe.id)}
+                  disabled={isRemoving}
+                  className="shrink-0 text-slate-500 hover:text-red-400"
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Available recipes */}
+      <div className="p-3">
+        <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2 px-1">
+          {selectedRecipes.length > 0 ? 'Add more' : 'Add recipes'}
+        </h3>
+        {!allRecipes && (
+          <div className="flex justify-center py-4">
+            <Loader2 className="size-5 animate-spin text-slate-400" />
+          </div>
+        )}
+        {allRecipes && availableRecipes.length === 0 && (
+          <p className="text-xs text-slate-500 py-3 text-center">
+            {allRecipes.length === 0
+              ? 'No recipes yet. Create some first!'
+              : 'All recipes added'}
+          </p>
+        )}
+        <div className="space-y-0.5">
+          {availableRecipes.map((recipe) => (
+            <button
+              key={recipe.id}
+              onClick={() => onAdd(recipe.id)}
+              disabled={isAdding}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-md hover:bg-slate-800 transition-colors cursor-pointer text-left"
+            >
+              <Plus className="size-3.5 text-slate-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate">{recipe.title}</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">
+                    {recipe.ingredient_count} ingredients
+                  </span>
+                  {recipe.rating && (
+                    <span className="flex items-center gap-0.5 text-xs text-amber-500">
+                      <Star className="size-3 fill-current" />
+                      {recipe.rating}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
