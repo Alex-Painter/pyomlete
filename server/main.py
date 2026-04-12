@@ -430,6 +430,36 @@ async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
     }
 
 
+@router.delete("/lists/{list_id}/recipes/{recipe_id}")
+async def remove_recipe_from_list(list_id: PydanticObjectId, recipe_id: str):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    if recipe_id not in lst.recipes:
+        raise HTTPException(status_code=404, detail="Recipe not on this list")
+
+    lst.recipes.remove(recipe_id)
+
+    # Subtract recipe's contributions from items
+    remaining_items = []
+    for item in lst.items:
+        item.sources = [s for s in item.sources if s.recipe_id != recipe_id]
+        if item.sources:
+            item.amount = round(sum(s.amount for s in item.sources), 2)
+            remaining_items.append(item)
+        # Items with no remaining sources are dropped
+    lst.items = remaining_items
+
+    await lst.save()
+    return {
+        "id": str(lst.id),
+        "name": lst.name,
+        "recipes": lst.recipes,
+        "items": [item.model_dump() for item in lst.items],
+    }
+
+
 # --- List Items ---
 
 
