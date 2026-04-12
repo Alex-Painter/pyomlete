@@ -10,7 +10,7 @@ from beanie import PydanticObjectId, init_beanie
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from data_models import IngredientDocument, ListDocument, RecipeDocument, UserSettingsDocument
 from lib.db import get_motor_client, vo
@@ -374,6 +374,60 @@ async def categorize_item(body: CategorizeRequest):
         await cached.save()
 
     return CategorizeResponse(category=category)
+
+
+# --- List Recipes ---
+
+
+class AddRecipeRequest(BaseModel):
+    recipe_id: str
+
+
+@router.post("/lists/{list_id}/recipes")
+async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    recipe = await RecipeDocument.get(PydanticObjectId(body.recipe_id))
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # Avoid adding the same recipe twice
+    if body.recipe_id in lst.recipes:
+        raise HTTPException(status_code=400, detail="Recipe already on this list")
+
+    lst.recipes.append(body.recipe_id)
+
+    # Merge recipe ingredients into list items
+    for ing in recipe.ingredients:
+        source = ItemSource(recipe_id=body.recipe_id, amount=ing.amount)
+        # Find existing item with same name + unit (case-insensitive name, exact unit)
+        matched = None
+        for item in lst.items:
+            if item.name.lower() == ing.name.lower() and item.unit == ing.unit:
+                matched = item
+                break
+
+        if matched:
+            matched.sources.append(source)
+            matched.amount = round(sum(s.amount for s in matched.sources), 2)
+        else:
+            lst.items.append(ListItem(
+                name=ing.name,
+                amount=ing.amount,
+                unit=ing.unit,
+                category=ing.category,
+                sources=[source],
+            ))
+
+    await lst.save()
+    return {
+        "id": str(lst.id),
+        "name": lst.name,
+        "recipes": lst.recipes,
+        "items": [item.model_dump() for item in lst.items],
+    }
 
 
 # --- List Items ---
