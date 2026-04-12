@@ -53,7 +53,7 @@ function NavBar() {
           inactiveProps={{ className: `${linkClass} ${inactiveClass}` }}
           activeOptions={{ exact: true }}
         >
-          Create
+          Lists
         </Link>
         <Link
           to="/recipes"
@@ -61,15 +61,15 @@ function NavBar() {
           activeProps={{ className: `${linkClass} ${activeClass}` }}
           inactiveProps={{ className: `${linkClass} ${inactiveClass}` }}
         >
-          My Recipes
+          Recipes
         </Link>
         <Link
-          to="/meal-plan"
+          to="/create"
           className={linkClass}
           activeProps={{ className: `${linkClass} ${activeClass}` }}
           inactiveProps={{ className: `${linkClass} ${inactiveClass}` }}
         >
-          Meal Plan
+          Create
         </Link>
       </div>
     </nav>
