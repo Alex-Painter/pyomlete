@@ -60,24 +60,47 @@ app.add_middleware(
 router = APIRouter(prefix="/api")
 
 
+async def _get_category_names() -> list[str]:
+    settings = await _get_or_create_settings()
+    return [c.name for c in sorted(settings.categories, key=lambda c: c.order)]
+
+
 async def _save_recipe(recipe: RecipeModelResponse) -> RecipeDocument:
     new_ingredients = [i for i in recipe.ingredients if i.is_new]
+    existing_ingredients = [i for i in recipe.ingredients if not i.is_new]
+
     if new_ingredients:
         vectors = vo.embed(
             texts=[i.name for i in new_ingredients], model="voyage-4", output_dimension=2048
         ).embeddings
         await IngredientDocument.insert_many([
-            IngredientDocument(name=item.name, unit=item.unit, embedding=vectors[i])
+            IngredientDocument(
+                name=item.name, unit=item.unit, embedding=vectors[i],
+                category=item.category,
+            )
             for i, item in enumerate(new_ingredients)
         ])
+
+    # Backfill categories for existing ingredients from the DB cache
+    category_map = {}
+    if existing_ingredients:
+        names = [i.name for i in existing_ingredients]
+        cached = await IngredientDocument.find(
+            In(IngredientDocument.name, names)
+        ).to_list()
+        category_map = {doc.name.lower(): doc.category for doc in cached if doc.category}
+
+    ingredients = []
+    for i in recipe.ingredients:
+        category = i.category
+        if not i.is_new and category == "Other":
+            category = category_map.get(i.name.lower(), "Other")
+        ingredients.append(IngredientRecipe(name=i.name, unit=i.unit, amount=i.amount, category=category))
 
     db_recipe = RecipeDocument(
         title=recipe.title,
         instructions=recipe.instructions,
-        ingredients=[
-            IngredientRecipe(name=i.name, unit=i.unit, amount=i.amount)
-            for i in recipe.ingredients
-        ],
+        ingredients=ingredients,
     )
     await db_recipe.insert()
     return db_recipe
@@ -85,9 +108,11 @@ async def _save_recipe(recipe: RecipeModelResponse) -> RecipeDocument:
 
 @router.post("/recipes/generate/")
 async def create_recipe(prompt: RecipePrompt):
+    category_names = await _get_category_names()
+    categories_str = ", ".join(category_names)
     system_message = {
         "role": "user",
-        "content": "You are a helpful recipe generation assistant. You act as a professional chef helping users turn leftover ingredients into a simple recipe with clear step-by-step instructions. Once you've created a recipe, you must use the find_similar_ingredients tool to match your ingredients with ones from the database, if they exist and have a similarity value over .90. Output the recipe in the given output format.",
+        "content": f"You are a helpful recipe generation assistant. You act as a professional chef helping users turn leftover ingredients into a simple recipe with clear step-by-step instructions. Once you've created a recipe, you must use the find_similar_ingredients tool to match your ingredients with ones from the database, if they exist and have a similarity value over .90. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other' — the system will use the cached category. Output the recipe in the given output format.",
     }
 
     runner = async_claude.beta.messages.tool_runner(
@@ -104,7 +129,7 @@ async def create_recipe(prompt: RecipePrompt):
     return await _save_recipe(recipe)
 
 
-async def _extract_and_save(file: UploadFile) -> RecipeDocument:
+async def _extract_and_save(file: UploadFile, categories_str: str) -> RecipeDocument:
     data = base64.standard_b64encode(await file.read()).decode("utf-8")
     runner = async_claude.beta.messages.tool_runner(
         model="claude-opus-4-5",
@@ -118,7 +143,7 @@ async def _extract_and_save(file: UploadFile) -> RecipeDocument:
                 },
                 {
                     "type": "text",
-                    "text": "Extract the recipe from this image. Use find_similar_ingredients to match ingredients against the database. Output the recipe in the given JSON format.",
+                    "text": f"Extract the recipe from this image. Use find_similar_ingredients to match ingredients against the database. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other'. Output the recipe in the given JSON format.",
                 },
             ],
         }],
@@ -133,7 +158,9 @@ async def _extract_and_save(file: UploadFile) -> RecipeDocument:
 
 @router.post("/recipes/extract-from-images/")
 async def extract_recipes_from_images(files: list[UploadFile]):
-    return await asyncio.gather(*[_extract_and_save(f) for f in files])
+    category_names = await _get_category_names()
+    categories_str = ", ".join(category_names)
+    return await asyncio.gather(*[_extract_and_save(f, categories_str) for f in files])
 
 
 @router.get("/recipes/")
