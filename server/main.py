@@ -11,7 +11,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import TypeAdapter
 
-from data_models import IngredientDocument, RecipeDocument
+from data_models import IngredientDocument, ListDocument, RecipeDocument, UserSettingsDocument
 from lib.db import get_motor_client, vo
 from beanie.operators import In
 from lib.types import (
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     client = get_motor_client()
     await init_beanie(
         database=client["omlete"],
-        document_models=[IngredientDocument, RecipeDocument],
+        document_models=[IngredientDocument, RecipeDocument, ListDocument, UserSettingsDocument],
     )
     yield
     client.close()

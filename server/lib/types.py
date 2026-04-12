@@ -18,6 +18,7 @@ class IngredientRecipe(BaseModel):
         examples=["grams", "teaspoon", "tablespoon", "teaspoons", "tablespoons", "ml"]
     )
     amount: float
+    category: str = Field(default="Other")
 
 
 class IngredientModelResponse(IngredientRecipe):
