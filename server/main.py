@@ -132,21 +132,25 @@ async def create_recipe(prompt: RecipePrompt):
     return await _save_recipe(recipe)
 
 
-async def _extract_and_save(file: UploadFile, categories_str: str) -> RecipeDocument:
-    data = base64.standard_b64encode(await file.read()).decode("utf-8")
+async def _extract_and_save(files: list[UploadFile], categories_str: str) -> RecipeDocument:
+    image_blocks = []
+    for file in files:
+        data = base64.standard_b64encode(await file.read()).decode("utf-8")
+        image_blocks.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": file.content_type, "data": data},
+        })
+    image_word = "this image" if len(files) == 1 else "these images"
     runner = async_claude.beta.messages.tool_runner(
         model="claude-opus-4-5",
         max_tokens=2048,
         messages=[{
             "role": "user",
             "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": file.content_type, "data": data},
-                },
+                *image_blocks,
                 {
                     "type": "text",
-                    "text": f"Extract the recipe from this image. Use find_similar_ingredients to match ingredients against the database. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other'. Output the recipe in the given JSON format.",
+                    "text": f"Extract the recipe from {image_word}. The images may show different parts of the same recipe (e.g. ingredients on one page, method on another). Combine them into a single complete recipe. Use find_similar_ingredients to match ingredients against the database. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other'. Output the recipe in the given JSON format.",
                 },
             ],
         }],
@@ -160,10 +164,36 @@ async def _extract_and_save(file: UploadFile, categories_str: str) -> RecipeDocu
 
 
 @router.post("/recipes/extract-from-images/")
-async def extract_recipes_from_images(files: list[UploadFile]):
+async def extract_recipes_from_images(files: list[UploadFile], group_sizes: list[int] | None = None):
+    """Extract recipes from grouped images.
+
+    files: all image files, flattened
+    group_sizes: list of ints indicating how many files belong to each recipe group.
+                 e.g. [2, 1] means first 2 files = recipe 1, next 1 file = recipe 2.
+                 If omitted, each file is treated as a separate recipe (backward compatible).
+    """
     category_names = await _get_category_names()
     categories_str = ", ".join(category_names)
-    return await asyncio.gather(*[_extract_and_save(f, categories_str) for f in files])
+
+    if group_sizes:
+        # Split files into groups
+        groups: list[list[UploadFile]] = []
+        offset = 0
+        for size in group_sizes:
+            groups.append(files[offset:offset + size])
+            offset += size
+        results = []
+        for group in groups:
+            result = await _extract_and_save(group, categories_str)
+            results.append(result)
+        return results
+    else:
+        # Backward compatible: each file is one recipe
+        results = []
+        for f in files:
+            result = await _extract_and_save([f], categories_str)
+            results.append(result)
+        return results
 
 
 @router.get("/recipes/")
