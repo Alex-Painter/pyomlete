@@ -199,6 +199,18 @@ async def update_rating(recipe_id: PydanticObjectId, body: RatingUpdate):
     return {"id": str(recipe.id), "rating": recipe.rating}
 
 
+@router.get("/units")
+async def get_units():
+    pipeline = [
+        {"$unwind": "$ingredients"},
+        {"$group": {"_id": {"$toLower": "$ingredients.unit"}}},
+        {"$sort": {"_id": 1}},
+    ]
+    results = await RecipeDocument.aggregate(pipeline).to_list()
+    units = [r["_id"] for r in results if r["_id"]]
+    return units
+
+
 @router.post("/meal-plan/suggest/")
 async def suggest_meal_plan(body: MealPlanRequest):
     exclude_oids = [PydanticObjectId(eid) for eid in body.exclude_ids]

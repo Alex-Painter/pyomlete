@@ -16,6 +16,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { apiFetch } from '@/lib/api'
 
 type ItemSource = {
@@ -85,6 +92,14 @@ function ListDetailPage() {
     queryKey: ['recipes'],
     queryFn: async (): Promise<RecipeSummary[]> => {
       const res = await apiFetch('/api/recipes/')
+      return res.json()
+    },
+  })
+
+  const { data: units } = useQuery({
+    queryKey: ['units'],
+    queryFn: async (): Promise<string[]> => {
+      const res = await apiFetch('/api/units')
       return res.json()
     },
   })
@@ -186,7 +201,7 @@ function ListDetailPage() {
       const { category } = await catRes.json()
 
       const amount = quickAddAmount.trim() ? parseFloat(quickAddAmount) : undefined
-      const unit = quickAddUnit.trim() || undefined
+      const unit = quickAddUnit && quickAddUnit !== '__none' ? quickAddUnit : undefined
 
       await apiFetch(`/api/lists/${listId}/items`, {
         method: 'POST',
@@ -327,13 +342,17 @@ function ListDetailPage() {
               placeholder="Qty"
               className="w-20 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
             />
-            <Input
-              type="text"
-              value={quickAddUnit}
-              onChange={(e) => setQuickAddUnit(e.target.value)}
-              placeholder="Unit"
-              className="w-20 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-            />
+            <Select value={quickAddUnit} onValueChange={setQuickAddUnit}>
+              <SelectTrigger className="w-28 bg-slate-800 border-slate-700 text-white">
+                <SelectValue placeholder="Unit" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">No unit</SelectItem>
+                {units?.map((u) => (
+                  <SelectItem key={u} value={u}>{u}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button type="submit" disabled={isAdding || !quickAddValue.trim()}>
               {isAdding ? <Loader2 className="animate-spin size-4" /> : <Plus className="size-4" />}
             </Button>
