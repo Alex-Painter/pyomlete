@@ -323,6 +323,31 @@ async def delete_list(list_id: PydanticObjectId):
     return {"ok": True}
 
 
+@router.post("/lists/{list_id}/duplicate")
+async def duplicate_list(list_id: PydanticObjectId):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+    new_items = [
+        ListItem(
+            name=item.name,
+            amount=item.amount,
+            unit=item.unit,
+            category=item.category,
+            checked=False,
+            sources=item.sources,
+        )
+        for item in lst.items
+    ]
+    new_lst = ListDocument(
+        name=_auto_list_name(),
+        recipes=list(lst.recipes),
+        items=new_items,
+    )
+    await new_lst.insert()
+    return {"id": str(new_lst.id), "name": new_lst.name, "created_at": new_lst.created_at.isoformat()}
+
+
 # --- Settings ---
 
 

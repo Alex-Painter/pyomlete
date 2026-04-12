@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, ShoppingCart } from 'lucide-react'
+import { Copy, Loader2, Plus, ShoppingCart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 
@@ -30,6 +30,17 @@ function ListsPage() {
   const createList = useMutation({
     mutationFn: async () => {
       const res = await apiFetch('/api/lists/', { method: 'POST' })
+      return res.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['lists'] })
+      navigate({ to: '/list/$listId', params: { listId: data.id } })
+    },
+  })
+
+  const duplicateList = useMutation({
+    mutationFn: async (listId: string) => {
+      const res = await apiFetch(`/api/lists/${listId}/duplicate`, { method: 'POST' })
       return res.json()
     },
     onSuccess: (data) => {
@@ -103,11 +114,26 @@ function ListsPage() {
                   </p>
                 )}
 
-                {list.created_at && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    {new Date(list.created_at).toLocaleDateString()}
-                  </p>
-                )}
+                <div className="flex items-center justify-between mt-2">
+                  {list.created_at && (
+                    <p className="text-xs text-slate-500">
+                      {new Date(list.created_at).toLocaleDateString()}
+                    </p>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-500 hover:text-white h-7 gap-1.5"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      duplicateList.mutate(list.id)
+                    }}
+                    disabled={duplicateList.isPending}
+                  >
+                    <Copy className="size-3.5" />
+                    Duplicate
+                  </Button>
+                </div>
               </button>
             ))}
           </div>
