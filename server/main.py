@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import random
+import re
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
@@ -17,6 +18,8 @@ from beanie.operators import In
 from data_models import CategoryConfig, ItemSource, ListItem
 from lib.types import (
     CategoriesUpdateRequest,
+    CategorizeRequest,
+    CategorizeResponse,
     IngredientRecipe,
     ItemCreateRequest,
     ItemUpdateRequest,
@@ -331,6 +334,46 @@ async def update_categories(body: CategoriesUpdateRequest):
     settings.categories = [CategoryConfig(name=c.name, order=c.order) for c in body.categories]
     await settings.save()
     return [c.model_dump() for c in settings.categories]
+
+
+# --- Categorization ---
+
+
+@router.post("/categorize", response_model=CategorizeResponse)
+async def categorize_item(body: CategorizeRequest):
+    # 1. Check IngredientDocument cache (case-insensitive)
+    escaped_name = re.escape(body.name)
+    cached = await IngredientDocument.find_one(
+        {"name": {"$regex": f"^{escaped_name}$", "$options": "i"}}
+    )
+    if cached and cached.category:
+        return CategorizeResponse(category=cached.category)
+
+    # 2. Fall back to Claude Haiku
+    category_names = await _get_category_names()
+    categories_str = ", ".join(category_names)
+
+    response = await async_claude.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=50,
+        messages=[{
+            "role": "user",
+            "content": f"Categorize this shopping item into exactly one of these categories: [{categories_str}]. Item: \"{body.name}\". Reply with just the category name, nothing else.",
+        }],
+    )
+    category = response.content[0].text.strip()
+
+    # Validate against user's categories, fall back to "Other"
+    if category not in category_names:
+        category = "Other"
+
+    # 3. Persist to IngredientDocument cache if it already exists
+    # (New ingredients without embeddings are only created during recipe import)
+    if cached:
+        cached.category = category
+        await cached.save()
+
+    return CategorizeResponse(category=category)
 
 
 # --- List Items ---

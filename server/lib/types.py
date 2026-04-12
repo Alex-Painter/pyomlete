@@ -103,3 +103,11 @@ class CategoryConfigRequest(BaseModel):
 
 class CategoriesUpdateRequest(BaseModel):
     categories: list[CategoryConfigRequest]
+
+
+class CategorizeRequest(BaseModel):
+    name: str
+
+
+class CategorizeResponse(BaseModel):
+    category: str
