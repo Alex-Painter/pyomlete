@@ -745,7 +745,7 @@ function ItemRow({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         style={{ transform: `translateX(-${swipeOffset}px)` }}
-        className={`relative flex items-center gap-3 px-2 py-2.5 rounded-md group bg-slate-900/50 transition-opacity ${
+        className={`relative flex items-center gap-3 px-2 py-2.5 rounded-md group bg-slate-900 transition-opacity ${
           !swiping ? 'transition-transform duration-200' : ''
         } ${item.checked ? 'opacity-50' : ''}`}
       >
