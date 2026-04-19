@@ -67,6 +67,7 @@ function ListDetailPage() {
   const { listId } = Route.useParams()
   const queryClient = useQueryClient()
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
+  const [showCompleted, setShowCompleted] = useState(false)
   const [quickAddValue, setQuickAddValue] = useState('')
   const [quickAddAmount, setQuickAddAmount] = useState('')
   const [quickAddUnit, setQuickAddUnit] = useState('')
@@ -265,12 +266,19 @@ function ListDetailPage() {
     return orderA - orderB
   })
 
+  // Separate checked items out of categories
+  const checkedItemsList: ListItem[] = []
   for (const [, items] of orderedCategories) {
-    items.sort((a, b) => Number(a.checked) - Number(b.checked))
+    const checked = items.filter((i) => i.checked)
+    checkedItemsList.push(...checked)
   }
+  // Filter categories to only unchecked items, remove empty categories
+  const uncheckedCategories = orderedCategories
+    .map(([cat, items]) => [cat, items.filter((i) => !i.checked)] as [string, ListItem[]])
+    .filter(([, items]) => items.length > 0)
 
   const totalItems = list.items.length
-  const checkedItems = list.items.filter((i) => i.checked).length
+  const checkedItems = checkedItemsList.length
 
   const selectedRecipeIds = new Set(list.recipes)
   const selectedRecipes = allRecipes?.filter((r) => selectedRecipeIds.has(r.id)) ?? []
@@ -386,11 +394,10 @@ function ListDetailPage() {
             </div>
           )}
 
-          {/* Categorized items */}
+          {/* Categorized items (unchecked only) */}
           <div className="space-y-2">
-            {orderedCategories.map(([category, items]) => {
+            {uncheckedCategories.map(([category, items]) => {
               const isCollapsed = collapsedCategories.has(category)
-              const checkedCount = items.filter((i) => i.checked).length
 
               return (
                 <div key={category} className="bg-slate-800/50 rounded-lg overflow-hidden">
@@ -404,9 +411,7 @@ function ListDetailPage() {
                       <ChevronDown className="size-4 text-slate-500" />
                     )}
                     <span className="flex-1 text-left">{category}</span>
-                    <span className="text-xs text-slate-500">
-                      {checkedCount}/{items.length}
-                    </span>
+                    <span className="text-xs text-slate-500">{items.length}</span>
                   </button>
 
                   {!isCollapsed && (
@@ -435,6 +440,43 @@ function ListDetailPage() {
               )
             })}
           </div>
+
+          {/* Completed items section */}
+          {checkedItems > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowCompleted(!showCompleted)}
+                className="flex items-center gap-2 px-2 py-2 text-sm text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+              >
+                {showCompleted ? (
+                  <ChevronDown className="size-3.5" />
+                ) : (
+                  <ChevronRight className="size-3.5" />
+                )}
+                <span>Completed ({checkedItems})</span>
+              </button>
+
+              {showCompleted && (
+                <div className="mt-1 px-2 flex flex-wrap gap-1.5">
+                  {checkedItemsList.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() =>
+                        updateItem.mutate({
+                          itemId: item.id,
+                          updates: { checked: false },
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/60 text-xs text-slate-500 line-through hover:bg-slate-700 hover:text-slate-300 transition-colors cursor-pointer"
+                    >
+                      <Check className="size-3" />
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Desktop sidebar — fixed to right edge, full height */}
