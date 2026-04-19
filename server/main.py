@@ -1,8 +1,6 @@
 import asyncio
 import base64
-import random
 import re
-from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from anthropic import AsyncAnthropic, transform_schema
@@ -24,12 +22,9 @@ from lib.types import (
     ItemCreateRequest,
     ItemUpdateRequest,
     ListUpdateRequest,
-    MealPlanRequest,
     RatingUpdate,
     RecipeModelResponse,
     RecipePrompt,
-    ShoppingListItem,
-    ShoppingListRequest,
 )
 from tools import find_similar_ingredients
 
@@ -239,46 +234,6 @@ async def get_units():
     results = await RecipeDocument.aggregate(pipeline).to_list()
     units = [r["_id"] for r in results if r["_id"]]
     return units
-
-
-@router.post("/meal-plan/suggest/")
-async def suggest_meal_plan(body: MealPlanRequest):
-    exclude_oids = [PydanticObjectId(eid) for eid in body.exclude_ids]
-    pipeline: list[dict] = []
-    if exclude_oids:
-        pipeline.append({"$match": {"_id": {"$nin": exclude_oids}}})
-    pipeline.append({"$sample": {"size": body.days}})
-    recipes = await RecipeDocument.aggregate(pipeline).to_list()
-    # If not enough from $sample (few docs), fall back to fetch all and sample
-    if len(recipes) < body.days:
-        if exclude_oids:
-            all_recipes = await RecipeDocument.find(
-                {"_id": {"$nin": exclude_oids}}
-            ).to_list()
-        else:
-            all_recipes = await RecipeDocument.find_all().to_list()
-        count = min(body.days, len(all_recipes))
-        return random.sample(all_recipes, count)
-    # aggregate returns raw dicts with ObjectId _id — convert for JSON serialization
-    for r in recipes:
-        r["_id"] = str(r["_id"])
-    return recipes
-
-
-@router.post("/meal-plan/shopping-list/")
-async def generate_shopping_list(body: ShoppingListRequest):
-    oids = [PydanticObjectId(rid) for rid in body.recipe_ids]
-    recipes = await RecipeDocument.find(In(RecipeDocument.id, oids)).to_list()
-    totals: dict[tuple[str, str], float] = defaultdict(float)
-    for recipe in recipes:
-        for ing in recipe.ingredients:
-            totals[(ing.name, ing.unit)] += ing.amount
-    items = [
-        ShoppingListItem(name=name, unit=unit, amount=round(amount, 2))
-        for (name, unit), amount in totals.items()
-    ]
-    items.sort(key=lambda x: x.name.lower())
-    return items
 
 
 # --- Lists ---
