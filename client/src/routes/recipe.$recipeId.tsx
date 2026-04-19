@@ -199,48 +199,13 @@ function RecipeDetailPage() {
   return (
     <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
       <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="flex items-center justify-between mb-8">
-          <Link
-            to="/recipes"
-            className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors"
-          >
-            <ArrowLeft className="size-4" />
-            Back to recipes
-          </Link>
-          {recipe && !editing && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1.5 border-slate-700 text-slate-300">
-                <Pencil className="size-3.5" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (confirm('Delete this recipe? This cannot be undone.')) {
-                    deleteRecipe.mutate()
-                  }
-                }}
-                disabled={deleteRecipe.isPending}
-                className="gap-1.5 border-slate-700 text-red-400 hover:text-red-300 hover:border-red-400"
-              >
-                <Trash2 className="size-3.5" />
-                Delete
-              </Button>
-            </div>
-          )}
-          {editing && (
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={cancelEditing} className="text-slate-400">
-                Cancel
-              </Button>
-              <Button size="sm" onClick={() => saveRecipe.mutate()} disabled={saveRecipe.isPending} className="gap-1.5">
-                {saveRecipe.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                Save
-              </Button>
-            </div>
-          )}
-        </div>
+        <Link
+          to="/recipes"
+          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors mb-6"
+        >
+          <ArrowLeft className="size-4" />
+          Back to recipes
+        </Link>
 
         {isLoading && (
           <div className="flex items-center gap-2 text-slate-400">
@@ -250,7 +215,19 @@ function RecipeDetailPage() {
         )}
 
         {recipe && (
-          <div className="space-y-6">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-5">
+            {/* Title */}
+            {editing ? (
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="text-xl font-semibold bg-slate-700 border-slate-600 text-white h-auto py-2"
+              />
+            ) : (
+              <h2 className="text-xl font-semibold text-white">{recipe.title}</h2>
+            )}
+
+            {/* Date + Rating */}
             <div className="flex items-center justify-between">
               <div className="text-sm text-slate-400">
                 {recipe.created_at
@@ -258,7 +235,7 @@ function RecipeDetailPage() {
                   : ''}
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-400">Rate this recipe</span>
+                <span className="text-sm text-slate-400">Rate</span>
                 <StarRating
                   value={recipe.rating}
                   onChange={(rating) => ratingMutation.mutate(rating)}
@@ -266,9 +243,9 @@ function RecipeDetailPage() {
               </div>
             </div>
 
-            {/* Add to list */}
+            {/* Actions */}
             {!editing && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
                 {addedToList ? (
                   <Link
                     to="/list/$listId"
@@ -282,38 +259,56 @@ function RecipeDetailPage() {
                   <Button
                     onClick={() => addToList.mutate(mostRecentList.id)}
                     disabled={addToList.isPending}
-                    className="gap-2"
+                    size="sm"
+                    className="gap-1.5"
                   >
                     {addToList.isPending ? (
-                      <Loader2 className="size-4 animate-spin" />
+                      <Loader2 className="size-3.5 animate-spin" />
                     ) : (
-                      <ShoppingCart className="size-4" />
+                      <ShoppingCart className="size-3.5" />
                     )}
                     Add to {mostRecentList.name}
                   </Button>
                 ) : (
                   <Link to="/">
-                    <Button variant="outline" className="gap-2">
-                      <ShoppingCart className="size-4" />
+                    <Button variant="outline" size="sm" className="gap-1.5">
+                      <ShoppingCart className="size-3.5" />
                       Create a list first
                     </Button>
                   </Link>
                 )}
+                <div className="flex-1" />
+                <Button variant="outline" size="sm" onClick={startEditing} className="gap-1.5 border-slate-700 text-slate-300">
+                  <Pencil className="size-3.5" />
+                  Edit
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (confirm('Delete this recipe? This cannot be undone.')) {
+                      deleteRecipe.mutate()
+                    }
+                  }}
+                  disabled={deleteRecipe.isPending}
+                  className="gap-1.5 border-slate-700 text-red-400 hover:text-red-300 hover:border-red-400"
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete
+                </Button>
               </div>
             )}
-
-            {/* Recipe content */}
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-5">
-              {/* Title */}
-              {editing ? (
-                <Input
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="text-xl font-semibold bg-slate-700 border-slate-600 text-white h-auto py-2"
-                />
-              ) : (
-                <h2 className="text-xl font-semibold text-white">{recipe.title}</h2>
-              )}
+            {editing && (
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={cancelEditing} className="text-slate-400">
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={() => saveRecipe.mutate()} disabled={saveRecipe.isPending} className="gap-1.5">
+                  {saveRecipe.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                  Save
+                </Button>
+              </div>
+            )}
 
               {/* Ingredients */}
               <div>
@@ -520,7 +515,6 @@ function RecipeDetailPage() {
                   </ol>
                 )}
               </div>
-            </div>
           </div>
         )}
       </div>
