@@ -133,7 +133,7 @@ function ListsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-slate-500 hover:text-white h-7 gap-1.5"
+                      className="text-slate-500 hover:text-white h-9 gap-1.5"
                       onClick={(e) => {
                         e.stopPropagation()
                         duplicateList.mutate(list.id)
@@ -146,7 +146,7 @@ function ListsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-slate-500 hover:text-red-400 h-7 gap-1.5"
+                      className="text-slate-500 hover:text-red-400 h-9 gap-1.5"
                       onClick={(e) => {
                         e.stopPropagation()
                         if (confirm('Delete this list?')) {

@@ -18,6 +18,7 @@ function CreatePage() {
   return (
     <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
       <div className="max-w-2xl mx-auto px-4 py-12">
+        <h1 className="text-2xl font-bold mb-2">Create Recipe</h1>
         <p className="text-slate-400 mb-8">Generate or extract recipes with AI</p>
 
         <div className="flex gap-1 p-1 bg-slate-800 rounded-lg mb-8 w-fit">
