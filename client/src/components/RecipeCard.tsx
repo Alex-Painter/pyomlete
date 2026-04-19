@@ -13,10 +13,10 @@ export function RecipeCard({ recipe }: { recipe: Recipe }) {
         <ul className="space-y-1.5">
           {recipe.ingredients.map((ing, i) => (
             <li key={i} className="text-sm text-slate-300 flex gap-2">
+              <span className="flex-1">{ing.name}</span>
               <span className="text-white font-medium shrink-0">
                 {ing.amount} {ing.unit}
               </span>
-              <span>{ing.name}</span>
             </li>
           ))}
         </ul>

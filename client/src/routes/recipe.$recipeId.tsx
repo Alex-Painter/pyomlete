@@ -413,6 +413,10 @@ function RecipeDetailPage() {
                           ing.excluded_from_list ? 'opacity-40' : 'text-slate-300'
                         }`}
                       >
+                        <span className={`flex-1 ${ing.excluded_from_list ? 'line-through' : ''}`}>{ing.name}</span>
+                        <span className={`text-white font-medium shrink-0 ${ing.excluded_from_list ? 'line-through' : ''}`}>
+                          {ing.amount} {ing.unit}
+                        </span>
                         <button
                           onClick={() =>
                             toggleExclude.mutate({
@@ -429,10 +433,6 @@ function RecipeDetailPage() {
                             <Eye className="size-3.5" />
                           )}
                         </button>
-                        <span className={`text-white font-medium shrink-0 ${ing.excluded_from_list ? 'line-through' : ''}`}>
-                          {ing.amount} {ing.unit}
-                        </span>
-                        <span className={ing.excluded_from_list ? 'line-through' : ''}>{ing.name}</span>
                       </li>
                     ))}
                   </ul>
