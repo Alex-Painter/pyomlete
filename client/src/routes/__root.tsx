@@ -24,7 +24,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       },
       {
         name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
+        content: 'width=device-width, initial-scale=1, maximum-scale=1',
       },
       {
         title: 'Omlete',
@@ -36,7 +36,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function NavBar() {
   const linkClass =
-    'px-3 py-1.5 rounded-md text-sm font-medium transition-colors'
+    'px-3 py-2 rounded-md text-sm font-medium transition-colors min-h-[44px] flex items-center'
   const activeClass = 'text-white bg-slate-700'
   const inactiveClass = 'text-slate-400 hover:text-slate-200'
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -327,36 +327,38 @@ function ListDetailPage() {
               e.preventDefault()
               handleQuickAdd()
             }}
-            className="flex gap-2 mb-6"
+            className="sticky top-14 z-10 bg-slate-900/95 backdrop-blur-sm pb-4 mb-2 -mx-4 px-4 pt-2 sm:static sm:bg-transparent sm:backdrop-blur-none sm:pb-0 sm:mb-6 sm:mx-0 sm:px-0 sm:pt-0"
           >
-            <Input
-              type="text"
-              value={quickAddValue}
-              onChange={(e) => setQuickAddValue(e.target.value)}
-              placeholder="Item name..."
-              className="flex-1 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-            />
-            <Input
-              type="number"
-              value={quickAddAmount}
-              onChange={(e) => setQuickAddAmount(e.target.value)}
-              placeholder="Qty"
-              className="w-20 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
-            />
-            <Select value={quickAddUnit} onValueChange={setQuickAddUnit}>
-              <SelectTrigger className="w-28 bg-slate-800 border-slate-700 text-white">
-                <SelectValue placeholder="Unit" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none">No unit</SelectItem>
-                {units?.map((u) => (
-                  <SelectItem key={u} value={u}>{u}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button type="submit" disabled={isAdding || !quickAddValue.trim()}>
-              {isAdding ? <Loader2 className="animate-spin size-4" /> : <Plus className="size-4" />}
-            </Button>
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                value={quickAddValue}
+                onChange={(e) => setQuickAddValue(e.target.value)}
+                placeholder="Add item..."
+                className="flex-1 h-10 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+              />
+              <Input
+                type="number"
+                value={quickAddAmount}
+                onChange={(e) => setQuickAddAmount(e.target.value)}
+                placeholder="Qty"
+                className="w-16 sm:w-20 h-10 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+              />
+              <Select value={quickAddUnit} onValueChange={setQuickAddUnit}>
+                <SelectTrigger className="w-24 sm:w-28 h-10 bg-slate-800 border-slate-700 text-white">
+                  <SelectValue placeholder="Unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">No unit</SelectItem>
+                  {units?.map((u) => (
+                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button type="submit" disabled={isAdding || !quickAddValue.trim()} className="h-10 w-10 shrink-0 p-0">
+                {isAdding ? <Loader2 className="animate-spin size-4" /> : <Plus className="size-4" />}
+              </Button>
+            </div>
           </form>
 
           {/* Mobile sidebar (toggle) */}
@@ -394,7 +396,7 @@ function ListDetailPage() {
                 <div key={category} className="bg-slate-800/50 rounded-lg overflow-hidden">
                   <button
                     onClick={() => toggleCategory(category)}
-                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-4 py-3 min-h-[44px] text-sm font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
                   >
                     {isCollapsed ? (
                       <ChevronRight className="size-4 text-slate-500" />
@@ -533,7 +535,7 @@ function RecipeSidebar({
               key={recipe.id}
               onClick={() => onAdd(recipe.id)}
               disabled={isAdding}
-              className="w-full flex items-center gap-2 px-2 py-2 rounded-md hover:bg-slate-800 transition-colors cursor-pointer text-left"
+              className="w-full flex items-center gap-2 px-2 py-2.5 min-h-[44px] rounded-md hover:bg-slate-800 transition-colors cursor-pointer text-left"
             >
               <Plus className="size-3.5 text-slate-500 shrink-0" />
               <div className="flex-1 min-w-0">
@@ -600,47 +602,75 @@ function ItemRow({
     setEditing(false)
   }
 
+  // Swipe-to-delete state
+  const swipeRef = useRef<HTMLDivElement>(null)
+  const touchStartX = useRef(0)
+  const [swipeOffset, setSwipeOffset] = useState(0)
+  const [swiping, setSwiping] = useState(false)
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+    setSwiping(true)
+  }, [])
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!swiping) return
+    const diff = touchStartX.current - e.touches[0].clientX
+    // Only allow swiping left (positive diff)
+    setSwipeOffset(Math.max(0, Math.min(diff, 80)))
+  }, [swiping])
+
+  const handleTouchEnd = useCallback(() => {
+    setSwiping(false)
+    if (swipeOffset > 60) {
+      onDelete()
+    }
+    setSwipeOffset(0)
+  }, [swipeOffset, onDelete])
+
   if (editing) {
     return (
       <div className="px-2 py-2 rounded-md bg-slate-800 space-y-2">
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <Input
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             placeholder="Name"
-            className="flex-1 h-8 bg-slate-700 border-slate-600 text-white text-sm"
+            className="flex-1 h-10 bg-slate-700 border-slate-600 text-white text-sm"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave()
               if (e.key === 'Escape') handleCancel()
             }}
           />
-          <Input
-            type="number"
-            value={editAmount}
-            onChange={(e) => setEditAmount(e.target.value)}
-            placeholder="Qty"
-            className="w-20 h-8 bg-slate-700 border-slate-600 text-white text-sm"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave()
-              if (e.key === 'Escape') handleCancel()
-            }}
-          />
-          <Select value={editUnit} onValueChange={setEditUnit}>
-            <SelectTrigger className="w-28 h-8 bg-slate-700 border-slate-600 text-white text-sm">
-              <SelectValue placeholder="Unit" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none">No unit</SelectItem>
-              {units.map((u) => (
-                <SelectItem key={u} value={u}>{u}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              value={editAmount}
+              onChange={(e) => setEditAmount(e.target.value)}
+              placeholder="Qty"
+              className="w-20 h-10 bg-slate-700 border-slate-600 text-white text-sm"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSave()
+                if (e.key === 'Escape') handleCancel()
+              }}
+            />
+            <Select value={editUnit} onValueChange={setEditUnit}>
+              <SelectTrigger className="w-28 h-10 bg-slate-700 border-slate-600 text-white text-sm">
+                <SelectValue placeholder="Unit" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">No unit</SelectItem>
+                {units.map((u) => (
+                  <SelectItem key={u} value={u}>{u}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Select value={editCategory} onValueChange={setEditCategory}>
-            <SelectTrigger className="w-40 h-8 bg-slate-700 border-slate-600 text-white text-sm">
+            <SelectTrigger className="w-40 h-10 bg-slate-700 border-slate-600 text-white text-sm">
               <SelectValue placeholder="Category" />
             </SelectTrigger>
             <SelectContent>
@@ -650,10 +680,10 @@ function ItemRow({
             </SelectContent>
           </Select>
           <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 text-slate-400 hover:text-white">
+          <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-slate-400 hover:text-white">
             Cancel
           </Button>
-          <Button size="sm" onClick={handleSave} className="h-7">
+          <Button size="sm" onClick={handleSave} className="h-9 px-3">
             Save
           </Button>
         </div>
@@ -662,42 +692,53 @@ function ItemRow({
   }
 
   return (
-    <div
-      className={`flex items-center gap-3 px-2 py-2 rounded-md group transition-opacity ${
-        item.checked ? 'opacity-50' : ''
-      }`}
-    >
-      <Checkbox
-        checked={item.checked}
-        onCheckedChange={onToggleCheck}
-        className="shrink-0 border-slate-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
-      />
-
-      <div className={`flex-1 min-w-0 ${item.checked ? 'line-through text-slate-400' : ''}`}>
-        <span className="text-sm">{item.name}</span>
-        {(item.amount != null || item.unit) && (
-          <span className="text-xs text-slate-400 ml-2">
-            {item.amount != null ? item.amount : ''}{item.unit ? ` ${item.unit}` : ''}
-          </span>
-        )}
+    <div className="relative overflow-hidden rounded-md">
+      {/* Delete background revealed on swipe */}
+      <div className="absolute inset-y-0 right-0 flex items-center justify-center w-20 bg-red-600 text-white">
+        <Trash2 className="size-4" />
       </div>
+      <div
+        ref={swipeRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ transform: `translateX(-${swipeOffset}px)` }}
+        className={`relative flex items-center gap-3 px-2 py-2.5 rounded-md group bg-slate-900/50 transition-opacity ${
+          !swiping ? 'transition-transform duration-200' : ''
+        } ${item.checked ? 'opacity-50' : ''}`}
+      >
+        <Checkbox
+          checked={item.checked}
+          onCheckedChange={onToggleCheck}
+          className="shrink-0 size-5 border-slate-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+        />
 
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={() => setEditing(true)}
-        className="shrink-0 text-slate-600 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <Pencil className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={onDelete}
-        className="shrink-0 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <Trash2 className="size-3.5" />
-      </Button>
+        <div className={`flex-1 min-w-0 ${item.checked ? 'line-through text-slate-400' : ''}`}>
+          <span className="text-sm">{item.name}</span>
+          {(item.amount != null || item.unit) && (
+            <span className="text-xs text-slate-400 ml-2">
+              {item.amount != null ? item.amount : ''}{item.unit ? ` ${item.unit}` : ''}
+            </span>
+          )}
+        </div>
+
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => setEditing(true)}
+          className="shrink-0 size-8 text-slate-600 hover:text-slate-300 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onDelete}
+          className="shrink-0 size-8 text-slate-600 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
     </div>
   )
 }
