@@ -536,7 +536,13 @@ function RecipeSidebar({
               >
                 <Check className="size-3.5 text-emerald-500 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm truncate">{recipe.title}</p>
+                  <Link
+                    to="/recipe/$recipeId"
+                    params={{ recipeId: recipe.id }}
+                    className="text-sm truncate block hover:text-emerald-400 transition-colors"
+                  >
+                    {recipe.title}
+                  </Link>
                   <p className="text-xs text-slate-500">{recipe.ingredient_count} ingredients</p>
                 </div>
                 <Button
@@ -760,6 +766,11 @@ function ItemRow({
           {(item.amount != null || item.unit) && (
             <span className="text-xs text-slate-400 ml-2">
               {item.amount != null ? item.amount : ''}{item.unit ? ` ${item.unit}` : ''}
+            </span>
+          )}
+          {item.sources.filter((s) => s.recipe_id).length > 1 && (
+            <span className="ml-2 text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-full">
+              {item.sources.filter((s) => s.recipe_id).length} recipes
             </span>
           )}
         </div>
