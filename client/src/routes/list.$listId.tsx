@@ -327,7 +327,7 @@ function ListDetailPage() {
               e.preventDefault()
               handleQuickAdd()
             }}
-            className="sticky top-14 z-10 bg-slate-900/95 backdrop-blur-sm pb-4 mb-2 -mx-4 px-4 pt-2 sm:static sm:bg-transparent sm:backdrop-blur-none sm:pb-0 sm:mb-6 sm:mx-0 sm:px-0 sm:pt-0"
+            className="sticky top-0 sm:top-14 z-10 bg-slate-900/95 backdrop-blur-sm pb-4 mb-2 -mx-4 px-4 pt-2 sm:static sm:bg-transparent sm:backdrop-blur-none sm:pb-0 sm:mb-6 sm:mx-0 sm:px-0 sm:pt-0"
           >
             <div className="flex gap-2">
               <Input
