@@ -18,6 +18,7 @@ from lib.types import (
     CategoriesUpdateRequest,
     CategorizeRequest,
     CategorizeResponse,
+    ExcludeUpdateRequest,
     IngredientRecipe,
     ItemCreateRequest,
     ItemUpdateRequest,
@@ -25,6 +26,7 @@ from lib.types import (
     RatingUpdate,
     RecipeModelResponse,
     RecipePrompt,
+    RecipeUpdateRequest,
 )
 from tools import find_similar_ingredients
 
@@ -224,6 +226,64 @@ async def update_rating(recipe_id: PydanticObjectId, body: RatingUpdate):
     return {"id": str(recipe.id), "rating": recipe.rating}
 
 
+@router.put("/recipes/{recipe_id}")
+async def update_recipe(recipe_id: PydanticObjectId, body: RecipeUpdateRequest):
+    recipe = await RecipeDocument.get(recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    old_names = {i.name.lower() for i in recipe.ingredients}
+    recipe.title = body.title
+    recipe.instructions = body.instructions
+    recipe.ingredients = body.ingredients
+    await recipe.save()
+
+    # Fire-and-forget: embed any new ingredient names
+    new_ingredients = [i for i in body.ingredients if i.name.lower() not in old_names]
+    if new_ingredients:
+        async def _embed_new():
+            try:
+                vectors = vo.embed(
+                    texts=[i.name for i in new_ingredients],
+                    model="voyage-4",
+                    output_dimension=2048,
+                ).embeddings
+                await IngredientDocument.insert_many([
+                    IngredientDocument(
+                        name=item.name, unit=item.unit, embedding=vectors[idx],
+                        category=item.category,
+                    )
+                    for idx, item in enumerate(new_ingredients)
+                ])
+            except Exception:
+                pass  # Best-effort background embedding
+        asyncio.create_task(_embed_new())
+
+    return recipe
+
+
+@router.delete("/recipes/{recipe_id}", status_code=204)
+async def delete_recipe(recipe_id: PydanticObjectId):
+    recipe = await RecipeDocument.get(recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    await recipe.delete()
+
+
+@router.patch("/recipes/{recipe_id}/ingredients/{ingredient_index}/exclude")
+async def toggle_ingredient_exclude(
+    recipe_id: PydanticObjectId, ingredient_index: int, body: ExcludeUpdateRequest
+):
+    recipe = await RecipeDocument.get(recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if ingredient_index < 0 or ingredient_index >= len(recipe.ingredients):
+        raise HTTPException(status_code=404, detail="Ingredient not found")
+    recipe.ingredients[ingredient_index].excluded_from_list = body.excluded
+    await recipe.save()
+    return {"index": ingredient_index, "excluded_from_list": body.excluded}
+
+
 @router.get("/units")
 async def get_units():
     pipeline = [
@@ -421,8 +481,10 @@ async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
 
     lst.recipes.append(body.recipe_id)
 
-    # Merge recipe ingredients into list items
+    # Merge recipe ingredients into list items (skip excluded)
     for ing in recipe.ingredients:
+        if ing.excluded_from_list:
+            continue
         source = ItemSource(recipe_id=body.recipe_id, amount=ing.amount)
         # Find existing item with same name + unit (case-insensitive name, exact unit)
         matched = None
