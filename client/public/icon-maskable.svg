@@ -1,14 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Omlete egg icon">
-  <rect width="512" height="512" fill="#FFD972"/>
-  <g transform="translate(256 268) scale(0.72)">
-    <ellipse cx="0" cy="0" rx="138" ry="172" fill="#FFFDF6"/>
-    <path d="M -138 -10 a 138 172 0 0 1 276 0 c -30 -30 -72 -42 -138 -42 s -108 12 -138 42 z" fill="#FFF6D9" opacity="0.65"/>
-    <ellipse cx="-46" cy="10" rx="14" ry="20" fill="#2B2B2B"/>
-    <ellipse cx="46" cy="10" rx="14" ry="20" fill="#2B2B2B"/>
-    <ellipse cx="-41" cy="2" rx="5" ry="7" fill="#FFFFFF"/>
-    <ellipse cx="51" cy="2" rx="5" ry="7" fill="#FFFFFF"/>
-    <path d="M -34 62 Q 0 92 34 62" stroke="#2B2B2B" stroke-width="10" stroke-linecap="round" fill="none"/>
-    <ellipse cx="-86" cy="46" rx="16" ry="10" fill="#FFC9B5" opacity="0.75"/>
-    <ellipse cx="86" cy="46" rx="16" ry="10" fill="#FFC9B5" opacity="0.75"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Omlete omelette icon">
+  <rect width="512" height="512" fill="#FFE9B0"/>
+  <g transform="translate(256 266) scale(0.72)">
+    <ellipse cx="0" cy="0" rx="184" ry="130" fill="#F5B93D"/>
+    <path d="M -184 -6 Q 0 -126 184 -6 Q 0 40 -184 -6 Z" fill="#F9CB5C"/>
+    <path d="M -170 0 Q 0 54 170 0" stroke="#D99E24" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.55"/>
   </g>
 </svg>
