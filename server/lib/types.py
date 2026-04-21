@@ -21,6 +21,7 @@ class IngredientRecipe(BaseModel):
     )
     amount: float
     category: str = Field(default="Other")
+    excluded_from_list: bool = Field(default=False)
 
 
 class IngredientModelResponse(IngredientRecipe):
@@ -60,6 +61,16 @@ class SimilarIngredients(BaseModel):
 
 class RatingUpdate(BaseModel):
     rating: int = Field(ge=1, le=5)
+
+
+class RecipeUpdateRequest(BaseModel):
+    title: str
+    instructions: list[str]
+    ingredients: list[IngredientRecipe]
+
+
+class ExcludeUpdateRequest(BaseModel):
+    excluded: bool
 
 
 class ItemCreateRequest(BaseModel):

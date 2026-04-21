@@ -1,4 +1,4 @@
-type IngredientRecipe = { name: string; unit: string; amount: number }
+type IngredientRecipe = { name: string; unit: string; amount: number; category?: string; excluded_from_list?: boolean }
 export type Recipe = { title: string; instructions: string[]; ingredients: IngredientRecipe[] }
 
 export function RecipeCard({ recipe }: { recipe: Recipe }) {
@@ -13,10 +13,10 @@ export function RecipeCard({ recipe }: { recipe: Recipe }) {
         <ul className="space-y-1.5">
           {recipe.ingredients.map((ing, i) => (
             <li key={i} className="text-sm text-slate-300 flex gap-2">
+              <span className="flex-1">{ing.name}</span>
               <span className="text-white font-medium shrink-0">
                 {ing.amount} {ing.unit}
               </span>
-              <span>{ing.name}</span>
             </li>
           ))}
         </ul>
