@@ -30,6 +30,40 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       {
         title: 'Omlete',
       },
+      {
+        name: 'description',
+        content: 'AI-powered recipe management.',
+      },
+      {
+        name: 'theme-color',
+        content: '#0f172a',
+      },
+      {
+        name: 'application-name',
+        content: 'Omlete',
+      },
+      {
+        name: 'apple-mobile-web-app-capable',
+        content: 'yes',
+      },
+      {
+        name: 'mobile-web-app-capable',
+        content: 'yes',
+      },
+      {
+        name: 'apple-mobile-web-app-title',
+        content: 'Omlete',
+      },
+      {
+        name: 'apple-mobile-web-app-status-bar-style',
+        content: 'black-translucent',
+      },
+    ],
+    links: [
+      { rel: 'manifest', href: '/manifest.webmanifest' },
+      { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
+      { rel: 'icon', type: 'image/svg+xml', href: '/icon.svg' },
+      { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
     ],
   }),
   shellComponent: RootDocument,

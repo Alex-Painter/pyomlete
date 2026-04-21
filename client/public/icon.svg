@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Omlete omelette icon">
+  <rect width="512" height="512" rx="96" ry="96" fill="#FFE9B0"/>
+  <g transform="translate(256 268)">
+    <ellipse cx="0" cy="0" rx="184" ry="130" fill="#F5B93D"/>
+    <path d="M -184 -6 Q 0 -126 184 -6 Q 0 40 -184 -6 Z" fill="#F9CB5C"/>
+    <path d="M -170 0 Q 0 54 170 0" stroke="#D99E24" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.55"/>
+  </g>
+</svg>
