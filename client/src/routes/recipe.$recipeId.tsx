@@ -11,7 +11,6 @@ import {
   Loader2,
   Pencil,
   Plus,
-  ShoppingCart,
   Trash2,
   X,
 } from 'lucide-react'
@@ -44,11 +43,6 @@ type RecipeDetail = Omit<Recipe, 'ingredients'> & {
   ingredients: IngredientRecipe[]
 }
 
-type ListSummary = {
-  id: string
-  name: string
-}
-
 type CategoryConfig = {
   name: string
   order: number
@@ -62,7 +56,6 @@ function RecipeDetailPage() {
   const { recipeId } = Route.useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [addedToList, setAddedToList] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editInstructions, setEditInstructions] = useState<string[]>([])
@@ -73,14 +66,6 @@ function RecipeDetailPage() {
     queryFn: async (): Promise<RecipeDetail> => {
       const res = await apiFetch(`/api/recipes/${recipeId}`)
       if (!res.ok) throw new Error('Recipe not found')
-      return res.json()
-    },
-  })
-
-  const { data: lists } = useQuery({
-    queryKey: ['lists'],
-    queryFn: async (): Promise<ListSummary[]> => {
-      const res = await apiFetch('/api/lists/')
       return res.json()
     },
   })
@@ -113,22 +98,6 @@ function RecipeDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
       queryClient.invalidateQueries({ queryKey: ['recipes'] })
-    },
-  })
-
-  const addToList = useMutation({
-    mutationFn: async (listId: string) => {
-      const res = await apiFetch(`/api/lists/${listId}/recipes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipe_id: recipeId }),
-      })
-      return res.json()
-    },
-    onSuccess: (_data, listId) => {
-      setAddedToList(listId)
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
     },
   })
 
@@ -191,7 +160,6 @@ function RecipeDetailPage() {
     setEditing(false)
   }
 
-  const mostRecentList = lists?.[0]
   const sortedCategories = categories
     ? [...categories].sort((a, b) => a.order - b.order)
     : []
@@ -199,13 +167,48 @@ function RecipeDetailPage() {
   return (
     <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
       <div className="max-w-2xl mx-auto px-4 py-12">
-        <Link
-          to="/recipes"
-          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors mb-6"
-        >
-          <ArrowLeft className="size-4" />
-          Back to recipes
-        </Link>
+        <div className="flex items-center justify-between mb-6">
+          <Link
+            to="/recipes"
+            className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="size-4" />
+            Back to recipes
+          </Link>
+          {recipe && !editing && (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1.5 border-slate-700 text-slate-300">
+                <Pencil className="size-3.5" />
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (confirm('Delete this recipe? This cannot be undone.')) {
+                    deleteRecipe.mutate()
+                  }
+                }}
+                disabled={deleteRecipe.isPending}
+                className="gap-1.5 border-slate-700 text-red-400 hover:text-red-300 hover:border-red-400"
+              >
+                <Trash2 className="size-3.5" />
+                Delete
+              </Button>
+            </div>
+          )}
+          {editing && (
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={cancelEditing} className="text-slate-400">
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => saveRecipe.mutate()} disabled={saveRecipe.isPending} className="gap-1.5">
+                {saveRecipe.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                Save
+              </Button>
+            </div>
+          )}
+        </div>
 
         {isLoading && (
           <div className="flex items-center gap-2 text-slate-400">
@@ -242,73 +245,6 @@ function RecipeDetailPage() {
                 />
               </div>
             </div>
-
-            {/* Actions */}
-            {!editing && (
-              <div className="flex items-center gap-2 flex-wrap">
-                {addedToList ? (
-                  <Link
-                    to="/list/$listId"
-                    params={{ listId: addedToList }}
-                    className="inline-flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
-                  >
-                    <Check className="size-4" />
-                    Added to {mostRecentList?.name} — view list
-                  </Link>
-                ) : mostRecentList ? (
-                  <Button
-                    onClick={() => addToList.mutate(mostRecentList.id)}
-                    disabled={addToList.isPending}
-                    size="sm"
-                    className="gap-1.5"
-                  >
-                    {addToList.isPending ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <ShoppingCart className="size-3.5" />
-                    )}
-                    Add to {mostRecentList.name}
-                  </Button>
-                ) : (
-                  <Link to="/">
-                    <Button variant="outline" size="sm" className="gap-1.5">
-                      <ShoppingCart className="size-3.5" />
-                      Create a list first
-                    </Button>
-                  </Link>
-                )}
-                <div className="flex-1" />
-                <Button variant="outline" size="sm" onClick={startEditing} className="gap-1.5 border-slate-700 text-slate-300">
-                  <Pencil className="size-3.5" />
-                  Edit
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (confirm('Delete this recipe? This cannot be undone.')) {
-                      deleteRecipe.mutate()
-                    }
-                  }}
-                  disabled={deleteRecipe.isPending}
-                  className="gap-1.5 border-slate-700 text-red-400 hover:text-red-300 hover:border-red-400"
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete
-                </Button>
-              </div>
-            )}
-            {editing && (
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={cancelEditing} className="text-slate-400">
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={() => saveRecipe.mutate()} disabled={saveRecipe.isPending} className="gap-1.5">
-                  {saveRecipe.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                  Save
-                </Button>
-              </div>
-            )}
 
               {/* Ingredients */}
               <div>
