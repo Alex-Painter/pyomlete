@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/api'
 import { RecipeCard } from '@/components/RecipeCard'
 import { StarRating } from '@/components/StarRating'
 import type { Recipe } from '@/components/RecipeCard'
+import { useWakeLock } from '@/hooks/useWakeLock'
 import '@/index.css'
 
 type RecipeDetail = Recipe & {
@@ -28,6 +29,8 @@ function RecipeDetailPage() {
   const { recipeId } = Route.useParams()
   const queryClient = useQueryClient()
   const [addedToList, setAddedToList] = useState<string | null>(null)
+
+  useWakeLock()
 
   const { data: recipe, isLoading } = useQuery({
     queryKey: ['recipe', recipeId],
