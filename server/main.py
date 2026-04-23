@@ -581,6 +581,8 @@ async def update_item(list_id: PydanticObjectId, item_id: str, body: ItemUpdateR
                 item.category = body.category
             if body.checked is not None:
                 item.checked = body.checked
+            if "photo" in body.model_fields_set:
+                item.photo = body.photo
             await lst.save()
             return item.model_dump()
     raise HTTPException(status_code=404, detail="Item not found")

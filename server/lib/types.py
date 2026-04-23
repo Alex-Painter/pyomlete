@@ -86,6 +86,7 @@ class ItemUpdateRequest(BaseModel):
     unit: Optional[str] = None
     category: Optional[str] = None
     checked: Optional[bool] = None
+    photo: Optional[str] = None
 
 
 class ListUpdateRequest(BaseModel):

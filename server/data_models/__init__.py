@@ -38,6 +38,7 @@ class ListItem(BaseModel):
     category: str = Field(default="Other")
     checked: bool = False
     sources: list[ItemSource] = []
+    photo: Optional[str] = None
 
 
 class ListDocument(Document):

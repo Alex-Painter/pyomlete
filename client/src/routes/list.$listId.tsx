@@ -1,11 +1,13 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  Camera,
   Check,
   ChevronDown,
   ChevronRight,
+  ImageOff,
   Loader2,
   Pencil,
   Plus,
@@ -25,6 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { apiFetch } from '@/lib/api'
+import { fileToResizedDataUrl } from '@/lib/resizeImage'
 
 type ItemSource = {
   recipe_id: string | null
@@ -39,6 +42,7 @@ type ListItem = {
   category: string
   checked: boolean
   sources: ItemSource[]
+  photo: string | null
 }
 
 type ListDetail = {
@@ -628,6 +632,31 @@ function ItemRow({
   const [editAmount, setEditAmount] = useState(item.amount?.toString() ?? '')
   const [editUnit, setEditUnit] = useState(item.unit ?? '__none')
   const [editCategory, setEditCategory] = useState(item.category)
+  const [photoOpen, setPhotoOpen] = useState(false)
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoError(null)
+    setPhotoUploading(true)
+    try {
+      const dataUrl = await fileToResizedDataUrl(file)
+      onUpdate({ photo: dataUrl })
+    } catch {
+      setPhotoError('Could not read that image')
+    } finally {
+      setPhotoUploading(false)
+    }
+  }
+
+  const handlePhotoRemove = () => {
+    setPhotoError(null)
+    onUpdate({ photo: null })
+  }
 
   const handleSave = () => {
     const updates: Record<string, unknown> = {}
@@ -727,6 +756,52 @@ function ItemRow({
               ))}
             </SelectContent>
           </Select>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handlePhotoSelect}
+            className="hidden"
+          />
+          {item.photo ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPhotoOpen(true)}
+                className="size-9 shrink-0 rounded-md overflow-hidden border border-slate-600 hover:border-slate-400 transition-colors cursor-pointer"
+                aria-label="View photo"
+              >
+                <img src={item.photo} alt="" className="size-full object-cover" />
+              </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={handlePhotoRemove}
+                className="size-8 text-slate-500 hover:text-red-400"
+                aria-label="Remove photo"
+              >
+                <ImageOff className="size-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={photoUploading}
+              className="h-9 px-2 text-slate-400 hover:text-white"
+              aria-label="Add photo"
+            >
+              {photoUploading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Camera className="size-4" />
+              )}
+            </Button>
+          )}
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-slate-400 hover:text-white">
             Cancel
@@ -735,6 +810,26 @@ function ItemRow({
             Save
           </Button>
         </div>
+        {item.photo && (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={photoUploading}
+              className="h-7 px-2 text-xs text-slate-500 hover:text-slate-300"
+            >
+              Replace photo
+            </Button>
+          </div>
+        )}
+        {photoError && (
+          <p className="text-xs text-red-400">{photoError}</p>
+        )}
+        {photoOpen && item.photo && (
+          <PhotoLightbox src={item.photo} onClose={() => setPhotoOpen(false)} />
+        )}
       </div>
     )
   }
@@ -760,6 +855,20 @@ function ItemRow({
           onCheckedChange={onToggleCheck}
           className="shrink-0 size-5 border-slate-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
         />
+
+        {item.photo && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setPhotoOpen(true)
+            }}
+            className="shrink-0 size-8 rounded-md overflow-hidden border border-slate-700 hover:border-slate-500 transition-colors cursor-pointer"
+            aria-label={`View photo for ${item.name}`}
+          >
+            <img src={item.photo} alt="" className="size-full object-cover" />
+          </button>
+        )}
 
         <div className={`flex-1 min-w-0 ${item.checked ? 'line-through text-slate-400' : ''}`}>
           <span className="text-sm">{item.name}</span>
@@ -792,6 +901,43 @@ function ItemRow({
           <Trash2 className="size-3.5" />
         </Button>
       </div>
+      {photoOpen && item.photo && (
+        <PhotoLightbox src={item.photo} onClose={() => setPhotoOpen(false)} />
+      )}
+    </div>
+  )
+}
+
+function PhotoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 cursor-zoom-out"
+    >
+      <img
+        src={src}
+        alt=""
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-full max-w-full rounded-lg object-contain cursor-default"
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute top-4 right-4 size-10 rounded-full bg-slate-800/80 text-white flex items-center justify-center hover:bg-slate-700 transition-colors cursor-pointer"
+      >
+        <X className="size-5" />
+      </button>
     </div>
   )
 }
