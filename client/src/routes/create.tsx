@@ -13,7 +13,7 @@ export const Route = createFileRoute('/create')({ component: CreatePage })
 type Tab = 'generate' | 'extract'
 
 function CreatePage() {
-  const [tab, setTab] = useState<Tab>('generate')
+  const [tab, setTab] = useState<Tab>('extract')
 
   return (
     <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
