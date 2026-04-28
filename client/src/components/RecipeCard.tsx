@@ -1,3 +1,5 @@
+import { highlightAmounts } from '@/lib/highlightAmounts'
+
 type IngredientRecipe = { name: string; unit: string; amount: number; category?: string; excluded_from_list?: boolean }
 export type Recipe = { title: string; instructions: string[]; ingredients: IngredientRecipe[] }
 
@@ -30,7 +32,7 @@ export function RecipeCard({ recipe }: { recipe: Recipe }) {
           {recipe.instructions.map((step, i) => (
             <li key={i} className="text-sm text-slate-300 flex gap-3">
               <span className="text-slate-500 font-mono shrink-0 pt-px">{i + 1}.</span>
-              <span>{step}</span>
+              <span>{highlightAmounts(step)}</span>
             </li>
           ))}
         </ol>

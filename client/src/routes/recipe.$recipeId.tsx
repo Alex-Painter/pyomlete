@@ -49,6 +49,8 @@ type CategoryConfig = {
   order: number
 }
 
+import { highlightAmounts } from '@/lib/highlightAmounts'
+
 export const Route = createFileRoute('/recipe/$recipeId')({
   component: RecipeDetailPage,
 })
@@ -448,7 +450,7 @@ function RecipeDetailPage() {
                     {recipe.instructions.map((step, i) => (
                       <li key={i} className="text-sm text-slate-300 flex gap-3">
                         <span className="text-slate-500 font-mono shrink-0 pt-px">{i + 1}.</span>
-                        <span>{step}</span>
+                        <span>{highlightAmounts(step)}</span>
                       </li>
                     ))}
                   </ol>
