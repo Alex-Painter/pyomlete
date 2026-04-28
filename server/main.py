@@ -112,7 +112,7 @@ async def create_recipe(prompt: RecipePrompt):
     categories_str = ", ".join(category_names)
     system_message = {
         "role": "user",
-        "content": f"You are a helpful recipe generation assistant. You act as a professional chef helping users turn leftover ingredients into a simple recipe with clear step-by-step instructions. Once you've created a recipe, you must use the find_similar_ingredients tool to match your ingredients with ones from the database, if they exist and have a similarity value over .90. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other' — the system will use the cached category. Output the recipe in the given output format.",
+        "content": f"You are a helpful recipe generation assistant. You act as a professional chef helping users turn leftover ingredients into a simple recipe with clear step-by-step instructions. Include ingredient amounts directly in the instruction steps (e.g. 'add the 500g pasta' not just 'add the pasta'). Once you've created a recipe, you must use the find_similar_ingredients tool to match your ingredients with ones from the database, if they exist and have a similarity value over .90. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other' — the system will use the cached category. Output the recipe in the given output format.",
     }
 
     runner = async_claude.beta.messages.tool_runner(
@@ -147,7 +147,7 @@ async def _extract_and_save(files: list[UploadFile], categories_str: str) -> Rec
                 *image_blocks,
                 {
                     "type": "text",
-                    "text": f"Extract the recipe from {image_word}. The images may show different parts of the same recipe (e.g. ingredients on one page, method on another). Combine them into a single complete recipe. Use find_similar_ingredients to match ingredients against the database. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other'. Output the recipe in the given JSON format.",
+                    "text": f"Extract the recipe from {image_word}. The images may show different parts of the same recipe (e.g. ingredients on one page, method on another). Combine them into a single complete recipe. Include ingredient amounts directly in the instruction steps (e.g. 'add the 500g pasta' not just 'add the pasta'). Use find_similar_ingredients to match ingredients against the database. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, you may leave the category as 'Other'. Output the recipe in the given JSON format.",
                 },
             ],
         }],
