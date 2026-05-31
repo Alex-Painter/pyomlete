@@ -170,19 +170,19 @@ function RecipeDetailPage() {
     : []
 
   return (
-    <div className="min-h-screen bg-[#F4F4F4] text-[#222]">
+    <div className="min-h-screen bg-cream text-ink">
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="flex items-center justify-between mb-6">
           <Link
             to="/recipes"
-            className="inline-flex items-center gap-1.5 text-sm text-[#8E8E8E] hover:text-[#222] transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink transition-colors"
           >
             <ArrowLeft className="size-4" />
             Back to recipes
           </Link>
           {recipe && !editing && (
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1.5 border-[#E8E4DC] text-[#8E8E8E]">
+              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1.5 border-line text-ink-muted">
                 <Pencil className="size-3.5" />
                 Edit
               </Button>
@@ -204,7 +204,7 @@ function RecipeDetailPage() {
           )}
           {editing && (
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={cancelEditing} className="text-[#8E8E8E]">
+              <Button variant="ghost" size="sm" onClick={cancelEditing} className="text-ink-muted">
                 Cancel
               </Button>
               <Button size="sm" onClick={() => saveRecipe.mutate()} disabled={saveRecipe.isPending} className="gap-1.5">
@@ -216,34 +216,34 @@ function RecipeDetailPage() {
         </div>
 
         {isLoading && (
-          <div className="flex items-center gap-2 text-[#8E8E8E]">
+          <div className="flex items-center gap-2 text-ink-muted">
             <Loader2 className="size-5 animate-spin" />
             Loading recipe...
           </div>
         )}
 
         {recipe && (
-          <div className="bg-white border border-[#E8E4DC] rounded-xl p-6 space-y-5 shadow-sm">
+          <div className="bg-white border border-line rounded-xl p-6 space-y-5 shadow-sm">
             {/* Title */}
             {editing ? (
               <Input
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                className="text-xl font-semibold bg-[#F4F4F4] border-[#E0DACE] text-[#222] h-auto py-2"
+                className="text-xl font-semibold bg-cream border-line-strong text-ink h-auto py-2"
               />
             ) : (
-              <h2 className="text-xl font-semibold text-[#222]">{recipe.title}</h2>
+              <h2 className="text-xl font-semibold text-ink">{recipe.title}</h2>
             )}
 
             {/* Date + Rating */}
             <div className="flex items-center justify-between">
-              <div className="text-sm text-[#8E8E8E]">
+              <div className="text-sm text-ink-muted">
                 {recipe.created_at
                   ? new Date(recipe.created_at).toLocaleDateString()
                   : ''}
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-sm text-[#8E8E8E]">Rate</span>
+                <span className="text-sm text-ink-muted">Rate</span>
                 <StarRating
                   value={recipe.rating}
                   onChange={(rating) => ratingMutation.mutate(rating)}
@@ -253,7 +253,7 @@ function RecipeDetailPage() {
 
               {/* Ingredients */}
               <div>
-                <h3 className="text-xs font-semibold text-[#8E8E8E] uppercase tracking-wider mb-3">
+                <h3 className="text-xs font-semibold text-ink-muted uppercase tracking-wider mb-3">
                   Ingredients
                 </h3>
                 {editing ? (
@@ -268,7 +268,7 @@ function RecipeDetailPage() {
                             setEditIngredients(updated)
                           }}
                           placeholder="Name"
-                          className="flex-1 h-9 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm"
+                          className="flex-1 h-9 bg-cream border-line-strong text-ink text-sm"
                         />
                         <Input
                           type="number"
@@ -279,7 +279,7 @@ function RecipeDetailPage() {
                             setEditIngredients(updated)
                           }}
                           placeholder="Qty"
-                          className="w-20 h-9 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm"
+                          className="w-20 h-9 bg-cream border-line-strong text-ink text-sm"
                         />
                         <Select
                           value={ing.unit}
@@ -289,7 +289,7 @@ function RecipeDetailPage() {
                             setEditIngredients(updated)
                           }}
                         >
-                          <SelectTrigger className="w-28 h-9 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm">
+                          <SelectTrigger className="w-28 h-9 bg-cream border-line-strong text-ink text-sm">
                             <SelectValue placeholder="Unit" />
                           </SelectTrigger>
                           <SelectContent>
@@ -306,7 +306,7 @@ function RecipeDetailPage() {
                             setEditIngredients(updated)
                           }}
                         >
-                          <SelectTrigger className="w-36 h-9 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm">
+                          <SelectTrigger className="w-36 h-9 bg-cream border-line-strong text-ink text-sm">
                             <SelectValue placeholder="Category" />
                           </SelectTrigger>
                           <SelectContent>
@@ -334,7 +334,7 @@ function RecipeDetailPage() {
                           { name: '', unit: '', amount: 0, category: 'Other', excluded_from_list: false },
                         ])
                       }
-                      className="gap-1.5 text-[#8E8E8E] hover:text-[#222]"
+                      className="gap-1.5 text-ink-muted hover:text-ink"
                     >
                       <Plus className="size-3.5" />
                       Add ingredient
@@ -346,11 +346,11 @@ function RecipeDetailPage() {
                       <li
                         key={i}
                         className={`text-sm flex items-center gap-2 ${
-                          ing.excluded_from_list ? 'opacity-40' : 'text-[#444]'
+                          ing.excluded_from_list ? 'opacity-40' : 'text-ink-soft'
                         }`}
                       >
                         <span className="flex-1">{ing.name}</span>
-                        <span className="text-[#222] font-medium shrink-0">
+                        <span className="text-ink font-medium shrink-0">
                           {ing.amount} {ing.unit}
                         </span>
                         <button
@@ -360,7 +360,7 @@ function RecipeDetailPage() {
                               excluded: !ing.excluded_from_list,
                             })
                           }
-                          className="shrink-0 text-[#ADADAD] hover:text-[#8E8E8E] transition-colors cursor-pointer"
+                          className="shrink-0 text-ink-faint hover:text-ink-muted transition-colors cursor-pointer"
                           title={ing.excluded_from_list ? 'Include in shopping list' : 'Exclude from shopping list'}
                         >
                           {ing.excluded_from_list ? (
@@ -377,14 +377,14 @@ function RecipeDetailPage() {
 
               {/* Instructions */}
               <div>
-                <h3 className="text-xs font-semibold text-[#8E8E8E] uppercase tracking-wider mb-3">
+                <h3 className="text-xs font-semibold text-ink-muted uppercase tracking-wider mb-3">
                   Instructions
                 </h3>
                 {editing ? (
                   <div className="space-y-2">
                     {editInstructions.map((step, i) => (
                       <div key={i} className="flex items-start gap-2">
-                        <span className="text-[#ADADAD] font-mono text-sm pt-2.5 shrink-0">{i + 1}.</span>
+                        <span className="text-ink-faint font-mono text-sm pt-2.5 shrink-0">{i + 1}.</span>
                         <textarea
                           value={step}
                           onChange={(e) => {
@@ -393,7 +393,7 @@ function RecipeDetailPage() {
                             setEditInstructions(updated)
                           }}
                           rows={2}
-                          className="flex-1 bg-[#F4F4F4] border border-[#E0DACE] rounded-md px-3 py-2 text-sm text-[#222] resize-none focus:outline-none focus:ring-2 focus:ring-[#FFB951]"
+                          className="flex-1 bg-cream border border-line-strong rounded-md px-3 py-2 text-sm text-ink resize-none focus:outline-none focus:ring-2 focus:ring-primary"
                         />
                         <div className="flex flex-col gap-0.5 shrink-0">
                           <Button
@@ -406,7 +406,7 @@ function RecipeDetailPage() {
                               setEditInstructions(updated)
                             }}
                             disabled={i === 0}
-                            className="size-7 text-[#ADADAD] hover:text-[#222]"
+                            className="size-7 text-ink-faint hover:text-ink"
                           >
                             <ArrowUp className="size-3.5" />
                           </Button>
@@ -420,7 +420,7 @@ function RecipeDetailPage() {
                               setEditInstructions(updated)
                             }}
                             disabled={i === editInstructions.length - 1}
-                            className="size-7 text-[#ADADAD] hover:text-[#222]"
+                            className="size-7 text-ink-faint hover:text-ink"
                           >
                             <ArrowDown className="size-3.5" />
                           </Button>
@@ -439,7 +439,7 @@ function RecipeDetailPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => setEditInstructions([...editInstructions, ''])}
-                      className="gap-1.5 text-[#8E8E8E] hover:text-[#222]"
+                      className="gap-1.5 text-ink-muted hover:text-ink"
                     >
                       <Plus className="size-3.5" />
                       Add step
@@ -448,8 +448,8 @@ function RecipeDetailPage() {
                 ) : (
                   <ol className="space-y-2.5">
                     {recipe.instructions.map((step, i) => (
-                      <li key={i} className="text-sm text-[#444] flex gap-3">
-                        <span className="text-[#ADADAD] font-mono shrink-0 pt-px">{i + 1}.</span>
+                      <li key={i} className="text-sm text-ink-soft flex gap-3">
+                        <span className="text-ink-faint font-mono shrink-0 pt-px">{i + 1}.</span>
                         <span>{highlightAmounts(step)}</span>
                       </li>
                     ))}

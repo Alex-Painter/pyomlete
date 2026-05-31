@@ -36,7 +36,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       },
       {
         name: 'theme-color',
-        content: '#0f172a',
+        content: '#f4f4f4',
       },
       {
         name: 'application-name',
@@ -74,20 +74,20 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 function NavBar() {
   const linkClass =
     'px-3 py-2 rounded-md text-sm font-medium transition-colors min-h-[44px] flex items-center'
-  const activeClass = 'text-[#222] bg-[#F0EDE6]'
-  const inactiveClass = 'text-[#8E8E8E] hover:text-[#222]'
+  const activeClass = 'text-ink bg-sand'
+  const inactiveClass = 'text-ink-muted hover:text-ink'
 
   const mobileLinkClass =
     'flex flex-col items-center justify-center gap-1 text-xs font-medium transition-colors min-h-[44px] flex-1'
-  const mobileActiveClass = 'text-[#FFB951]'
-  const mobileInactiveClass = 'text-[#8E8E8E]'
+  const mobileActiveClass = 'text-primary'
+  const mobileInactiveClass = 'text-ink-muted'
 
   return (
     <>
       {/* Desktop top nav */}
-      <nav className="hidden sm:block bg-white border-b border-[#E8E4DC]">
+      <nav className="hidden sm:block bg-white border-b border-line">
         <div className="max-w-2xl mx-auto px-4 flex items-center gap-6 h-14">
-          <Link to="/" className="text-xl font-bold tracking-tight text-[#222] mr-4" style={{fontFamily:'DM Sans'}}>
+          <Link to="/" className="text-xl font-bold tracking-tight text-ink mr-4" style={{fontFamily:'DM Sans'}}>
             Omlete
           </Link>
           <Link
@@ -128,7 +128,7 @@ function NavBar() {
       </nav>
 
       {/* Mobile bottom tab bar */}
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#E8E4DC] safe-area-bottom">
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-line safe-area-bottom">
         <div className="flex items-center h-14">
           <Link
             to="/"
