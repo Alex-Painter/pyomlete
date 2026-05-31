@@ -63,12 +63,12 @@ function RecipeList() {
     ratingMutation.mutate({ id, rating })
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="min-h-screen bg-cream text-ink">
       <div className="max-w-5xl mx-auto px-4 py-12">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold tracking-tight">My Recipes</h1>
           {recipes && recipes.length > 0 && (
-            <div className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 p-1">
+            <div className="flex items-center gap-1 rounded-lg border border-line bg-white p-1">
               <Button
                 type="button"
                 variant="ghost"
@@ -77,8 +77,8 @@ function RecipeList() {
                 aria-pressed={view === 'list'}
                 onClick={() => setView('list')}
                 className={cn(
-                  'text-slate-400 hover:text-white',
-                  view === 'list' && 'bg-slate-700 text-white',
+                  'text-ink-muted hover:text-ink',
+                  view === 'list' && 'bg-sand text-ink',
                 )}
               >
                 <List />
@@ -91,8 +91,8 @@ function RecipeList() {
                 aria-pressed={view === 'grid'}
                 onClick={() => setView('grid')}
                 className={cn(
-                  'text-slate-400 hover:text-white',
-                  view === 'grid' && 'bg-slate-700 text-white',
+                  'text-ink-muted hover:text-ink',
+                  view === 'grid' && 'bg-sand text-ink',
                 )}
               >
                 <LayoutGrid />
@@ -102,7 +102,7 @@ function RecipeList() {
         </div>
 
         {isLoading && (
-          <div className="flex items-center gap-2 text-slate-400">
+          <div className="flex items-center gap-2 text-ink-muted">
             <Loader2 className="size-5 animate-spin" />
             Loading recipes...
           </div>
@@ -110,10 +110,10 @@ function RecipeList() {
 
         {recipes && recipes.length === 0 && (
           <div className="text-center py-16">
-            <p className="text-slate-400 mb-4">No recipes yet.</p>
+            <p className="text-ink-muted mb-4">No recipes yet.</p>
             <Link
               to="/"
-              className="text-sm text-slate-300 hover:text-white underline underline-offset-4 transition-colors"
+              className="text-sm text-ink-soft hover:text-ink underline underline-offset-4 transition-colors"
             >
               Create your first recipe
             </Link>
@@ -150,12 +150,12 @@ function RecipeList() {
 
 function RecipeMeta({ recipe }: { recipe: RecipeSummary }) {
   return (
-    <div className="flex items-center gap-3 mt-1.5 text-sm text-slate-400">
+    <div className="flex items-center gap-3 mt-1.5 text-sm text-ink-muted">
       <span>
         {recipe.ingredient_count} ingredient
         {recipe.ingredient_count !== 1 ? 's' : ''}
       </span>
-      <span className="text-slate-600">·</span>
+      <span className="text-ink-subtle">·</span>
       <span>
         {recipe.created_at
           ? new Date(recipe.created_at).toLocaleDateString()
@@ -172,12 +172,12 @@ type RecipeItemProps = {
 
 function RecipeListRow({ recipe, onRate }: RecipeItemProps) {
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex items-center gap-4">
+    <div className="bg-white border border-line rounded-xl p-5 flex items-center gap-4 shadow-sm">
       <div className="flex-1 min-w-0">
         <Link
           to="/recipe/$recipeId"
           params={{ recipeId: recipe.id }}
-          className="text-white font-medium hover:underline underline-offset-4"
+          className="text-ink font-medium hover:underline underline-offset-4"
         >
           {recipe.title}
         </Link>
@@ -193,12 +193,12 @@ function RecipeListRow({ recipe, onRate }: RecipeItemProps) {
 
 function RecipeGridCard({ recipe, onRate }: RecipeItemProps) {
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 flex flex-col gap-4 h-full">
+    <div className="bg-white border border-line rounded-xl p-5 flex flex-col gap-4 h-full shadow-sm">
       <div className="flex-1 min-w-0">
         <Link
           to="/recipe/$recipeId"
           params={{ recipeId: recipe.id }}
-          className="text-white font-medium hover:underline underline-offset-4"
+          className="text-ink font-medium hover:underline underline-offset-4"
         >
           {recipe.title}
         </Link>
