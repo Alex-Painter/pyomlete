@@ -60,6 +60,8 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       },
     ],
     links: [
+      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+      { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800&display=swap' },
       { rel: 'manifest', href: '/manifest.webmanifest' },
       { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
       { rel: 'icon', type: 'image/svg+xml', href: '/icon.svg' },
@@ -72,20 +74,20 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 function NavBar() {
   const linkClass =
     'px-3 py-2 rounded-md text-sm font-medium transition-colors min-h-[44px] flex items-center'
-  const activeClass = 'text-white bg-slate-700'
-  const inactiveClass = 'text-slate-400 hover:text-slate-200'
+  const activeClass = 'text-[#222] bg-[#F0EDE6]'
+  const inactiveClass = 'text-[#8E8E8E] hover:text-[#222]'
 
   const mobileLinkClass =
     'flex flex-col items-center justify-center gap-1 text-xs font-medium transition-colors min-h-[44px] flex-1'
-  const mobileActiveClass = 'text-white'
-  const mobileInactiveClass = 'text-slate-500'
+  const mobileActiveClass = 'text-[#FFB951]'
+  const mobileInactiveClass = 'text-[#8E8E8E]'
 
   return (
     <>
       {/* Desktop top nav */}
-      <nav className="hidden sm:block bg-slate-900 border-b border-slate-800">
+      <nav className="hidden sm:block bg-white border-b border-[#E8E4DC]">
         <div className="max-w-2xl mx-auto px-4 flex items-center gap-6 h-14">
-          <Link to="/" className="text-xl font-bold tracking-tight text-white mr-4">
+          <Link to="/" className="text-xl font-bold tracking-tight text-[#222] mr-4" style={{fontFamily:'DM Sans'}}>
             Omlete
           </Link>
           <Link
@@ -126,7 +128,7 @@ function NavBar() {
       </nav>
 
       {/* Mobile bottom tab bar */}
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-900 border-t border-slate-800 safe-area-bottom">
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#E8E4DC] safe-area-bottom">
         <div className="flex items-center h-14">
           <Link
             to="/"
@@ -173,11 +175,11 @@ function NavBar() {
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <head>
         <HeadContent />
       </head>
-      <body className="bg-slate-900 pb-16 sm:pb-0">
+      <body className="pb-16 sm:pb-0">
         <TanStackQueryProvider>
           <NavBar />
           {children}

@@ -5,7 +5,7 @@ export function highlightAmounts(text: string) {
   if (parts.length === 1) return text
   return parts.map((part, i) =>
     AMOUNT_RE.test(part) ? (
-      <span key={i} className="text-white font-medium">{part}</span>
+      <span key={i} className="text-[#222] font-semibold">{part}</span>
     ) : (
       part
     )

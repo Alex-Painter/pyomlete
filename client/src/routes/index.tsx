@@ -59,7 +59,7 @@ function ListsPage() {
   })
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="min-h-screen bg-[#F4F4F4] text-[#222]">
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold">My Lists</h1>
@@ -77,14 +77,14 @@ function ListsPage() {
 
         {isLoading && (
           <div className="flex justify-center py-12">
-            <Loader2 className="size-6 animate-spin text-slate-400" />
+            <Loader2 className="size-6 animate-spin text-[#8E8E8E]" />
           </div>
         )}
 
         {lists && lists.length === 0 && (
           <div className="text-center py-16">
-            <ShoppingCart className="size-12 mx-auto text-slate-600 mb-4" />
-            <p className="text-slate-400 mb-4">No shopping lists yet</p>
+            <ShoppingCart className="size-12 mx-auto text-[#CFCFCF] mb-4" />
+            <p className="text-[#8E8E8E] mb-4">No shopping lists yet</p>
             <Button onClick={() => createList.mutate()} disabled={createList.isPending}>
               <Plus className="size-4" />
               Create your first list
@@ -98,34 +98,34 @@ function ListsPage() {
               <button
                 key={list.id}
                 onClick={() => navigate({ to: '/list/$listId', params: { listId: list.id } })}
-                className="w-full text-left bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-500 transition-colors cursor-pointer"
+                className="w-full text-left bg-white border border-[#E8E4DC] rounded-lg p-4 shadow-sm hover:shadow-md hover:border-[#FFB951] transition-all cursor-pointer"
               >
                 <div className="flex items-center justify-between mb-1">
                   <h2 className="font-medium">{list.name}</h2>
-                  <span className="text-sm text-slate-400">
+                  <span className="text-sm text-[#8E8E8E]">
                     {list.checked_count}/{list.item_count} items
                   </span>
                 </div>
 
                 {/* Progress bar */}
                 {list.item_count > 0 && (
-                  <div className="w-full h-1.5 bg-slate-700 rounded-full mb-2">
+                  <div className="w-full h-1.5 bg-[#E8E4DC] rounded-full mb-2">
                     <div
-                      className="h-full bg-emerald-500 rounded-full transition-all"
+                      className="h-full bg-[#FFB951] rounded-full transition-all"
                       style={{ width: `${(list.checked_count / list.item_count) * 100}%` }}
                     />
                   </div>
                 )}
 
                 {list.recipe_titles.length > 0 && (
-                  <p className="text-sm text-slate-400 truncate">
+                  <p className="text-sm text-[#8E8E8E] truncate">
                     {list.recipe_titles.join(', ')}
                   </p>
                 )}
 
                 <div className="flex items-center justify-between mt-2">
                   {list.created_at && (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-[#ADADAD]">
                       {new Date(list.created_at).toLocaleDateString()}
                     </p>
                   )}
@@ -133,7 +133,7 @@ function ListsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-slate-500 hover:text-white h-9 gap-1.5"
+                      className="text-[#8E8E8E] hover:text-[#222] h-9 gap-1.5"
                       onClick={(e) => {
                         e.stopPropagation()
                         duplicateList.mutate(list.id)

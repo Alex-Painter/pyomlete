@@ -16,19 +16,19 @@ function CreatePage() {
   const [tab, setTab] = useState<Tab>('extract')
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="min-h-screen bg-[#F4F4F4] text-[#222]">
       <div className="max-w-2xl mx-auto px-4 py-12">
         <h1 className="text-2xl font-bold mb-2">Create Recipe</h1>
-        <p className="text-slate-400 mb-8">Generate or extract recipes with AI</p>
+        <p className="text-[#8E8E8E] mb-8">Generate or extract recipes with AI</p>
 
-        <div className="flex gap-1 p-1 bg-slate-800 rounded-lg mb-8 w-fit">
+        <div className="flex gap-1 p-1 bg-[#EFEFEF] rounded-lg mb-8 w-fit">
           {(['generate', 'extract'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${tab === t
-                  ? 'bg-slate-700 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-[#222] shadow-sm'
+                  : 'text-[#8E8E8E] hover:text-[#444]'
                 }`}
             >
               {t === 'generate' ? 'Generate' : 'Extract from Images'}
@@ -59,7 +59,7 @@ function GenerateTab() {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <label className="text-sm font-medium text-slate-300">
+        <label className="text-sm font-medium text-[#444]">
           What ingredients do you have?
         </label>
         <textarea
@@ -67,7 +67,7 @@ function GenerateTab() {
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="e.g. eggs, crème fraîche, salt, pepper, chives..."
           rows={3}
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500 resize-none"
+          className="w-full bg-white border border-[#E8E4DC] rounded-lg px-4 py-3 text-sm text-[#222] placeholder-[#ADADAD] focus:outline-none focus:ring-2 focus:ring-[#FFB951] resize-none"
         />
       </div>
 
@@ -171,7 +171,7 @@ function ExtractTab() {
       <button
         onClick={addGroup}
         disabled={isExtracting}
-        className="w-full border-2 border-dashed border-slate-700 rounded-xl p-6 flex items-center justify-center gap-2 text-slate-400 hover:border-slate-500 hover:text-slate-300 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full border-2 border-dashed border-[#E8E4DC] rounded-xl p-6 flex items-center justify-center gap-2 text-[#8E8E8E] hover:border-[#FFB951] hover:text-[#444] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <Plus className="size-5" />
         <span className="text-sm font-medium">Add Recipe</span>
@@ -198,7 +198,7 @@ function ExtractTab() {
       {/* Results */}
       {results.length > 0 && (
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-slate-400">
+          <h3 className="text-sm font-medium text-[#8E8E8E]">
             Extracted {results.length} recipe{results.length !== 1 ? 's' : ''}
           </h3>
           {results.map((recipe, i) => (
@@ -228,7 +228,7 @@ function RecipeGroupRow({
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 space-y-3">
+    <div className="bg-white border border-[#E8E4DC] rounded-lg p-4 space-y-3 shadow-sm">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">Recipe {index + 1}</h3>
         <Button
@@ -248,14 +248,14 @@ function RecipeGroupRow({
           {group.files.map((f, i) => (
             <div
               key={i}
-              className="relative group bg-slate-700 rounded-md px-3 py-2 flex items-center gap-2"
+              className="relative group bg-[#F4F4F4] rounded-md px-3 py-2 flex items-center gap-2"
             >
-              <ImageIcon className="size-4 text-slate-400 shrink-0" />
-              <span className="text-xs text-slate-300 truncate max-w-[120px]">{f.name}</span>
+              <ImageIcon className="size-4 text-[#8E8E8E] shrink-0" />
+              <span className="text-xs text-[#444] truncate max-w-[120px]">{f.name}</span>
               <button
                 onClick={() => onRemoveFile(i)}
                 disabled={disabled}
-                className="text-slate-500 hover:text-slate-300 cursor-pointer"
+                className="text-[#ADADAD] hover:text-[#8E8E8E] cursor-pointer"
               >
                 <X className="size-3.5" />
               </button>
@@ -279,7 +279,7 @@ function RecipeGroupRow({
       <button
         onClick={() => inputRef.current?.click()}
         disabled={disabled}
-        className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center gap-2 text-sm text-[#8E8E8E] hover:text-[#444] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <UploadCloud className="size-4" />
         Add photos

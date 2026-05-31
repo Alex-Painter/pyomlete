@@ -231,17 +231,17 @@ function ListDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white flex justify-center pt-24">
-        <Loader2 className="size-6 animate-spin text-slate-400" />
+      <div className="min-h-screen bg-[#F4F4F4] text-[#222] flex justify-center pt-24">
+        <Loader2 className="size-6 animate-spin text-[#8E8E8E]" />
       </div>
     )
   }
 
   if (!list) {
     return (
-      <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+      <div className="min-h-screen bg-[#F4F4F4] text-[#222]">
         <div className="max-w-2xl mx-auto px-4 py-12">
-          <p className="text-slate-400">List not found</p>
+          <p className="text-[#8E8E8E]">List not found</p>
         </div>
       </div>
     )
@@ -285,13 +285,13 @@ function ListDetailPage() {
   const availableRecipes = allRecipes?.filter((r) => !selectedRecipeIds.has(r.id)) ?? []
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="min-h-screen bg-[#F4F4F4] text-[#222]">
       <div className="flex">
         {/* Main content */}
         <div className="flex-1 min-w-0 max-w-2xl mx-auto px-4 py-6">
           {/* Header */}
           <div className="flex items-center gap-3 mb-2">
-            <Link to="/" className="text-slate-400 hover:text-white transition-colors">
+            <Link to="/" className="text-[#8E8E8E] hover:text-[#222] transition-colors">
               <ArrowLeft className="size-5" />
             </Link>
             <h1 className="text-xl font-bold flex-1">{list.name}</h1>
@@ -299,13 +299,13 @@ function ListDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              className="lg:hidden border-slate-700 text-slate-300 hover:text-white"
+              className="lg:hidden border-[#E8E4DC] text-[#8E8E8E] hover:text-[#222]"
               onClick={() => setShowSidebar(!showSidebar)}
             >
               <UtensilsCrossed className="size-4" />
               Recipes
               {list.recipes.length > 0 && (
-                <span className="ml-1 bg-slate-700 text-xs px-1.5 py-0.5 rounded-full">
+                <span className="ml-1 bg-[#F4F4F4] text-xs px-1.5 py-0.5 rounded-full">
                   {list.recipes.length}
                 </span>
               )}
@@ -316,13 +316,13 @@ function ListDetailPage() {
           {totalItems > 0 && (
             <div className="mb-6 ml-8">
               <div className="flex items-center gap-2 mb-1">
-                <div className="flex-1 h-1.5 bg-slate-700 rounded-full">
+                <div className="flex-1 h-1.5 bg-[#E8E4DC] rounded-full">
                   <div
-                    className="h-full bg-emerald-500 rounded-full transition-all"
+                    className="h-full bg-[#FFB951] rounded-full transition-all"
                     style={{ width: `${(checkedItems / totalItems) * 100}%` }}
                   />
                 </div>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-[#8E8E8E]">
                   {checkedItems}/{totalItems}
                 </span>
               </div>
@@ -335,7 +335,7 @@ function ListDetailPage() {
               e.preventDefault()
               handleQuickAdd()
             }}
-            className="sticky top-0 sm:top-14 z-10 bg-slate-900/95 backdrop-blur-sm pb-4 mb-2 -mx-4 px-4 pt-2 sm:static sm:bg-transparent sm:backdrop-blur-none sm:pb-0 sm:mb-6 sm:mx-0 sm:px-0 sm:pt-0"
+            className="sticky top-0 sm:top-14 z-10 bg-[#F4F4F4]/95 backdrop-blur-sm pb-4 mb-2 -mx-4 px-4 pt-2 sm:static sm:bg-transparent sm:backdrop-blur-none sm:pb-0 sm:mb-6 sm:mx-0 sm:px-0 sm:pt-0"
           >
             <div className="flex gap-2">
               <Input
@@ -343,17 +343,17 @@ function ListDetailPage() {
                 value={quickAddValue}
                 onChange={(e) => setQuickAddValue(e.target.value)}
                 placeholder="Add item..."
-                className="flex-1 h-10 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+                className="flex-1 h-10 bg-white border-[#E8E4DC] text-[#222] placeholder:text-[#ADADAD]"
               />
               <Input
                 type="number"
                 value={quickAddAmount}
                 onChange={(e) => setQuickAddAmount(e.target.value)}
                 placeholder="Qty"
-                className="w-16 sm:w-20 h-10 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+                className="w-16 sm:w-20 h-10 bg-white border-[#E8E4DC] text-[#222] placeholder:text-[#ADADAD]"
               />
               <Select value={quickAddUnit} onValueChange={setQuickAddUnit}>
-                <SelectTrigger className="w-24 sm:w-28 h-10 bg-slate-800 border-slate-700 text-white">
+                <SelectTrigger className="w-24 sm:w-28 h-10 bg-white border-[#E8E4DC] text-[#222]">
                   <SelectValue placeholder="Unit" />
                 </SelectTrigger>
                 <SelectContent>
@@ -387,8 +387,8 @@ function ListDetailPage() {
           {/* Empty state */}
           {list.items.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-slate-400 mb-2">No items yet</p>
-              <p className="text-sm text-slate-500">
+              <p className="text-[#8E8E8E] mb-2">No items yet</p>
+              <p className="text-sm text-[#ADADAD]">
                 Add items above or add recipes from the sidebar to get started
               </p>
             </div>
@@ -400,18 +400,18 @@ function ListDetailPage() {
               const isCollapsed = collapsedCategories.has(category)
 
               return (
-                <div key={category} className="bg-slate-800/50 rounded-lg overflow-hidden">
+                <div key={category} className="bg-white rounded-lg border border-[#E8E4DC] shadow-sm overflow-hidden">
                   <button
                     onClick={() => toggleCategory(category)}
-                    className="w-full flex items-center gap-2 px-4 py-3 min-h-[44px] text-sm font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-4 py-3 min-h-[44px] text-sm font-medium text-[#8E8E8E] hover:text-[#222] transition-colors cursor-pointer"
                   >
                     {isCollapsed ? (
-                      <ChevronRight className="size-4 text-slate-500" />
+                      <ChevronRight className="size-4 text-[#ADADAD]" />
                     ) : (
-                      <ChevronDown className="size-4 text-slate-500" />
+                      <ChevronDown className="size-4 text-[#ADADAD]" />
                     )}
                     <span className="flex-1 text-left">{category}</span>
-                    <span className="text-xs text-slate-500">{items.length}</span>
+                    <span className="text-xs text-[#ADADAD]">{items.length}</span>
                   </button>
 
                   {!isCollapsed && (
@@ -446,7 +446,7 @@ function ListDetailPage() {
             <div className="mt-4">
               <button
                 onClick={() => setShowCompleted(!showCompleted)}
-                className="flex items-center gap-2 px-2 py-2 text-sm text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                className="flex items-center gap-2 px-2 py-2 text-sm text-[#8E8E8E] hover:text-[#444] transition-colors cursor-pointer"
               >
                 {showCompleted ? (
                   <ChevronDown className="size-3.5" />
@@ -467,7 +467,7 @@ function ListDetailPage() {
                           updates: { checked: false },
                         })
                       }
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/60 text-xs text-slate-500 line-through hover:bg-slate-700 hover:text-slate-300 transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#F4F4F4] text-xs text-[#ADADAD] line-through hover:bg-[#E8E4DC] hover:text-[#444] transition-colors cursor-pointer"
                     >
                       <Check className="size-3" />
                       {item.name}
@@ -480,7 +480,7 @@ function ListDetailPage() {
         </div>
 
         {/* Desktop sidebar — fixed to right edge, full height */}
-        <div className="hidden lg:block fixed right-0 top-14 bottom-0 w-80 border-l border-slate-700/50 overflow-y-auto">
+        <div className="hidden lg:block fixed right-0 top-14 bottom-0 w-80 border-l border-[#E8E4DC] overflow-y-auto">
           <RecipeSidebar
             selectedRecipes={selectedRecipes}
             availableRecipes={availableRecipes}
@@ -514,36 +514,36 @@ function RecipeSidebar({
   isRemoving: boolean
 }) {
   return (
-    <div className="bg-slate-800/50 overflow-hidden lg:rounded-none lg:bg-transparent rounded-lg">
-      <div className="px-4 py-3 border-b border-slate-700/50">
+    <div className="bg-white overflow-hidden lg:rounded-none lg:bg-[#FAFAF8] rounded-lg">
+      <div className="px-4 py-3 border-b border-[#E8E4DC]">
         <h2 className="text-sm font-semibold flex items-center gap-2">
-          <UtensilsCrossed className="size-4 text-slate-400" />
+          <UtensilsCrossed className="size-4 text-[#8E8E8E]" />
           Recipes
         </h2>
       </div>
 
       {/* Selected recipes */}
       {selectedRecipes.length > 0 && (
-        <div className="p-3 border-b border-slate-700/50">
-          <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2 px-1">
+        <div className="p-3 border-b border-[#E8E4DC]">
+          <h3 className="text-xs font-medium text-[#8E8E8E] uppercase tracking-wider mb-2 px-1">
             On this list
           </h3>
           <div className="space-y-1">
             {selectedRecipes.map((recipe) => (
               <div
                 key={recipe.id}
-                className="flex items-center gap-2 px-2 py-2 rounded-md bg-slate-800"
+                className="flex items-center gap-2 px-2 py-2 rounded-md bg-[#F4F4F4]"
               >
-                <Check className="size-3.5 text-emerald-500 shrink-0" />
+                <Check className="size-3.5 text-[#FFB951] shrink-0" />
                 <div className="flex-1 min-w-0">
                   <Link
                     to="/recipe/$recipeId"
                     params={{ recipeId: recipe.id }}
-                    className="text-sm truncate block hover:text-emerald-400 transition-colors"
+                    className="text-sm truncate block hover:text-[#FFB951] transition-colors"
                   >
                     {recipe.title}
                   </Link>
-                  <p className="text-xs text-slate-500">{recipe.ingredient_count} ingredients</p>
+                  <p className="text-xs text-[#ADADAD]">{recipe.ingredient_count} ingredients</p>
                 </div>
                 <Button
                   variant="ghost"
@@ -562,16 +562,16 @@ function RecipeSidebar({
 
       {/* Available recipes */}
       <div className="p-3">
-        <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2 px-1">
+        <h3 className="text-xs font-medium text-[#8E8E8E] uppercase tracking-wider mb-2 px-1">
           {selectedRecipes.length > 0 ? 'Add more' : 'Add recipes'}
         </h3>
         {!allRecipes && (
           <div className="flex justify-center py-4">
-            <Loader2 className="size-5 animate-spin text-slate-400" />
+            <Loader2 className="size-5 animate-spin text-[#8E8E8E]" />
           </div>
         )}
         {allRecipes && availableRecipes.length === 0 && (
-          <p className="text-xs text-slate-500 py-3 text-center">
+          <p className="text-xs text-[#ADADAD] py-3 text-center">
             {allRecipes.length === 0
               ? 'No recipes yet. Create some first!'
               : 'All recipes added'}
@@ -583,13 +583,13 @@ function RecipeSidebar({
               key={recipe.id}
               onClick={() => onAdd(recipe.id)}
               disabled={isAdding}
-              className="w-full flex items-center gap-2 px-2 py-2.5 min-h-[44px] rounded-md hover:bg-slate-800 transition-colors cursor-pointer text-left"
+              className="w-full flex items-center gap-2 px-2 py-2.5 min-h-[44px] rounded-md hover:bg-[#F0EDE6] transition-colors cursor-pointer text-left"
             >
-              <Plus className="size-3.5 text-slate-500 shrink-0" />
+              <Plus className="size-3.5 text-[#CFCFCF] shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm truncate">{recipe.title}</p>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-[#ADADAD]">
                     {recipe.ingredient_count} ingredients
                   </span>
                   {recipe.rating && (
@@ -678,13 +678,13 @@ function ItemRow({
 
   if (editing) {
     return (
-      <div className="px-2 py-2 rounded-md bg-slate-800 space-y-2">
+      <div className="px-2 py-2 rounded-md bg-white border border-[#E8E4DC] space-y-2">
         <div className="flex flex-col sm:flex-row gap-2">
           <Input
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             placeholder="Name"
-            className="flex-1 h-10 bg-slate-700 border-slate-600 text-white text-sm"
+            className="flex-1 h-10 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave()
@@ -697,14 +697,14 @@ function ItemRow({
               value={editAmount}
               onChange={(e) => setEditAmount(e.target.value)}
               placeholder="Qty"
-              className="w-20 h-10 bg-slate-700 border-slate-600 text-white text-sm"
+              className="w-20 h-10 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSave()
                 if (e.key === 'Escape') handleCancel()
               }}
             />
             <Select value={editUnit} onValueChange={setEditUnit}>
-              <SelectTrigger className="w-28 h-10 bg-slate-700 border-slate-600 text-white text-sm">
+              <SelectTrigger className="w-28 h-10 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm">
                 <SelectValue placeholder="Unit" />
               </SelectTrigger>
               <SelectContent>
@@ -718,7 +718,7 @@ function ItemRow({
         </div>
         <div className="flex items-center gap-2">
           <Select value={editCategory} onValueChange={setEditCategory}>
-            <SelectTrigger className="w-40 h-10 bg-slate-700 border-slate-600 text-white text-sm">
+            <SelectTrigger className="w-40 h-10 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm">
               <SelectValue placeholder="Category" />
             </SelectTrigger>
             <SelectContent>
@@ -728,7 +728,7 @@ function ItemRow({
             </SelectContent>
           </Select>
           <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-slate-400 hover:text-white">
+          <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-[#8E8E8E] hover:text-[#222]">
             Cancel
           </Button>
           <Button size="sm" onClick={handleSave} className="h-9 px-3">
@@ -751,25 +751,25 @@ function ItemRow({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         style={{ transform: `translateX(-${swipeOffset}px)` }}
-        className={`relative flex items-center gap-3 px-2 py-2.5 rounded-md group bg-slate-900 transition-opacity ${
+        className={`relative flex items-center gap-3 px-2 py-2.5 rounded-md group bg-white transition-opacity ${
           !swiping ? 'transition-transform duration-200' : ''
         } ${item.checked ? 'opacity-50' : ''}`}
       >
         <Checkbox
           checked={item.checked}
           onCheckedChange={onToggleCheck}
-          className="shrink-0 size-5 border-slate-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+          className="shrink-0 size-5 border-[#CFCFCF] data-[state=checked]:bg-[#FFB951] data-[state=checked]:border-[#FFB951] [&>[data-state=checked]>svg]:text-[#222]"
         />
 
-        <div className={`flex-1 min-w-0 ${item.checked ? 'line-through text-slate-400' : ''}`}>
+        <div className={`flex-1 min-w-0 ${item.checked ? 'line-through text-[#8E8E8E]' : ''}`}>
           <span className="text-sm">{item.name}</span>
           {(item.amount != null || item.unit) && (
-            <span className="text-xs text-slate-400 ml-2">
+            <span className="text-xs text-[#ADADAD] ml-2">
               {item.amount != null ? item.amount : ''}{item.unit ? ` ${item.unit}` : ''}
             </span>
           )}
           {item.sources.filter((s) => s.recipe_id).length > 1 && (
-            <span className="ml-2 text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-full">
+            <span className="ml-2 text-[10px] text-[#8E8E8E] bg-[#F4F4F4] px-1.5 py-0.5 rounded-full">
               {item.sources.filter((s) => s.recipe_id).length} recipes
             </span>
           )}
@@ -779,7 +779,7 @@ function ItemRow({
           variant="ghost"
           size="icon-xs"
           onClick={() => setEditing(true)}
-          className="shrink-0 size-8 text-slate-600 hover:text-slate-300 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+          className="shrink-0 size-8 text-[#CFCFCF] hover:text-[#444] sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
         >
           <Pencil className="size-3.5" />
         </Button>
@@ -787,7 +787,7 @@ function ItemRow({
           variant="ghost"
           size="icon-xs"
           onClick={onDelete}
-          className="shrink-0 size-8 text-slate-600 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+          className="shrink-0 size-8 text-[#CFCFCF] hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
         >
           <Trash2 className="size-3.5" />
         </Button>

@@ -85,20 +85,20 @@ function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="min-h-screen bg-[#F4F4F4] text-[#222]">
       <div className="max-w-lg mx-auto px-4 py-12">
         <h1 className="text-2xl font-bold mb-8">Settings</h1>
 
         <div className="space-y-6">
           <div>
             <h2 className="text-lg font-semibold mb-1">Categories</h2>
-            <p className="text-sm text-slate-400 mb-4">
+            <p className="text-sm text-[#8E8E8E] mb-4">
               Manage how items are grouped on your shopping lists. Drag to reorder.
             </p>
 
             {isLoading && (
               <div className="flex justify-center py-8">
-                <Loader2 className="size-6 animate-spin text-slate-400" />
+                <Loader2 className="size-6 animate-spin text-[#8E8E8E]" />
               </div>
             )}
 
@@ -107,9 +107,9 @@ function SettingsPage() {
                 {sorted.map((cat, index) => (
                   <div
                     key={cat.name}
-                    className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-md px-3 py-2.5"
+                    className="flex items-center gap-2 bg-white border border-[#E8E4DC] rounded-md px-3 py-2.5 shadow-sm"
                   >
-                    <GripVertical className="size-4 text-slate-600 shrink-0" />
+                    <GripVertical className="size-4 text-[#CFCFCF] shrink-0" />
 
                     {editingIndex === index ? (
                       <form
@@ -122,7 +122,7 @@ function SettingsPage() {
                         <Input
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="h-7 bg-slate-700 border-slate-600 text-white text-sm"
+                          className="h-7 bg-[#F4F4F4] border-[#E0DACE] text-[#222] text-sm"
                           autoFocus
                           onKeyDown={(e) => {
                             if (e.key === 'Escape') setEditingIndex(null)
@@ -135,7 +135,7 @@ function SettingsPage() {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-slate-400"
+                          className="h-7 text-[#8E8E8E]"
                           onClick={() => setEditingIndex(null)}
                         >
                           <X className="size-3.5" />
@@ -150,7 +150,7 @@ function SettingsPage() {
                             size="icon-xs"
                             onClick={() => handleMove(index, 'up')}
                             disabled={index === 0}
-                            className="text-slate-500 hover:text-white"
+                            className="text-[#8E8E8E] hover:text-[#222]"
                           >
                             <ArrowUp className="size-3.5" />
                           </Button>
@@ -159,7 +159,7 @@ function SettingsPage() {
                             size="icon-xs"
                             onClick={() => handleMove(index, 'down')}
                             disabled={index === sorted.length - 1}
-                            className="text-slate-500 hover:text-white"
+                            className="text-[#8E8E8E] hover:text-[#222]"
                           >
                             <ArrowDown className="size-3.5" />
                           </Button>
@@ -170,7 +170,7 @@ function SettingsPage() {
                               setEditingIndex(index)
                               setEditName(cat.name)
                             }}
-                            className="text-slate-500 hover:text-white"
+                            className="text-[#8E8E8E] hover:text-[#222]"
                           >
                             <Pencil className="size-3.5" />
                           </Button>
@@ -202,7 +202,7 @@ function SettingsPage() {
                 value={newCategoryName}
                 onChange={(e) => setNewCategoryName(e.target.value)}
                 placeholder="New category name..."
-                className="flex-1 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+                className="flex-1 bg-white border-[#E8E4DC] text-[#222] placeholder:text-[#ADADAD]"
               />
               <Button type="submit" disabled={!newCategoryName.trim() || updateCategories.isPending}>
                 <Plus className="size-4" />
