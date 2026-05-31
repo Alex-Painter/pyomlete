@@ -718,12 +718,16 @@ function SuggestMealsSheet({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt: promptParts.join(' ') }),
         })
-        const recipe: { id: string } = await genRes.json()
+        // The generate endpoint returns a raw document; depending on
+        // serialization the id may come back as `id` or `_id`.
+        const recipe: { id?: string; _id?: string } = await genRes.json()
+        const recipeId = recipe.id ?? recipe._id
+        if (!recipeId) continue
 
         await apiFetch(`/api/lists/${listId}/recipes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recipe_id: recipe.id }),
+          body: JSON.stringify({ recipe_id: recipeId }),
         })
         setGenerating({ done: i + 1, total: picked.length })
       }
