@@ -9,6 +9,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Sparkles,
   Star,
   Trash2,
   UtensilsCrossed,
@@ -24,6 +25,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 import { apiFetch } from '@/lib/api'
 
 type ItemSource = {
@@ -59,6 +68,11 @@ type RecipeSummary = {
   title: string
   ingredient_count: number
   rating: number | null
+}
+
+type MealIdea = {
+  title: string
+  description: string
 }
 
 export const Route = createFileRoute('/list/$listId')({ component: ListDetailPage })
@@ -373,6 +387,7 @@ function ListDetailPage() {
           {showSidebar && (
             <div className="lg:hidden mb-6">
               <RecipeSidebar
+                listId={listId}
                 selectedRecipes={selectedRecipes}
                 availableRecipes={availableRecipes}
                 allRecipes={allRecipes}
@@ -482,6 +497,7 @@ function ListDetailPage() {
         {/* Desktop sidebar — fixed to right edge, full height */}
         <div className="hidden lg:block fixed right-0 top-14 bottom-0 w-80 border-l border-line overflow-y-auto">
           <RecipeSidebar
+            listId={listId}
             selectedRecipes={selectedRecipes}
             availableRecipes={availableRecipes}
             allRecipes={allRecipes}
@@ -497,6 +513,7 @@ function ListDetailPage() {
 }
 
 function RecipeSidebar({
+  listId,
   selectedRecipes,
   availableRecipes,
   allRecipes,
@@ -505,6 +522,7 @@ function RecipeSidebar({
   isAdding,
   isRemoving,
 }: {
+  listId: string
   selectedRecipes: RecipeSummary[]
   availableRecipes: RecipeSummary[]
   allRecipes: RecipeSummary[] | undefined
@@ -560,6 +578,14 @@ function RecipeSidebar({
         </div>
       )}
 
+      {/* Suggest meals */}
+      <div className="p-3 border-b border-slate-700/50">
+        <SuggestMealsSheet
+          listId={listId}
+          existingTitles={selectedRecipes.map((r) => r.title)}
+        />
+      </div>
+
       {/* Available recipes */}
       <div className="p-3">
         <h3 className="text-xs font-medium text-ink-muted uppercase tracking-wider mb-2 px-1">
@@ -605,6 +631,249 @@ function RecipeSidebar({
         </div>
       </div>
     </div>
+  )
+}
+
+const DIET_OPTIONS = [
+  { value: 'any', label: 'Any' },
+  { value: 'vegetarian', label: 'Vegetarian' },
+  { value: 'vegan', label: 'Vegan' },
+  { value: 'pescatarian', label: 'Pescatarian' },
+  { value: 'meaty', label: 'Meaty' },
+]
+
+const EASE_OPTIONS = [
+  { value: 'any', label: 'Any' },
+  { value: 'quick', label: 'Quick & easy' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'involved', label: 'Involved' },
+]
+
+function SuggestMealsSheet({
+  listId,
+  existingTitles,
+}: {
+  listId: string
+  existingTitles: string[]
+}) {
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [diet, setDiet] = useState('any')
+  const [ease, setEase] = useState('any')
+  const [notes, setNotes] = useState('')
+  const [suggestions, setSuggestions] = useState<MealIdea[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [generating, setGenerating] = useState<{ done: number; total: number } | null>(null)
+
+  const suggest = useMutation({
+    mutationFn: async (): Promise<MealIdea[]> => {
+      const res = await apiFetch('/api/recipes/suggest/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          diet,
+          ease,
+          notes,
+          // Don't repeat meals already on the list, nor ones already shown.
+          exclude_titles: [...existingTitles, ...suggestions.map((s) => s.title)],
+        }),
+      })
+      const data: { suggestions: MealIdea[] } = await res.json()
+      return data.suggestions
+    },
+    onSuccess: (ideas) => {
+      // Append on "Suggest again", replace on first run.
+      setSuggestions((prev) => [...prev, ...ideas])
+    },
+  })
+
+  const toggleSelected = (title: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(title)) next.delete(title)
+      else next.add(title)
+      return next
+    })
+  }
+
+  const handleAddSelected = async () => {
+    const picked = suggestions.filter((s) => selected.has(s.title))
+    if (picked.length === 0) return
+    setGenerating({ done: 0, total: picked.length })
+    try {
+      // Sequential: each recipe is generated, then attached to the list.
+      // Attaching reads-modifies-writes the list document, so we must not race.
+      for (let i = 0; i < picked.length; i++) {
+        const idea = picked[i]
+        const promptParts = [
+          `Create a recipe for: ${idea.title}.`,
+          idea.description,
+        ]
+        if (diet !== 'any') promptParts.push(`Dietary preference: ${diet}.`)
+        if (ease !== 'any') promptParts.push(`Effort level: ${ease}.`)
+        if (notes.trim()) promptParts.push(notes.trim())
+
+        const genRes = await apiFetch('/api/recipes/generate/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: promptParts.join(' ') }),
+        })
+        // The generate endpoint returns a raw document; depending on
+        // serialization the id may come back as `id` or `_id`.
+        const recipe: { id?: string; _id?: string } = await genRes.json()
+        const recipeId = recipe.id ?? recipe._id
+        if (!recipeId) continue
+
+        await apiFetch(`/api/lists/${listId}/recipes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipe_id: recipeId }),
+        })
+        setGenerating({ done: i + 1, total: picked.length })
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['list', listId] })
+      queryClient.invalidateQueries({ queryKey: ['lists'] })
+      queryClient.invalidateQueries({ queryKey: ['recipes'] })
+
+      // Reset and close.
+      setSelected(new Set())
+      setSuggestions([])
+      setNotes('')
+      setOpen(false)
+    } finally {
+      setGenerating(null)
+    }
+  }
+
+  const isGenerating = generating !== null
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="outline" className="w-full border-slate-700 text-slate-200 hover:text-white">
+          <Sparkles className="size-4" />
+          Suggest meals
+        </Button>
+      </SheetTrigger>
+      <SheetContent
+        side="right"
+        className="bg-slate-900 border-slate-700 text-white w-full sm:max-w-md overflow-y-auto"
+      >
+        <SheetHeader>
+          <SheetTitle className="text-white flex items-center gap-2">
+            <Sparkles className="size-4 text-emerald-400" />
+            Suggest meals
+          </SheetTitle>
+          <SheetDescription className="text-slate-400">
+            Set a few preferences and let AI suggest meal ideas for this list.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="px-4 pb-4 space-y-5">
+          {/* Constraints */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-slate-400">Diet</label>
+              <Select value={diet} onValueChange={setDiet}>
+                <SelectTrigger className="h-10 bg-slate-800 border-slate-700 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DIET_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-slate-400">Ease of cooking</label>
+              <Select value={ease} onValueChange={setEase}>
+                <SelectTrigger className="h-10 bg-slate-800 border-slate-700 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EASE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-400">Notes (optional)</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. use up leftover spinach, kid-friendly, Italian..."
+              rows={2}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500 resize-none"
+            />
+          </div>
+
+          <Button
+            onClick={() => suggest.mutate()}
+            disabled={suggest.isPending || isGenerating}
+            className="w-full"
+          >
+            {suggest.isPending ? (
+              <>
+                <Loader2 className="animate-spin size-4" />
+                Thinking...
+              </>
+            ) : suggestions.length > 0 ? (
+              'Suggest again'
+            ) : (
+              'Suggest meals'
+            )}
+          </Button>
+
+          {/* Suggestions */}
+          {suggestions.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Ideas — pick the ones you like
+              </h3>
+              <div className="space-y-1.5">
+                {suggestions.map((idea) => (
+                  <button
+                    key={idea.title}
+                    onClick={() => toggleSelected(idea.title)}
+                    disabled={isGenerating}
+                    className="w-full flex items-start gap-3 px-3 py-2.5 rounded-md bg-slate-800 hover:bg-slate-700/70 transition-colors text-left cursor-pointer"
+                  >
+                    <Checkbox
+                      checked={selected.has(idea.title)}
+                      className="mt-0.5 shrink-0 size-5 border-slate-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600 pointer-events-none"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{idea.title}</p>
+                      <p className="text-xs text-slate-400">{idea.description}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <Button
+                onClick={handleAddSelected}
+                disabled={selected.size === 0 || isGenerating}
+                className="w-full"
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="animate-spin size-4" />
+                    Generating recipe {Math.min(generating.done + 1, generating.total)} of {generating.total}...
+                  </>
+                ) : (
+                  `Add ${selected.size || ''} ${selected.size === 1 ? 'meal' : 'meals'} to list`
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
 

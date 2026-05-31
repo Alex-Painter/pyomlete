@@ -39,6 +39,24 @@ class RecipeModelResponse(Recipe):
     ingredients: list[IngredientModelResponse]
 
 
+class MealIdea(BaseModel):
+    title: str
+    description: str = Field(
+        description="One short, appetising sentence describing the meal."
+    )
+
+
+class MealSuggestions(BaseModel):
+    suggestions: list[MealIdea]
+
+
+class SuggestMealsRequest(BaseModel):
+    diet: Optional[str] = None
+    ease: Optional[str] = None
+    notes: Optional[str] = None
+    exclude_titles: list[str] = Field(default_factory=list)
+
+
 class SimilarIngredient(BaseModel):
     name: str
     score: float
