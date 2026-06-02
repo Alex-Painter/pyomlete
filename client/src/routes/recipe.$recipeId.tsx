@@ -37,6 +37,10 @@ type IngredientRecipe = {
   excluded_from_list: boolean
 }
 
+// While editing, amount is kept as a raw string so the field can be cleared
+// (otherwise an empty input snaps back to 0 and can't be deleted).
+type EditIngredient = Omit<IngredientRecipe, 'amount'> & { amount: string }
+
 type RecipeDetail = Omit<Recipe, 'ingredients'> & {
   _id: string
   rating: number | null
@@ -62,7 +66,7 @@ function RecipeDetailPage() {
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editInstructions, setEditInstructions] = useState<string[]>([])
-  const [editIngredients, setEditIngredients] = useState<IngredientRecipe[]>([])
+  const [editIngredients, setEditIngredients] = useState<EditIngredient[]>([])
 
   useWakeLock()
 
@@ -114,7 +118,10 @@ function RecipeDetailPage() {
         body: JSON.stringify({
           title: editTitle,
           instructions: editInstructions,
-          ingredients: editIngredients,
+          ingredients: editIngredients.map((ing) => ({
+            ...ing,
+            amount: parseFloat(ing.amount) || 0,
+          })),
         }),
       })
       return res.json()
@@ -157,7 +164,9 @@ function RecipeDetailPage() {
     if (!recipe) return
     setEditTitle(recipe.title)
     setEditInstructions([...recipe.instructions])
-    setEditIngredients(recipe.ingredients.map((i) => ({ ...i })))
+    setEditIngredients(
+      recipe.ingredients.map((i) => ({ ...i, amount: String(i.amount) }))
+    )
     setEditing(true)
   }
 
@@ -257,72 +266,88 @@ function RecipeDetailPage() {
                   Ingredients
                 </h3>
                 {editing ? (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {editIngredients.map((ing, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <Input
-                          value={ing.name}
-                          onChange={(e) => {
-                            const updated = [...editIngredients]
-                            updated[i] = { ...updated[i], name: e.target.value }
-                            setEditIngredients(updated)
-                          }}
-                          placeholder="Name"
-                          className="flex-1 h-9 bg-cream border-line-strong text-ink text-sm"
-                        />
-                        <Input
-                          type="number"
-                          value={ing.amount}
-                          onChange={(e) => {
-                            const updated = [...editIngredients]
-                            updated[i] = { ...updated[i], amount: parseFloat(e.target.value) || 0 }
-                            setEditIngredients(updated)
-                          }}
-                          placeholder="Qty"
-                          className="w-20 h-9 bg-cream border-line-strong text-ink text-sm"
-                        />
-                        <Select
-                          value={ing.unit}
-                          onValueChange={(val) => {
-                            const updated = [...editIngredients]
-                            updated[i] = { ...updated[i], unit: val }
-                            setEditIngredients(updated)
-                          }}
-                        >
-                          <SelectTrigger className="w-28 h-9 bg-cream border-line-strong text-ink text-sm">
-                            <SelectValue placeholder="Unit" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {units?.map((u) => (
-                              <SelectItem key={u} value={u}>{u}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={ing.category}
-                          onValueChange={(val) => {
-                            const updated = [...editIngredients]
-                            updated[i] = { ...updated[i], category: val }
-                            setEditIngredients(updated)
-                          }}
-                        >
-                          <SelectTrigger className="w-36 h-9 bg-cream border-line-strong text-ink text-sm">
-                            <SelectValue placeholder="Category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {sortedCategories.map((c) => (
-                              <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() => setEditIngredients(editIngredients.filter((_, idx) => idx !== i))}
-                          className="shrink-0 size-8 text-slate-500 hover:text-red-400"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
+                      <div
+                        key={i}
+                        className="rounded-lg border border-line-strong bg-cream p-3 space-y-2"
+                      >
+                        {/* Row 1: name + delete */}
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={ing.name}
+                            onChange={(e) => {
+                              const updated = [...editIngredients]
+                              updated[i] = { ...updated[i], name: e.target.value }
+                              setEditIngredients(updated)
+                            }}
+                            placeholder="Ingredient name"
+                            className="flex-1 h-10 bg-white border-line-strong text-ink text-sm"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() =>
+                              setEditIngredients(editIngredients.filter((_, idx) => idx !== i))
+                            }
+                            aria-label="Remove ingredient"
+                            className="shrink-0 size-10 text-slate-500 hover:text-red-400"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                        {/* Row 2: amount + unit + category (wraps on narrow screens) */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            value={ing.amount}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              // Allow an empty field and partial decimals while typing.
+                              if (v !== '' && !/^\d*\.?\d*$/.test(v)) return
+                              const updated = [...editIngredients]
+                              updated[i] = { ...updated[i], amount: v }
+                              setEditIngredients(updated)
+                            }}
+                            placeholder="Qty"
+                            className="w-20 h-10 bg-white border-line-strong text-ink text-sm"
+                          />
+                          <Select
+                            value={ing.unit}
+                            onValueChange={(val) => {
+                              const updated = [...editIngredients]
+                              updated[i] = { ...updated[i], unit: val }
+                              setEditIngredients(updated)
+                            }}
+                          >
+                            <SelectTrigger className="flex-1 min-w-[7rem] h-10 bg-white border-line-strong text-ink text-sm">
+                              <SelectValue placeholder="Unit" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {units?.map((u) => (
+                                <SelectItem key={u} value={u}>{u}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={ing.category}
+                            onValueChange={(val) => {
+                              const updated = [...editIngredients]
+                              updated[i] = { ...updated[i], category: val }
+                              setEditIngredients(updated)
+                            }}
+                          >
+                            <SelectTrigger className="flex-1 min-w-[8rem] h-10 bg-white border-line-strong text-ink text-sm">
+                              <SelectValue placeholder="Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sortedCategories.map((c) => (
+                                <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     ))}
                     <Button
@@ -331,7 +356,7 @@ function RecipeDetailPage() {
                       onClick={() =>
                         setEditIngredients([
                           ...editIngredients,
-                          { name: '', unit: '', amount: 0, category: 'Other', excluded_from_list: false },
+                          { name: '', unit: '', amount: '', category: 'Other', excluded_from_list: false },
                         ])
                       }
                       className="gap-1.5 text-ink-muted hover:text-ink"
@@ -383,19 +408,25 @@ function RecipeDetailPage() {
                 {editing ? (
                   <div className="space-y-2">
                     {editInstructions.map((step, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <span className="text-ink-faint font-mono text-sm pt-2.5 shrink-0">{i + 1}.</span>
-                        <textarea
-                          value={step}
-                          onChange={(e) => {
-                            const updated = [...editInstructions]
-                            updated[i] = e.target.value
-                            setEditInstructions(updated)
-                          }}
-                          rows={2}
-                          className="flex-1 bg-cream border border-line-strong rounded-md px-3 py-2 text-sm text-ink resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-                        />
-                        <div className="flex flex-col gap-0.5 shrink-0">
+                      <div
+                        key={i}
+                        className="rounded-lg border border-line-strong bg-cream p-3 space-y-2"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="text-ink-faint font-mono text-sm pt-2.5 shrink-0">{i + 1}.</span>
+                          <textarea
+                            value={step}
+                            onChange={(e) => {
+                              const updated = [...editInstructions]
+                              updated[i] = e.target.value
+                              setEditInstructions(updated)
+                            }}
+                            rows={3}
+                            className="flex-1 min-w-0 bg-white border border-line-strong rounded-md px-3 py-2 text-sm text-ink resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                        </div>
+                        {/* Reorder / remove controls */}
+                        <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="icon-xs"
@@ -406,9 +437,10 @@ function RecipeDetailPage() {
                               setEditInstructions(updated)
                             }}
                             disabled={i === 0}
-                            className="size-7 text-ink-faint hover:text-ink"
+                            aria-label="Move step up"
+                            className="size-9 text-ink-faint hover:text-ink"
                           >
-                            <ArrowUp className="size-3.5" />
+                            <ArrowUp className="size-4" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -420,19 +452,21 @@ function RecipeDetailPage() {
                               setEditInstructions(updated)
                             }}
                             disabled={i === editInstructions.length - 1}
-                            className="size-7 text-ink-faint hover:text-ink"
+                            aria-label="Move step down"
+                            className="size-9 text-ink-faint hover:text-ink"
                           >
-                            <ArrowDown className="size-3.5" />
+                            <ArrowDown className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => setEditInstructions(editInstructions.filter((_, idx) => idx !== i))}
+                            aria-label="Remove step"
+                            className="size-9 text-slate-500 hover:text-red-400"
+                          >
+                            <X className="size-4" />
                           </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() => setEditInstructions(editInstructions.filter((_, idx) => idx !== i))}
-                          className="shrink-0 size-7 mt-1.5 text-slate-500 hover:text-red-400"
-                        >
-                          <X className="size-3.5" />
-                        </Button>
                       </div>
                     ))}
                     <Button
