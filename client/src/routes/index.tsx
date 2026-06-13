@@ -1,8 +1,13 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Copy, Loader2, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
+
+type RecipeSummary = {
+  id: string
+  title: string
+}
 
 type ListSummary = {
   id: string
@@ -10,7 +15,7 @@ type ListSummary = {
   created_at: string | null
   item_count: number
   checked_count: number
-  recipe_titles: string[]
+  recipes: RecipeSummary[]
 }
 
 export const Route = createFileRoute('/')({ component: ListsPage })
@@ -95,10 +100,10 @@ function ListsPage() {
         {lists && lists.length > 0 && (
           <div className="space-y-3">
             {lists.map((list) => (
-              <button
+              <div
                 key={list.id}
-                onClick={() => navigate({ to: '/list/$listId', params: { listId: list.id } })}
                 className="w-full text-left bg-white border border-line rounded-lg p-4 shadow-sm hover:shadow-md hover:border-primary transition-all cursor-pointer"
+                onClick={() => navigate({ to: '/list/$listId', params: { listId: list.id } })}
               >
                 <div className="flex items-center justify-between mb-1">
                   <h2 className="font-medium">{list.name}</h2>
@@ -117,18 +122,23 @@ function ListsPage() {
                   </div>
                 )}
 
-                {list.recipe_titles.length > 0 && (
-                  <p className="text-sm text-ink-muted truncate">
-                    {list.recipe_titles.join(', ')}
-                  </p>
+                {list.recipes.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {list.recipes.map((recipe) => (
+                      <Link
+                        key={recipe.id}
+                        to="/recipe/$recipeId"
+                        params={{ recipeId: recipe.id }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-block text-xs px-2.5 py-1 rounded-full bg-cream text-ink-muted hover:bg-sand hover:text-ink transition-colors truncate max-w-[180px]"
+                      >
+                        {recipe.title}
+                      </Link>
+                    ))}
+                  </div>
                 )}
 
-                <div className="flex items-center justify-between mt-2">
-                  {list.created_at && (
-                    <p className="text-xs text-ink-faint">
-                      {new Date(list.created_at).toLocaleDateString()}
-                    </p>
-                  )}
+                <div className="flex items-center justify-end mt-3">
                   <div className="flex gap-1">
                     <Button
                       variant="ghost"
@@ -160,7 +170,7 @@ function ListsPage() {
                     </Button>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}

@@ -342,11 +342,18 @@ async def get_units():
 # --- Lists ---
 
 
+def _ordinal(n: int) -> str:
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _auto_list_name() -> str:
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
-    monday = now - timedelta(days=now.weekday())
-    return f"Week of {monday.strftime('%b %d')}"
+    return f"{_ordinal(now.day)} {now.strftime('%B')}"
 
 
 @router.get("/lists/")
@@ -354,18 +361,18 @@ async def get_lists():
     lists = await ListDocument.find_all().sort("-created_at").to_list()
     results = []
     for lst in lists:
-        recipe_titles = []
+        recipes_summary = []
         if lst.recipes:
             oids = [PydanticObjectId(rid) for rid in lst.recipes]
             recipes = await RecipeDocument.find(In(RecipeDocument.id, oids)).to_list()
-            recipe_titles = [r.title for r in recipes]
+            recipes_summary = [{"id": str(r.id), "title": r.title} for r in recipes]
         results.append({
             "id": str(lst.id),
             "name": lst.name,
             "created_at": lst.created_at.isoformat() if lst.created_at else None,
             "item_count": len(lst.items),
             "checked_count": sum(1 for item in lst.items if item.checked),
-            "recipe_titles": recipe_titles,
+            "recipes": recipes_summary,
         })
     return results
 
