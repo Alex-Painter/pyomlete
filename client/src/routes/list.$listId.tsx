@@ -401,12 +401,14 @@ function ListDetailPage() {
 
           {/* Empty state */}
           {list.items.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-ink-muted mb-2">No items yet</p>
-              <p className="text-sm text-ink-faint">
-                Add items above or add recipes from the sidebar to get started
-              </p>
-            </div>
+            <EmptyListStart
+              listId={listId}
+              availableRecipes={availableRecipes}
+              allRecipes={allRecipes}
+              selectedTitles={selectedRecipes.map((r) => r.title)}
+              onAdd={(id) => addRecipe.mutate(id)}
+              isAdding={addRecipe.isPending}
+            />
           )}
 
           {/* Categorized items (unchecked only) */}
@@ -605,30 +607,105 @@ function RecipeSidebar({
         )}
         <div className="space-y-0.5">
           {availableRecipes.map((recipe) => (
-            <button
+            <AvailableRecipeButton
               key={recipe.id}
-              onClick={() => onAdd(recipe.id)}
+              recipe={recipe}
+              onAdd={onAdd}
               disabled={isAdding}
-              className="w-full flex items-center gap-2 px-2 py-2.5 min-h-[44px] rounded-md hover:bg-sand transition-colors cursor-pointer text-left"
-            >
-              <Plus className="size-3.5 text-ink-subtle shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm truncate">{recipe.title}</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-ink-faint">
-                    {recipe.ingredient_count} ingredients
-                  </span>
-                  {recipe.rating && (
-                    <span className="flex items-center gap-0.5 text-xs text-amber-500">
-                      <Star className="size-3 fill-current" />
-                      {recipe.rating}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </button>
+            />
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function AvailableRecipeButton({
+  recipe,
+  onAdd,
+  disabled,
+}: {
+  recipe: RecipeSummary
+  onAdd: (id: string) => void
+  disabled: boolean
+}) {
+  return (
+    <button
+      onClick={() => onAdd(recipe.id)}
+      disabled={disabled}
+      className="w-full flex items-center gap-2 px-2 py-2.5 min-h-[44px] rounded-md hover:bg-sand transition-colors cursor-pointer text-left"
+    >
+      <Plus className="size-3.5 text-ink-subtle shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm truncate">{recipe.title}</p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-ink-faint">
+            {recipe.ingredient_count} ingredients
+          </span>
+          {recipe.rating && (
+            <span className="flex items-center gap-0.5 text-xs text-amber-500">
+              <Star className="size-3 fill-current" />
+              {recipe.rating}
+            </span>
+          )}
+        </div>
+      </div>
+    </button>
+  )
+}
+
+function EmptyListStart({
+  listId,
+  availableRecipes,
+  allRecipes,
+  selectedTitles,
+  onAdd,
+  isAdding,
+}: {
+  listId: string
+  availableRecipes: RecipeSummary[]
+  allRecipes: RecipeSummary[] | undefined
+  selectedTitles: string[]
+  onAdd: (id: string) => void
+  isAdding: boolean
+}) {
+  return (
+    <div className="py-8">
+      <div className="text-center mb-6">
+        <p className="text-ink-muted mb-1">No items yet</p>
+        <p className="text-sm text-ink-faint">
+          Add an item above, suggest meals, or pick a recipe from your library to get started
+        </p>
+      </div>
+
+      <div className="max-w-md mx-auto space-y-4">
+        {/* Suggest meals */}
+        <SuggestMealsSheet listId={listId} existingTitles={selectedTitles} />
+
+        {/* Recipe suggestions from the library */}
+        {!allRecipes && (
+          <div className="flex justify-center py-4">
+            <Loader2 className="size-5 animate-spin text-ink-muted" />
+          </div>
+        )}
+        {allRecipes && availableRecipes.length > 0 && (
+          <div className="bg-white rounded-lg border border-line shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-line flex items-center gap-2">
+              <UtensilsCrossed className="size-4 text-ink-muted" />
+              <h2 className="text-sm font-semibold">From your library</h2>
+            </div>
+            <div className="p-2 space-y-0.5">
+              {availableRecipes.slice(0, 6).map((recipe) => (
+                <AvailableRecipeButton
+                  key={recipe.id}
+                  recipe={recipe}
+                  onAdd={onAdd}
+                  disabled={isAdding}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
