@@ -751,7 +751,7 @@ function SuggestMealsSheet({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="outline" className="w-full border-slate-700 text-slate-200 hover:text-white">
+        <Button variant="outline" className="w-full border-line text-ink-soft hover:text-ink">
           <Sparkles className="size-4" />
           Suggest meals
         </Button>
