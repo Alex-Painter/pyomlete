@@ -34,6 +34,27 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import {
+  restrictToVerticalAxis,
+  restrictToParentElement,
+} from '@dnd-kit/modifiers'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { apiFetch } from '@/lib/api'
 
 type ItemSource = {
@@ -1001,19 +1022,24 @@ function CategorySection({
   onDelete: (itemId: string) => void
   onReorder: (itemIds: string[]) => void
 }) {
-  // Local drag order so rows can shuffle live while dragging, before we
-  // persist. Reset whenever the server-provided items actually change.
+  // Local drag order so rows commit instantly on drop; reset whenever the
+  // server-provided items actually change.
   const idsKey = items.map((i) => i.id).join(',')
   const [order, setOrder] = useState<string[]>(() => items.map((i) => i.id))
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  // A row only becomes draggable once the pointer goes down on its grip
-  // handle, so text selection and inline editing stay unaffected elsewhere.
-  const [dragEnabledId, setDragEnabledId] = useState<string | null>(null)
-  const didDropRef = useRef(false)
 
   useEffect(() => {
     setOrder(items.map((i) => i.id))
   }, [idsKey])
+
+  // Require a small drag distance before a drag starts, so taps/clicks on the
+  // handle (and the buttons within a row) still behave normally. The pointer
+  // sensor also covers touch, so reordering works on mobile too.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
 
   const itemsById = new Map(items.map((i) => [i.id, i]))
   const orderedItems = order
@@ -1021,46 +1047,15 @@ function CategorySection({
     .filter((i): i is ListItem => i != null)
   const canReorder = items.length > 1
 
-  const handleDragStart = (e: React.DragEvent, id: string) => {
-    setDraggingId(id)
-    didDropRef.current = false
-    e.dataTransfer.effectAllowed = 'move'
-    // Firefox requires data to be set for a drag to begin.
-    e.dataTransfer.setData('text/plain', id)
-  }
-
-  const handleDragOver = (e: React.DragEvent, overId: string) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    if (!draggingId || draggingId === overId) return
-    setOrder((prev) => {
-      const from = prev.indexOf(draggingId)
-      const to = prev.indexOf(overId)
-      if (from === -1 || to === -1 || from === to) return prev
-      const next = [...prev]
-      next.splice(from, 1)
-      next.splice(to, 0, draggingId)
-      return next
-    })
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    didDropRef.current = true
-    if (order.join(',') !== idsKey) {
-      onReorder(order)
-    }
-    setDraggingId(null)
-    setDragEnabledId(null)
-  }
-
-  const handleDragEnd = () => {
-    // If the drag was cancelled (dropped outside), revert to server order.
-    if (!didDropRef.current) {
-      setOrder(items.map((i) => i.id))
-    }
-    setDraggingId(null)
-    setDragEnabledId(null)
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const from = order.indexOf(String(active.id))
+    const to = order.indexOf(String(over.id))
+    if (from === -1 || to === -1) return
+    const next = arrayMove(order, from, to)
+    setOrder(next)
+    onReorder(next)
   }
 
   return (
@@ -1080,42 +1075,100 @@ function CategorySection({
 
       {!isCollapsed && (
         <div className="px-2 pb-2 space-y-0.5">
-          {orderedItems.map((item) => (
-            <div
-              key={item.id}
-              draggable={dragEnabledId === item.id}
-              onDragStart={(e) => handleDragStart(e, item.id)}
-              onDragOver={(e) => handleDragOver(e, item.id)}
-              onDrop={handleDrop}
-              onDragEnd={handleDragEnd}
-              className={`flex items-center rounded-md transition-opacity ${
-                draggingId === item.id ? 'opacity-40' : ''
-              }`}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={order}
+              strategy={verticalListSortingStrategy}
             >
-              {canReorder && (
-                <button
-                  type="button"
-                  aria-label="Drag to reorder"
-                  onMouseDown={() => setDragEnabledId(item.id)}
-                  className="shrink-0 flex items-center self-stretch px-0.5 text-ink-faint hover:text-ink-muted cursor-grab active:cursor-grabbing"
-                >
-                  <GripVertical className="size-4" />
-                </button>
-              )}
-              <div className="flex-1 min-w-0">
-                <ItemRow
+              {orderedItems.map((item) => (
+                <SortableItemRow
+                  key={item.id}
                   item={item}
                   units={units}
-                  categories={categoryNames}
-                  onToggleCheck={() => onToggleCheck(item.id, !item.checked)}
-                  onUpdate={(updates) => onUpdate(item.id, updates)}
-                  onDelete={() => onDelete(item.id)}
+                  categoryNames={categoryNames}
+                  canReorder={canReorder}
+                  onToggleCheck={onToggleCheck}
+                  onUpdate={onUpdate}
+                  onDelete={onDelete}
                 />
-              </div>
-            </div>
-          ))}
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
+    </div>
+  )
+}
+
+function SortableItemRow({
+  item,
+  units,
+  categoryNames,
+  canReorder,
+  onToggleCheck,
+  onUpdate,
+  onDelete,
+}: {
+  item: ListItem
+  units: string[]
+  categoryNames: string[]
+  canReorder: boolean
+  onToggleCheck: (itemId: string, checked: boolean) => void
+  onUpdate: (itemId: string, updates: Record<string, unknown>) => void
+  onDelete: (itemId: string) => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center rounded-md ${
+        isDragging ? 'relative z-10 opacity-80 bg-cream shadow-sm' : ''
+      }`}
+    >
+      {canReorder && (
+        // Only the handle activates a drag, so the checkbox, edit and delete
+        // controls in the row keep working normally.
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          aria-label="Drag to reorder"
+          className="shrink-0 flex items-center self-stretch px-0.5 text-ink-faint hover:text-ink-muted cursor-grab active:cursor-grabbing touch-none"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      )}
+      <div className="flex-1 min-w-0">
+        <ItemRow
+          item={item}
+          units={units}
+          categories={categoryNames}
+          onToggleCheck={() => onToggleCheck(item.id, !item.checked)}
+          onUpdate={(updates) => onUpdate(item.id, updates)}
+          onDelete={() => onDelete(item.id)}
+        />
+      </div>
     </div>
   )
 }
