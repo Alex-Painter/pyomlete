@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  GripVertical,
   Loader2,
   Pencil,
   Plus,
@@ -33,6 +34,27 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import {
+  restrictToVerticalAxis,
+  restrictToParentElement,
+} from '@dnd-kit/modifiers'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { apiFetch } from '@/lib/api'
 
 type ItemSource = {
@@ -73,6 +95,23 @@ type RecipeSummary = {
 type MealIdea = {
   title: string
   description: string
+}
+
+// Reapply a new ordering of item ids (all within one category) onto the full
+// item list. Mirrors the backend: the slots occupied by the reordered items
+// stay put and are rewritten in the new order; everything else is untouched.
+function reorderItemsInList(
+  items: ListItem[],
+  category: string,
+  itemIds: string[],
+): ListItem[] {
+  const byId = new Map(items.map((i) => [i.id, i]))
+  const ordered = itemIds
+    .map((id) => byId.get(id))
+    .filter((i): i is ListItem => i != null && i.category === category)
+  const reorderedIds = new Set(ordered.map((i) => i.id))
+  const queue = [...ordered]
+  return items.map((item) => (reorderedIds.has(item.id) ? queue.shift()! : item))
 }
 
 export const Route = createFileRoute('/list/$listId')({ component: ListDetailPage })
@@ -163,6 +202,34 @@ function ListDetailPage() {
       queryClient.setQueryData<ListDetail>(['list', listId], (old) => {
         if (!old) return old
         return { ...old, items: old.items.filter((item) => item.id !== itemId) }
+      })
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['list', listId], context.previous)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['list', listId] })
+    },
+  })
+
+  const reorderItems = useMutation({
+    mutationFn: async ({ category, itemIds }: { category: string; itemIds: string[] }) => {
+      const res = await apiFetch(`/api/lists/${listId}/items/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, item_ids: itemIds }),
+      })
+      return res.json()
+    },
+    onMutate: async ({ category, itemIds }) => {
+      await queryClient.cancelQueries({ queryKey: ['list', listId] })
+      const previous = queryClient.getQueryData<ListDetail>(['list', listId])
+      queryClient.setQueryData<ListDetail>(['list', listId], (old) => {
+        if (!old) return old
+        return { ...old, items: reorderItemsInList(old.items, category, itemIds) }
       })
       return { previous }
     },
@@ -413,49 +480,27 @@ function ListDetailPage() {
 
           {/* Categorized items (unchecked only) */}
           <div className="space-y-2">
-            {uncheckedCategories.map(([category, items]) => {
-              const isCollapsed = collapsedCategories.has(category)
-
-              return (
-                <div key={category} className="bg-white rounded-lg border border-line shadow-sm overflow-hidden">
-                  <button
-                    onClick={() => toggleCategory(category)}
-                    className="w-full flex items-center gap-2 px-4 py-3 min-h-[44px] text-sm font-medium text-ink-muted hover:text-ink transition-colors cursor-pointer"
-                  >
-                    {isCollapsed ? (
-                      <ChevronRight className="size-4 text-ink-faint" />
-                    ) : (
-                      <ChevronDown className="size-4 text-ink-faint" />
-                    )}
-                    <span className="flex-1 text-left">{category}</span>
-                    <span className="text-xs text-ink-faint">{items.length}</span>
-                  </button>
-
-                  {!isCollapsed && (
-                    <div className="px-2 pb-2 space-y-0.5">
-                      {items.map((item) => (
-                        <ItemRow
-                          key={item.id}
-                          item={item}
-                          units={units ?? []}
-                          categories={sortedCategories.map((c) => c.name)}
-                          onToggleCheck={() =>
-                            updateItem.mutate({
-                              itemId: item.id,
-                              updates: { checked: !item.checked },
-                            })
-                          }
-                          onUpdate={(updates) =>
-                            updateItem.mutate({ itemId: item.id, updates })
-                          }
-                          onDelete={() => deleteItem.mutate(item.id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+            {uncheckedCategories.map(([category, items]) => (
+              <CategorySection
+                key={category}
+                category={category}
+                items={items}
+                isCollapsed={collapsedCategories.has(category)}
+                onToggle={() => toggleCategory(category)}
+                units={units ?? []}
+                categoryNames={sortedCategories.map((c) => c.name)}
+                onToggleCheck={(itemId, checked) =>
+                  updateItem.mutate({ itemId, updates: { checked } })
+                }
+                onUpdate={(itemId, updates) =>
+                  updateItem.mutate({ itemId, updates })
+                }
+                onDelete={(itemId) => deleteItem.mutate(itemId)}
+                onReorder={(itemIds) =>
+                  reorderItems.mutate({ category, itemIds })
+                }
+              />
+            ))}
           </div>
 
           {/* Completed items section */}
@@ -951,6 +996,180 @@ function SuggestMealsSheet({
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+function CategorySection({
+  category,
+  items,
+  isCollapsed,
+  onToggle,
+  units,
+  categoryNames,
+  onToggleCheck,
+  onUpdate,
+  onDelete,
+  onReorder,
+}: {
+  category: string
+  items: ListItem[]
+  isCollapsed: boolean
+  onToggle: () => void
+  units: string[]
+  categoryNames: string[]
+  onToggleCheck: (itemId: string, checked: boolean) => void
+  onUpdate: (itemId: string, updates: Record<string, unknown>) => void
+  onDelete: (itemId: string) => void
+  onReorder: (itemIds: string[]) => void
+}) {
+  // Local drag order so rows commit instantly on drop; reset whenever the
+  // server-provided items actually change.
+  const idsKey = items.map((i) => i.id).join(',')
+  const [order, setOrder] = useState<string[]>(() => items.map((i) => i.id))
+
+  useEffect(() => {
+    setOrder(items.map((i) => i.id))
+  }, [idsKey])
+
+  // Require a small drag distance before a drag starts, so taps/clicks on the
+  // handle (and the buttons within a row) still behave normally. The pointer
+  // sensor also covers touch, so reordering works on mobile too.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
+
+  const itemsById = new Map(items.map((i) => [i.id, i]))
+  const orderedItems = order
+    .map((id) => itemsById.get(id))
+    .filter((i): i is ListItem => i != null)
+  const canReorder = items.length > 1
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const from = order.indexOf(String(active.id))
+    const to = order.indexOf(String(over.id))
+    if (from === -1 || to === -1) return
+    const next = arrayMove(order, from, to)
+    setOrder(next)
+    onReorder(next)
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-line shadow-sm overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-4 py-3 min-h-[44px] text-sm font-medium text-ink-muted hover:text-ink transition-colors cursor-pointer"
+      >
+        {isCollapsed ? (
+          <ChevronRight className="size-4 text-ink-faint" />
+        ) : (
+          <ChevronDown className="size-4 text-ink-faint" />
+        )}
+        <span className="flex-1 text-left">{category}</span>
+        <span className="text-xs text-ink-faint">{items.length}</span>
+      </button>
+
+      {!isCollapsed && (
+        <div className="px-2 pb-2 space-y-0.5">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={order}
+              strategy={verticalListSortingStrategy}
+            >
+              {orderedItems.map((item) => (
+                <SortableItemRow
+                  key={item.id}
+                  item={item}
+                  units={units}
+                  categoryNames={categoryNames}
+                  canReorder={canReorder}
+                  onToggleCheck={onToggleCheck}
+                  onUpdate={onUpdate}
+                  onDelete={onDelete}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SortableItemRow({
+  item,
+  units,
+  categoryNames,
+  canReorder,
+  onToggleCheck,
+  onUpdate,
+  onDelete,
+}: {
+  item: ListItem
+  units: string[]
+  categoryNames: string[]
+  canReorder: boolean
+  onToggleCheck: (itemId: string, checked: boolean) => void
+  onUpdate: (itemId: string, updates: Record<string, unknown>) => void
+  onDelete: (itemId: string) => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center rounded-md ${
+        isDragging ? 'relative z-10 opacity-80 bg-cream shadow-sm' : ''
+      }`}
+    >
+      {canReorder && (
+        // Only the handle activates a drag, so the checkbox, edit and delete
+        // controls in the row keep working normally.
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          aria-label="Drag to reorder"
+          className="shrink-0 flex items-center self-stretch px-0.5 text-ink-faint hover:text-ink-muted cursor-grab active:cursor-grabbing touch-none"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      )}
+      <div className="flex-1 min-w-0">
+        <ItemRow
+          item={item}
+          units={units}
+          categories={categoryNames}
+          onToggleCheck={() => onToggleCheck(item.id, !item.checked)}
+          onUpdate={(updates) => onUpdate(item.id, updates)}
+          onDelete={() => onDelete(item.id)}
+        />
+      </div>
+    </div>
   )
 }
 

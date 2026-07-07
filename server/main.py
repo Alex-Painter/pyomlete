@@ -21,6 +21,7 @@ from lib.types import (
     ExcludeUpdateRequest,
     IngredientRecipe,
     ItemCreateRequest,
+    ItemReorderRequest,
     ItemUpdateRequest,
     ListUpdateRequest,
     MealSuggestions,
@@ -612,6 +613,30 @@ async def add_item(list_id: PydanticObjectId, body: ItemCreateRequest):
     lst.items.append(item)
     await lst.save()
     return item.model_dump()
+
+
+@router.put("/lists/{list_id}/items/reorder")
+async def reorder_items(list_id: PydanticObjectId, body: ItemReorderRequest):
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    by_id = {item.id: item for item in lst.items}
+    # Only reorder items that exist and belong to the given category.
+    ordered = [
+        by_id[item_id]
+        for item_id in body.item_ids
+        if item_id in by_id and by_id[item_id].category == body.category
+    ]
+    # The slots currently occupied by the reordered items stay put; we just
+    # rewrite them in the new order, leaving everything else in place.
+    reordered_ids = {item.id for item in ordered}
+    slots = [idx for idx, item in enumerate(lst.items) if item.id in reordered_ids]
+    for slot, item in zip(slots, ordered):
+        lst.items[slot] = item
+
+    await lst.save()
+    return {"items": [item.model_dump() for item in lst.items]}
 
 
 @router.patch("/lists/{list_id}/items/{item_id}")

@@ -106,6 +106,11 @@ class ItemUpdateRequest(BaseModel):
     checked: Optional[bool] = None
 
 
+class ItemReorderRequest(BaseModel):
+    category: str
+    item_ids: list[str]
+
+
 class ListUpdateRequest(BaseModel):
     name: Optional[str] = None
 
