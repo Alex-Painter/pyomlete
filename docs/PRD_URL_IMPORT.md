@@ -126,12 +126,14 @@ async def fetch_page(url: str) -> str        # SSRF-guarded async fetch
 def scrape(html: str, url: str) -> ScrapedRecipe | None   # wild_mode=True
 ```
 
-**SSRF guard — required, not optional.** This endpoint takes a user-supplied URL and makes the server fetch it. Without a guard it's a hole straight into the internal network. Must:
+**SSRF guard — required, not optional.** This endpoint takes a user-supplied URL and makes the server fetch it, then returns the parsed result to the caller. That is a textbook full-read SSRF primitive. See [Appendix A](#appendix-a--ssrf-in-detail) for the full threat model, why the obvious mitigations fail, and a reference implementation.
 
-- Allow only `http`/`https` schemes
-- Resolve the hostname and **reject private/reserved ranges**: `127.0.0.0/8`, `10/8`, `172.16/12`, `192.168/16`, `169.254/16` (cloud metadata — `169.254.169.254` is the one that matters), `::1`, unique-local v6
-- Re-check after **every redirect**, cap redirects at ~5
-- Cap response size (~2 MB) and timeout (~10s)
+Summary of what the guard must do:
+
+- Allow only `http` / `https` schemes
+- Resolve the hostname and reject **every** returned address that is loopback, private, link-local, reserved, multicast or unspecified — checked with `ipaddress`, not string matching
+- Disable automatic redirects and **re-validate every hop**, capped at ~5
+- Cap response size (~2 MB, enforced while streaming) and total timeout (~10s)
 - Send a real User-Agent; many sites 403 a default `python-httpx`
 
 `httpx==0.28.1` is already in `requirements.txt`, so use `httpx.AsyncClient` rather than `scrape_me()` — the latter fetches synchronously and would block the event loop.
@@ -209,7 +211,7 @@ Index `source_url` and return 409 with the existing recipe id on re-import. Requ
 | Import the site's rating? | **No** | It's the crowd's rating, not the user's. Our `rating` field means "did *I* like it" |
 | Import nutrition? | **No, not yet** | Returns unparsed strings; out of scope per #50 |
 | Hero image | Store the URL, don't re-host | Cheap. Hotlinks can rot — re-hosting is a later improvement |
-| Save directly or preview first? | **Preview, then save** | See open question 1 — recommended but costs an extra step |
+| Save directly or preview first? | **Save immediately** | Consistent with the existing generate and extract flows. Recipes are editable and deletable, so a bad import is cheap to fix |
 | Default Create tab | From link | Will be the most-used path |
 | robots.txt | Ignore, but always store `source_url` | User is importing a page they're already viewing; attribution is the right etiquette |
 
@@ -280,7 +282,162 @@ Index `source_url` and return 409 with the existing recipe id on re-import. Requ
 
 ## Open questions
 
-1. **Preview before save, or save immediately?** The existing extract flow saves immediately. Preview is better UX — Paprika does it, and it stops bad imports polluting the library — but it's an extra screen and an extra state. *Recommendation: preview.* Import quality varies too much across sites to save blind.
+1. ~~**Preview before save, or save immediately?**~~ **Resolved: save immediately**, matching the existing generate and extract flows. Imports land straight in the library; the user edits or deletes if the import was poor.
 2. **What do we do about `amount` on unquantified ingredients?** `IngredientRecipe.amount` is currently a **required `float`**, so "salt and pepper to taste" has no honest representation and the model presumably invents one. This is a pre-existing wart that URL import will hit constantly. *Recommendation: make `amount` `Optional[float]`* — but it touches the list-merge arithmetic at `main.py:540-557`, so it needs its own care.
 3. **Video links?** Pasting an Instagram or TikTok URL will fail with `NoSchemaFoundInWildMode`. Do we detect those hosts and show "video import isn't supported yet", or let it fall through to the generic error? A clear message is cheap and this *will* happen.
 4. **Rate limiting.** This endpoint makes the server fetch arbitrary URLs. Even with the SSRF guard it's an abuse vector for traffic amplification. Needs the #50 P0 rate-limiting work — arguably a hard dependency rather than a nice-to-have.
+
+---
+
+## Appendix A — SSRF in detail
+
+### What the vulnerability is
+
+Server-Side Request Forgery: the client supplies a URL and the **server** makes the request. The attacker doesn't get to reach the destination themselves — they borrow our server's network position to do it.
+
+That matters because our server sits *inside* a trust boundary the attacker is outside of. It can reach the container's loopback interface, Railway's private network, and whatever the platform exposes on link-local addresses. A browser on the open internet can reach none of those.
+
+`POST /api/recipes/import-from-url/` is close to the worst-case shape:
+
+- **The attacker fully controls the destination** — that's the entire feature
+- **The response comes back to them.** We parse the fetched page and return the result. That makes it a **full-read** SSRF rather than a blind one. Blind SSRF leaks timing; full-read leaks content.
+- **It is currently unauthenticated** (see #50 P0). Anyone on the internet, no account needed.
+
+### What an attacker actually gets
+
+**1. Cloud metadata services.** The classic target is the link-local endpoint `169.254.169.254`. On AWS this serves IAM role credentials at `/latest/meta-data/iam/security-credentials/`, which is precisely how the 2019 Capital One breach happened — an SSRF used to lift EC2 role credentials, ~100M records.
+
+Railway runs on GCP, where the metadata service requires a `Metadata-Flavor: Google` header and returns 403 without it. That is real defence-in-depth, and it means a naive `GET http://169.254.169.254/` probably fails today. **Do not rely on it.** It's a property of the current platform, not of our code; it evaporates if we ever add header passthrough, move providers, or run anything locally. I have not verified exactly what Railway's runtime exposes to containers — treat that as unknown rather than safe.
+
+**2. Railway's private network.** Services in a Railway project reach each other over an internal DNS namespace on IPv6. `railway.json` defines two services, so `http://omlete-client.railway.internal:3000/` is reachable from the API container today. The exposure grows with every internal service added later — a Redis, an admin surface, a database.
+
+**3. Loopback.** `http://127.0.0.1:8000/` is our own API. Two consequences: it bypasses any IP-based rate limiting (requests appear to originate locally), and any future admin endpoint bound to localhost-only becomes internet-reachable.
+
+**4. Internal reconnaissance.** Even where the body isn't readable, response timings and error types distinguish "connection refused" from "connected but wrong protocol" — enough to map what's listening.
+
+**5. Request laundering.** Ignoring internal access entirely: an unauthenticated fetch-any-URL endpoint lets someone use our server as an anonymising relay. The target sees Railway's IP, not theirs.
+
+### Why the obvious mitigations fail
+
+This is the part worth internalising. Each of these looks like a fix and isn't.
+
+**"Block hostnames containing localhost or 127.0.0.1."** Defeated by encoding: `http://0177.0.0.1/` (octal), `http://2130706433/` (decimal), `http://127.1/` (shorthand), `http://[::ffff:127.0.0.1]/` (IPv4-mapped IPv6). Also defeated by public DNS names that resolve inward — `localtest.me` and friends resolve to `127.0.0.1`. String matching on the hostname is the wrong layer. **Resolve first, then check the resulting IP.**
+
+**"Check the IP before fetching."** Necessary but not sufficient on its own, because of redirects. We validate `https://evil.example/x`, it's a genuine public address, we fetch it — and it returns `302 Location: http://169.254.169.254/`. `httpx` follows redirects when asked to, and the second request never passes through our check. **This is the mitigation people most often miss.** Either disable automatic redirects and walk the chain manually, re-validating each hop, or don't allow redirects at all.
+
+**"Check the IP, then fetch."** There's still a time-of-check/time-of-use gap. We resolve the name and validate; `httpx` then resolves it *again* when it opens the connection. An attacker serving a TTL-0 record can return a public address to the first lookup and a private one to the second — DNS rebinding.
+
+Closing this properly means connecting to the already-validated IP rather than re-resolving, which is fiddly with TLS (SNI and `Host` have to be set explicitly, and it breaks against some CDNs). **My recommendation: accept this as a known residual risk for now.** It requires an attacker to control a DNS server *and* win a timing race, which is a long way beyond the realistic threat model for this app. Document it, don't over-engineer it. Revisit if the app ever holds credentials worth stealing.
+
+**"Only allow http and https."** Do it — it's free, and it kills `file:///etc/passwd`, `gopher://` and `dict://`. But note `httpx` is HTTP-only anyway, so this is belt-and-braces rather than the main control.
+
+**"Only check IPv4 private ranges."** Railway's private networking is IPv6. Missing `::1`, unique-local `fc00::/7`, link-local `fe80::/10` and IPv4-mapped forms leaves the most relevant path open.
+
+### Reference implementation
+
+```python
+import ipaddress, socket
+from urllib.parse import urlparse
+import httpx
+
+MAX_BYTES = 2 * 1024 * 1024
+MAX_REDIRECTS = 5
+TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+UA = "OmleteBot/1.0 (+https://omlete.app; recipe import)"
+
+
+class BlockedURL(Exception):
+    """The URL resolves somewhere we refuse to fetch."""
+
+
+def _assert_public(host: str) -> None:
+    """Resolve `host` and reject if ANY returned address is non-public."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise BlockedURL(f"cannot resolve {host}") from exc
+
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        # IPv4-mapped IPv6 (::ffff:127.0.0.1) must be unwrapped before checking
+        if getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped
+        if (
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        ):
+            raise BlockedURL(f"{host} resolves to non-public address {ip}")
+
+
+def _validate(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise BlockedURL(f"unsupported scheme: {parsed.scheme!r}")
+    if not parsed.hostname:
+        raise BlockedURL("missing hostname")
+    _assert_public(parsed.hostname)
+
+
+async def fetch_page(url: str) -> str:
+    """Fetch a page, re-validating on every redirect hop."""
+    async with httpx.AsyncClient(
+        follow_redirects=False,          # we walk the chain ourselves
+        timeout=TIMEOUT,
+        headers={"User-Agent": UA},
+    ) as client:
+        for _ in range(MAX_REDIRECTS):
+            _validate(url)               # <-- runs again for each hop
+            async with client.stream("GET", url) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise BlockedURL("redirect without Location")
+                    url = str(response.url.join(location))
+                    continue
+
+                response.raise_for_status()
+
+                # Enforce the size cap while streaming, not after
+                chunks, total = [], 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_BYTES:
+                        raise BlockedURL("response too large")
+                    chunks.append(chunk)
+                return b"".join(chunks).decode(
+                    response.encoding or "utf-8", errors="replace"
+                )
+
+        raise BlockedURL("too many redirects")
+```
+
+Three details that carry most of the weight:
+
+1. `_validate()` is inside the redirect loop, so every hop is checked — not just the URL the user typed.
+2. `_assert_public()` iterates **all** `getaddrinfo` results. A hostname with both an A and an AAAA record has to pass on both.
+3. The size cap is enforced **while streaming**. Checking `Content-Length` afterwards is useless against a server that lies or omits it.
+
+### Test cases
+
+These belong in `server/tests/test_recipe_import.py` and need no network:
+
+| Input | Expected |
+|---|---|
+| `http://127.0.0.1:8000/` | `BlockedURL` |
+| `http://169.254.169.254/latest/meta-data/` | `BlockedURL` |
+| `http://[::1]/` | `BlockedURL` |
+| `http://0177.0.0.1/` and `http://2130706433/` | `BlockedURL` |
+| `http://[::ffff:127.0.0.1]/` | `BlockedURL` (exercises the `ipv4_mapped` unwrap) |
+| `http://omlete-client.railway.internal/` | `BlockedURL` |
+| `file:///etc/passwd` | `BlockedURL` (scheme) |
+| Public host → `302` → `http://169.254.169.254/` | `BlockedURL` **on the second hop** |
+| 6-hop redirect chain | `BlockedURL` (too many redirects) |
+| Response streaming past 2 MB | `BlockedURL` (too large) |
+| Ordinary public recipe URL | succeeds |
+
+Mock `socket.getaddrinfo` to make the resolution cases deterministic.
+
+### Residual risks, accepted knowingly
+
+- **DNS rebinding**, as discussed above — needs attacker-controlled DNS plus a race win.
+- **Traffic amplification** — mitigated by the #50 P0 rate limiting, not by this guard. Treat that rate limiting as a hard dependency of shipping this endpoint, not a follow-up.
