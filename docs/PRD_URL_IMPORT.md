@@ -36,7 +36,9 @@ All of the below was tested directly against `recipe-scrapers` 15.11.0.
 
 ### Installation
 
-Installs cleanly in a venv with current setuptools; **583 scrapers** available. The `jstyleson` wheel failure seen earlier is a Debian-patched-setuptools artifact (`AttributeError: install_layout`) specific to the sandbox's system Python — **not** a real packaging problem. Still worth confirming on Nixpacks before merge.
+Installs cleanly in a venv with current setuptools; **583 scrapers** available. The `jstyleson` wheel failure seen earlier is a Debian-patched-setuptools artifact (`AttributeError: install_layout`) specific to the sandbox's system Python — **not** a real packaging problem.
+
+**Resolved during implementation:** `recipe-scrapers==15.11.0` installs alongside the full existing `requirements.txt` with `pip check` reporting no broken requirements. It adds ~15 transitive packages (`lxml`, `rdflib`, `pyrdfa3`, `extruct`, `html5lib`, `beautifulsoup4`, `isodate` and friends), which is a meaningful bump to image size and build time but no version conflict. Still worth watching the first Nixpacks build for `lxml` wheel availability.
 
 ### UK site coverage (confirmed present in `SCRAPERS`)
 
@@ -70,10 +72,12 @@ Tested against a realistic schema.org JSON-LD payload:
 
 | Condition | Exception | Our response |
 |---|---|---|
-| Unsupported host, `wild_mode=False` | `WebsiteNotImplementedError` | n/a — we always use `wild_mode=True` |
+| Unsupported host, `supported_only=True` | `WebsiteNotImplementedError` | n/a — we always pass `supported_only=False` |
 | No structured data anywhere | `NoSchemaFoundInWildMode` | → Claude fallback on page text |
 
-`wild_mode=True` is a strict superset: it uses the dedicated scraper when the host is supported and falls back to generic schema.org parsing when it isn't. **Always pass `wild_mode=True`.**
+⚠️ **`wild_mode` is deprecated in 15.11.0** — it emits a `DeprecationWarning` and may be removed. Use **`supported_only=False`**, which is the documented replacement.
+
+Verified equivalent: with `supported_only=False`, a supported host still resolves to its dedicated scraper (confirmed `BBCGoodFood` is returned for a bbcgoodfood.com URL), and unsupported hosts fall back to generic schema.org parsing. Exceptions raised are unchanged. It is a strict superset — **always pass `supported_only=False`**.
 
 ---
 
@@ -123,7 +127,7 @@ Expected latency ~5-8s total, versus 20-60s for the current generate flow. No st
 
 ```python
 async def fetch_page(url: str) -> str        # SSRF-guarded async fetch
-def scrape(html: str, url: str) -> ScrapedRecipe | None   # wild_mode=True
+def scrape(html: str, url: str) -> ScrapedRecipe | None   # supported_only=False
 ```
 
 **SSRF guard — required, not optional.** This endpoint takes a user-supplied URL and makes the server fetch it, then returns the parsed result to the caller. That is a textbook full-read SSRF primitive. See [Appendix A](#appendix-a--ssrf-in-detail) for the full threat model, why the obvious mitigations fail, and a reference implementation.
@@ -219,14 +223,14 @@ Index `source_url` and return 409 with the existing recipe id on re-import. Requ
 
 ## Implementation plan
 
-### Step 1 — Dependency + scraper module
+### Step 1 — Dependency + scraper module ✅ done
 - Add `recipe-scrapers` to `server/requirements.txt`
 - **Verify it builds on Nixpacks** before going further (the sandbox failure was environmental, but confirm)
 - Create `server/recipe_import.py`: `fetch_page()` with the full SSRF guard, `scrape()` wrapping `scrape_html(..., wild_mode=True)`
 - Normalise `yields()` → `Optional[int]` with a range sanity-check
 - Return a `ScrapedRecipe` dataclass
 
-### Step 2 — Tests for step 1 (before wiring anything up)
+### Step 2 — Tests for step 1 (before wiring anything up) ✅ done
 - `server/tests/test_recipe_import.py` with **saved HTML fixtures** — no network in tests
 - Fixtures: a JSON-LD page, a page with `ingredient_groups`, a no-structured-data page, a `"serves 4-6"` yields case
 - SSRF guard tests: `127.0.0.1`, `169.254.169.254`, `10.x`, `file://`, a redirect from a public host to a private one
