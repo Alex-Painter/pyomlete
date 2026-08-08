@@ -2,9 +2,11 @@ import asyncio
 import base64
 import re
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse, urlunparse
 
 from anthropic import AsyncAnthropic, transform_schema
 from beanie import PydanticObjectId, init_beanie
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +21,7 @@ from lib.types import (
     CategorizeRequest,
     CategorizeResponse,
     ExcludeUpdateRequest,
+    ImportFromUrlRequest,
     IngredientRecipe,
     ItemCreateRequest,
     ItemReorderRequest,
@@ -26,11 +29,14 @@ from lib.types import (
     ListUpdateRequest,
     MealSuggestions,
     RatingUpdate,
+    RecipeMetadata,
     RecipeModelResponse,
     RecipePrompt,
     RecipeUpdateRequest,
     SuggestMealsRequest,
 )
+from ingredient_structurer import structure_ingredients
+from recipe_import import BlockedURL, FetchFailed, ScrapedRecipe, fetch_page, scrape
 from tools import find_similar_ingredients
 
 load_dotenv()
@@ -71,7 +77,9 @@ async def _get_category_names() -> list[str]:
     return [c.name for c in sorted(settings.categories, key=lambda c: c.order)]
 
 
-async def _save_recipe(recipe: RecipeModelResponse) -> RecipeDocument:
+async def _save_recipe(
+    recipe: RecipeModelResponse, metadata: RecipeMetadata | None = None
+) -> RecipeDocument:
     new_ingredients = [i for i in recipe.ingredients if i.is_new]
     existing_ingredients = [i for i in recipe.ingredients if not i.is_new]
 
@@ -101,12 +109,16 @@ async def _save_recipe(recipe: RecipeModelResponse) -> RecipeDocument:
         category = i.category
         if not i.is_new and category == "Other":
             category = category_map.get(i.name.lower(), "Other")
-        ingredients.append(IngredientRecipe(name=i.name, unit=i.unit, amount=i.amount, category=category))
+        ingredients.append(IngredientRecipe(
+            name=i.name, unit=i.unit, amount=i.amount,
+            note=i.note, group=i.group, category=category,
+        ))
 
     db_recipe = RecipeDocument(
         title=recipe.title,
         instructions=recipe.instructions,
         ingredients=ingredients,
+        **(metadata.model_dump() if metadata else {}),
     )
     await db_recipe.insert()
     return db_recipe
@@ -237,6 +249,134 @@ async def extract_recipes_from_images(files: list[UploadFile], group_sizes: list
         return results
 
 
+# --- Import from URL ---
+
+# Enough of a page to hold a recipe, short enough that a content farm's worth of
+# comments doesn't turn the fallback into an expensive call.
+_FALLBACK_TEXT_CHARS = 20000
+
+
+def _canonical_url(raw: str) -> str:
+    """Normalise a submitted URL so dedup doesn't miss obvious repeats.
+
+    Only the fragment is dropped — it never changes what the server returns.
+    Query strings are left alone because plenty of sites put the recipe id
+    there, and stripping them would collapse distinct recipes into one.
+    """
+    parsed = urlparse(raw.strip())
+    return urlunparse(parsed._replace(fragment=""))
+
+
+def _page_text(html: str) -> str:
+    """Reduce a page to readable text for the model fallback."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    lines = (line.strip() for line in soup.get_text("\n").splitlines())
+    return "\n".join(line for line in lines if line)[:_FALLBACK_TEXT_CHARS]
+
+
+async def _recipe_from_page_text(
+    text: str, categories_str: str
+) -> RecipeModelResponse | None:
+    """Last resort for pages that publish no structured data.
+
+    Returns None when the page has no recipe on it — the model is told to
+    answer with an empty recipe rather than oblige us with an invented one.
+    """
+    runner = async_claude.beta.messages.tool_runner(
+        model="claude-opus-4-5",
+        max_tokens=2048,
+        messages=[{
+            "role": "user",
+            "content": f"Below is the text of a web page. Extract the recipe from it verbatim — the instructions are the author's and must not be rewritten or embellished. Include ingredient amounts directly in the instruction steps (e.g. 'add the 500g pasta' not just 'add the pasta'). Use find_similar_ingredients to match ingredients against the database. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, leave the category as 'Other'.\n\nIf this page does not contain a recipe, return empty values for title, instructions and ingredients rather than composing one.\n\n---\n{text}",
+        }],
+        tools=[find_similar_ingredients],
+        stream=True,
+        output_config={"format": {"type": "json_schema", "schema": recipeSchema}},
+    )
+    final_message = await runner.until_done()
+    recipe = RecipeModelResponse.model_validate_json(final_message.content[0].text)
+
+    if not recipe.title or not recipe.instructions or not recipe.ingredients:
+        return None
+    return recipe
+
+
+def _metadata_from(scraped: ScrapedRecipe) -> RecipeMetadata:
+    return RecipeMetadata(
+        servings=scraped.servings,
+        prep_minutes=scraped.prep_minutes,
+        cook_minutes=scraped.cook_minutes,
+        total_minutes=scraped.total_minutes,
+        image_url=scraped.image_url,
+        source_url=scraped.source_url,
+        source_name=scraped.source_name,
+        description=scraped.description,
+        cuisine=scraped.cuisine,
+    )
+
+
+@router.post("/recipes/import-from-url/")
+async def import_recipe_from_url(body: ImportFromUrlRequest):
+    """Import a recipe from a public web page.
+
+    Two stages: scrape the page for structured data (free), then structure the
+    free-text ingredient lines with Haiku. Pages that publish nothing readable
+    fall back to Opus over the page text.
+    """
+    url = _canonical_url(body.url)
+
+    # Cheapest check first — a re-import shouldn't cost a fetch or a token.
+    # Two simultaneous imports of the same URL can both get past this; the
+    # index is deliberately non-unique, so that races to a duplicate rather
+    # than an error. Re-importing is rare and a duplicate is deletable.
+    existing = await RecipeDocument.find_one(RecipeDocument.source_url == url)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "That page has already been imported.",
+                "recipe_id": str(existing.id),
+            },
+        )
+
+    try:
+        html = await fetch_page(url)
+    except BlockedURL as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FetchFailed as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    categories_str = ", ".join(await _get_category_names())
+
+    scraped = scrape(html, url)
+    if scraped:
+        ingredients = await structure_ingredients(
+            scraped.ingredients,
+            categories_str,
+            async_claude,
+            groups=scraped.ingredient_groups,
+        )
+        recipe = RecipeModelResponse(
+            title=scraped.title,
+            instructions=scraped.instructions,
+            ingredients=ingredients,
+        )
+        metadata = _metadata_from(scraped)
+    else:
+        recipe = await _recipe_from_page_text(_page_text(html), categories_str)
+        if not recipe:
+            raise HTTPException(
+                status_code=404, detail="No recipe found on that page."
+            )
+        # Nothing was published to read, so provenance is all we can honestly
+        # record — no image, no times, no servings.
+        metadata = RecipeMetadata(source_url=url, source_name=urlparse(url).hostname)
+
+    return await _save_recipe(recipe, metadata)
+
+
 @router.get("/recipes/")
 async def list_recipes():
     recipes = await RecipeDocument.find_all().sort("-created_at").to_list()
@@ -246,6 +386,11 @@ async def list_recipes():
             "title": r.title,
             "ingredient_count": len(r.ingredients),
             "rating": r.rating,
+            # Enough for a card without shipping the whole document.
+            "image_url": r.image_url,
+            "total_minutes": r.total_minutes,
+            "servings": r.servings,
+            "source_name": r.source_name,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in recipes
@@ -516,6 +661,19 @@ class AddRecipeRequest(BaseModel):
     recipe_id: str
 
 
+def _total_amount(sources: list[ItemSource]) -> float | None:
+    """Sum the quantified sources, ignoring the ones with no amount.
+
+    An item can be contributed by one recipe that says "200g" and another that
+    just says "olive oil". The honest total is 200g — not 200 plus an invented
+    zero — and an item nothing quantifies stays unquantified.
+    """
+    amounts = [s.amount for s in sources if s.amount is not None]
+    if not amounts:
+        return None
+    return round(sum(amounts), 2)
+
+
 @router.post("/lists/{list_id}/recipes")
 async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
     lst = await ListDocument.get(list_id)
@@ -546,7 +704,7 @@ async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
 
         if matched:
             matched.sources.append(source)
-            matched.amount = round(sum(s.amount for s in matched.sources), 2)
+            matched.amount = _total_amount(matched.sources)
         else:
             lst.items.append(ListItem(
                 name=ing.name,
@@ -581,7 +739,7 @@ async def remove_recipe_from_list(list_id: PydanticObjectId, recipe_id: str):
     for item in lst.items:
         item.sources = [s for s in item.sources if s.recipe_id != recipe_id]
         if item.sources:
-            item.amount = round(sum(s.amount for s in item.sources), 2)
+            item.amount = _total_amount(item.sources)
             remaining_items.append(item)
         # Items with no remaining sources are dropped
     lst.items = remaining_items
@@ -608,7 +766,7 @@ async def add_item(list_id: PydanticObjectId, body: ItemCreateRequest):
         amount=body.amount,
         unit=body.unit,
         category=body.category,
-        sources=[ItemSource(recipe_id=None, amount=body.amount or 0)],
+        sources=[ItemSource(recipe_id=None, amount=body.amount)],
     )
     lst.items.append(item)
     await lst.save()
