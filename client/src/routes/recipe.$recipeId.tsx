@@ -32,7 +32,8 @@ import '@/index.css'
 type IngredientRecipe = {
   name: string
   unit: string
-  amount: number
+  // null when the recipe never gave a quantity — "salt and pepper to taste".
+  amount: number | null
   category: string
   excluded_from_list: boolean
 }
@@ -120,7 +121,10 @@ function RecipeDetailPage() {
           instructions: editInstructions,
           ingredients: editIngredients.map((ing) => ({
             ...ing,
-            amount: parseFloat(ing.amount) || 0,
+            // An empty field means the ingredient has no quantity ("salt, to
+            // taste"), which the API stores as null. Coercing it to 0 here
+            // would overwrite that with a number nobody typed.
+            amount: ing.amount.trim() === '' ? null : parseFloat(ing.amount) || 0,
           })),
         }),
       })
@@ -165,7 +169,10 @@ function RecipeDetailPage() {
     setEditTitle(recipe.title)
     setEditInstructions([...recipe.instructions])
     setEditIngredients(
-      recipe.ingredients.map((i) => ({ ...i, amount: String(i.amount) }))
+      recipe.ingredients.map((i) => ({
+        ...i,
+        amount: i.amount == null ? '' : String(i.amount),
+      }))
     )
     setEditing(true)
   }
@@ -376,7 +383,7 @@ function RecipeDetailPage() {
                       >
                         <span className="flex-1">{ing.name}</span>
                         <span className="text-ink font-medium shrink-0">
-                          {ing.amount} {ing.unit}
+                          {ing.amount == null ? ing.unit : `${ing.amount} ${ing.unit}`}
                         </span>
                         <button
                           onClick={() =>

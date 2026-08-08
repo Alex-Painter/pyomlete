@@ -236,20 +236,28 @@ Index `source_url` and return 409 with the existing recipe id on re-import. Requ
 - SSRF guard tests: `127.0.0.1`, `169.254.169.254`, `10.x`, `file://`, a redirect from a public host to a private one
 - This is the highest-value test surface in the feature — it's pure functions over fixed input
 
-### Step 3 — Ingredient structurer
+### Step 3 — Ingredient structurer ✅ done
 - `server/ingredient_structurer.py` on Haiku, reusing the `tool_runner` + `find_similar_ingredients` pattern
 - Unit tests with a mocked Anthropic client, mirroring `tests/test_ingredient_service.py`
 - **Risk:** confirm Haiku 4.5 handles structured output + tool use reliably. If not, fall back to Sonnet — still far cheaper than Opus
+- **Still open:** the risk above is unverified. The tests mock the client, so nothing here has exercised a real Haiku call — that needs a live import against a real page before this ships. `MODEL` is a single constant to change if it disappoints.
+- Group headings are only used when they account for every ingredient line. Partial `ingredient_groups()` is common enough that trusting it would silently drop ingredients.
 
-### Step 4 — Model changes
+### Step 4 — Model changes ✅ done
 - Extend `Recipe` and `IngredientRecipe` in `server/lib/types.py`
 - No migration needed (all optional), but confirm existing docs still deserialise
 - Add the `source_url` index
+- **Changed from the plan:** the metadata went on a separate `RecipeMetadata` mixin rather than onto `Recipe`. `Recipe` is the base of `RecipeModelResponse`, which is what generates the JSON schema handed to Claude — extending it would have put `image_url` and `source_url` in front of a model that has no way to know them and every incentive to fill them in. `RecipeDocument` inherits both; the model only ever sees `Recipe`.
+- `IngredientRecipe` also gained `group`, so the headings from step 3 have somewhere to live.
+- Open question 2 resolved: `amount` is now `Optional[float]`. `ItemSource.amount` followed it, and the two `sum()` sites in the list-merge arithmetic went through `_total_amount()`, which ignores unquantified sources instead of treating them as zero.
 
-### Step 5 — Endpoint
+### Step 5 — Endpoint ✅ done
 - `POST /api/recipes/import-from-url/` in `server/main.py`
 - Wire the fallback chain and the error taxonomy above
 - Dedup check on `source_url`
+- The dedup read happens before the fetch, so a re-import costs neither a request nor a token. The index is non-unique (every hand-made recipe has `source_url` unset), so two simultaneous imports of the same URL race to a duplicate rather than an error.
+- The Opus fallback is told to return an empty recipe for a page that has none, which is what turns into the 404. Without that it will always oblige with something.
+- **Not done, still required before this is public:** rate limiting (open question 4). The endpoint makes the server fetch arbitrary URLs and then spends tokens on the result, with no authentication in front of it.
 
 ### Step 6 — Frontend
 - New `LinkTab` in `client/src/routes/create.tsx`, made the default

@@ -1,6 +1,6 @@
 import { highlightAmounts } from '@/lib/highlightAmounts'
 
-type IngredientRecipe = { name: string; unit: string; amount: number; category?: string; excluded_from_list?: boolean }
+type IngredientRecipe = { name: string; unit: string; amount: number | null; category?: string; excluded_from_list?: boolean }
 export type Recipe = { title: string; instructions: string[]; ingredients: IngredientRecipe[] }
 
 export function RecipeCard({ recipe }: { recipe: Recipe }) {
@@ -17,7 +17,7 @@ export function RecipeCard({ recipe }: { recipe: Recipe }) {
             <li key={i} className="text-sm text-ink-soft flex gap-2">
               <span className="flex-1">{ing.name}</span>
               <span className="text-ink font-medium shrink-0">
-                {ing.amount} {ing.unit}
+                {ing.amount == null ? ing.unit : `${ing.amount} ${ing.unit}`}
               </span>
             </li>
           ))}
