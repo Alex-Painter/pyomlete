@@ -259,19 +259,24 @@ Index `source_url` and return 409 with the existing recipe id on re-import. Requ
 - The Opus fallback is told to return an empty recipe for a page that has none, which is what turns into the 404. Without that it will always oblige with something.
 - **Not done, still required before this is public:** rate limiting (open question 4). The endpoint makes the server fetch arbitrary URLs and then spends tokens on the result, with no authentication in front of it.
 
-### Step 6 — Frontend
+### Step 6 — Frontend ✅ done
 - New `LinkTab` in `client/src/routes/create.tsx`, made the default
 - Two-phase progress copy ("Reading the page…" → "Sorting the ingredients…")
 - **Real error handling** — this is the first feature that genuinely needs it, and it's a #50 P0 item
 - Surface `image_url`, times and servings on `RecipeCard` and the recipe detail page
+- Error handling landed as `apiJson()` in `lib/api.ts`, alongside the existing `apiFetch`. `fetch` only rejects on a network failure, so every current caller renders a 502's body as though it were a recipe. `apiJson` throws an `ApiError` carrying the status and FastAPI's `detail`; the 409 branch reads `recipe_id` out of it and offers a link to the existing recipe. Migrating the other call sites is left alone deliberately — it changes behaviour well outside this feature.
+- The two-phase copy advances on a **timer**, not on observed progress. The import is a single round trip, so the client cannot see the handover from scrape to structure. The stages do happen in that order; the timing is a guess.
+- Ingredient `note` and `group` are shown on both the card and the detail page. Grouping goes through `lib/groupIngredients.ts`, which carries the original array index along — the detail page's exclude-from-list toggle addresses ingredients by position, and regrouping must not renumber them.
 
-### Step 7 — Share target
+### Step 7 — Share target — **not done**
 - `share_target` in `manifest.webmanifest`
 - `/create` reads `?url=` on mount and pre-fills
 - Test on Android Chrome — iOS does not support Web Share Target
+- The link tab this depends on now exists, so this is the next thing to pick up.
 
-### Step 8 — Docs
+### Step 8 — Docs — partly done
 - Update `README.md` / `CLAUDE.md` (both currently describe endpoints that don't exist)
+- `CLAUDE.md`'s backend section now matches reality. `README.md` has not been touched.
 
 **Suggested sequencing:** steps 1-2 are self-contained and testable with zero network and zero tokens — worth doing first and merging on their own. Steps 3-5 are the backend spine. Steps 6-7 are frontend. Step 4 (model changes) unblocks other #50 work, so pulling it earlier is reasonable.
 

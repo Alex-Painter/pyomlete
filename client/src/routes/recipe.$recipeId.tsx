@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/select'
 import { apiFetch } from '@/lib/api'
 import { StarRating } from '@/components/StarRating'
+import { RecipeHeroImage, RecipeMetaRow } from '@/components/RecipeMetaRow'
+import { groupIngredients } from '@/lib/groupIngredients'
 import type { Recipe } from '@/components/RecipeCard'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import '@/index.css'
@@ -34,6 +36,10 @@ type IngredientRecipe = {
   unit: string
   // null when the recipe never gave a quantity — "salt and pepper to taste".
   amount: number | null
+  // Both set only by a URL import: preparation stripped off the name, and the
+  // heading the line sat under on the source page.
+  note?: string | null
+  group?: string | null
   category: string
   excluded_from_list: boolean
 }
@@ -48,6 +54,8 @@ type RecipeDetail = Omit<Recipe, 'ingredients'> & {
   created_at: string
   ingredients: IngredientRecipe[]
 }
+// `Recipe` already carries the import metadata (image_url, times, servings,
+// source), so RecipeDetail inherits it.
 
 type CategoryConfig = {
   name: string
@@ -240,6 +248,14 @@ function RecipeDetailPage() {
 
         {recipe && (
           <div className="bg-white border border-line rounded-xl p-6 space-y-5 shadow-sm">
+            {recipe.image_url && !editing && (
+              <RecipeHeroImage
+                src={recipe.image_url}
+                alt={recipe.title}
+                className="h-56 sm:h-72 rounded-lg"
+              />
+            )}
+
             {/* Title */}
             {editing ? (
               <Input
@@ -250,6 +266,9 @@ function RecipeDetailPage() {
             ) : (
               <h2 className="text-xl font-semibold text-ink">{recipe.title}</h2>
             )}
+
+            {/* Times, servings and attribution — imported recipes only */}
+            {!editing && <RecipeMetaRow recipe={recipe} />}
 
             {/* Date + Rating */}
             <div className="flex items-center justify-between">
@@ -373,37 +392,55 @@ function RecipeDetailPage() {
                     </Button>
                   </div>
                 ) : (
-                  <ul className="space-y-1.5">
-                    {recipe.ingredients.map((ing, i) => (
-                      <li
-                        key={i}
-                        className={`text-sm flex items-center gap-2 ${
-                          ing.excluded_from_list ? 'opacity-40' : 'text-ink-soft'
-                        }`}
-                      >
-                        <span className="flex-1">{ing.name}</span>
-                        <span className="text-ink font-medium shrink-0">
-                          {ing.amount == null ? ing.unit : `${ing.amount} ${ing.unit}`}
-                        </span>
-                        <button
-                          onClick={() =>
-                            toggleExclude.mutate({
-                              index: i,
-                              excluded: !ing.excluded_from_list,
-                            })
-                          }
-                          className="shrink-0 text-ink-faint hover:text-ink-muted transition-colors cursor-pointer"
-                          title={ing.excluded_from_list ? 'Include in shopping list' : 'Exclude from shopping list'}
-                        >
-                          {ing.excluded_from_list ? (
-                            <EyeOff className="size-3.5" />
-                          ) : (
-                            <Eye className="size-3.5" />
-                          )}
-                        </button>
-                      </li>
+                  <div className="space-y-4">
+                    {groupIngredients(recipe.ingredients).map((group) => (
+                      <div key={group.heading || 'ungrouped'}>
+                        {group.heading && (
+                          <h4 className="text-xs font-medium text-ink-soft mb-2">
+                            {group.heading}
+                          </h4>
+                        )}
+                        <ul className="space-y-1.5">
+                          {group.items.map(({ ingredient: ing, index }) => (
+                            <li
+                              key={index}
+                              className={`text-sm flex items-center gap-2 ${
+                                ing.excluded_from_list ? 'opacity-40' : 'text-ink-soft'
+                              }`}
+                            >
+                              <span className="flex-1">
+                                {ing.name}
+                                {ing.note && (
+                                  <span className="text-ink-faint">, {ing.note}</span>
+                                )}
+                              </span>
+                              <span className="text-ink font-medium shrink-0">
+                                {ing.amount == null
+                                  ? ing.unit
+                                  : `${ing.amount} ${ing.unit}`}
+                              </span>
+                              <button
+                                onClick={() =>
+                                  toggleExclude.mutate({
+                                    index,
+                                    excluded: !ing.excluded_from_list,
+                                  })
+                                }
+                                className="shrink-0 text-ink-faint hover:text-ink-muted transition-colors cursor-pointer"
+                                title={ing.excluded_from_list ? 'Include in shopping list' : 'Exclude from shopping list'}
+                              >
+                                {ing.excluded_from_list ? (
+                                  <EyeOff className="size-3.5" />
+                                ) : (
+                                  <Eye className="size-3.5" />
+                                )}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </div>
 
