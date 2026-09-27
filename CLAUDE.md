@@ -38,6 +38,7 @@ Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 - `tools.py` — defines the `find_similar_ingredients` Claude tool, which runs a MongoDB `$vectorSearch` to find semantically similar existing ingredients (threshold ≥ 0.9)
 - `recipe_import.py` — SSRF-guarded page fetch + `recipe-scrapers` parsing (stage 1 of URL import)
 - `ingredient_structurer.py` — Haiku pass that turns free-text ingredient lines into structured ingredients (stage 2 of URL import)
+- `rate_limit.py` — in-process sliding-window limits on the endpoints that call a model. The endpoints are unauthenticated, so this is the only thing between a stranger and the Anthropic bill. Wired on as `dependencies=[Depends(enforce_paid)]` / `enforce_cheap`.
 - `lib/db.py` — MongoDB connection (Motor) and Voyage AI client setup
 
 ### AI / Data Flow
@@ -67,6 +68,12 @@ See `docs/PRD_URL_IMPORT.md` for the design and what's still outstanding.
 - `ANTHROPIC_API_KEY`
 - `VOYAGE_API_KEY`
 - `DB_USER`, `DB_PASS` — MongoDB credentials
+
+Rate limiting (all optional, defaults in `rate_limit.py`):
+- `RATE_LIMIT_ENABLED` — set to `false` to turn it off entirely
+- `RATE_LIMIT_PAID`, `RATE_LIMIT_PAID_WINDOW` — per-client allowance for the Opus endpoints (default 20 per 300s)
+- `RATE_LIMIT_GLOBAL`, `RATE_LIMIT_GLOBAL_WINDOW` — ceiling across all callers (default 200 per 3600s)
+- `RATE_LIMIT_CHEAP`, `RATE_LIMIT_CHEAP_WINDOW` — per-client allowance for `/categorize` (default 120 per 300s)
 
 **Frontend**: `VITE_API_URL` — base URL for API calls (empty in dev, set on Render for prod)
 

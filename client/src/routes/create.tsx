@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { RecipeCard } from '@/components/RecipeCard'
 import type { Recipe } from '@/components/RecipeCard'
-import { ApiError, apiFetch, apiJson } from '@/lib/api'
+import { ApiError, apiJson } from '@/lib/api'
 import '@/index.css'
 
 export const Route = createFileRoute('/create')({ component: CreatePage })
@@ -81,11 +81,43 @@ function importErrorMessage(error: Error): string {
       return "That link can't be fetched. Check it's a full, public recipe URL."
     case 404:
       return "Couldn't find a recipe on that page. Try the recipe's own page rather than a listing or a video."
+    case 429:
+      return rateLimitMessage(error)
     case 502:
       return "That site didn't respond. It may be down or blocking us — try again in a minute."
     default:
       return 'Something went wrong importing that link. Try again.'
   }
+}
+
+/**
+ * Copy for a 429. The server sends Retry-After, but `fetch` only exposes
+ * response headers to code holding the Response — and `apiJson` has thrown by
+ * the time we get here — so this stays deliberately vague about the wait
+ * rather than inventing a number.
+ */
+function rateLimitMessage(error: ApiError): string {
+  return typeof error.detail === 'string'
+    ? error.detail
+    : 'Too many requests. Give it a minute and try again.'
+}
+
+/** Shared copy for the two tabs that only ever hit the recipe endpoints. */
+function aiErrorMessage(error: Error): string {
+  if (!(error instanceof ApiError)) {
+    return 'Could not reach Omlete. Check your connection and try again.'
+  }
+  if (error.status === 429) return rateLimitMessage(error)
+  return 'Something went wrong. Try again.'
+}
+
+function ErrorNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border border-line bg-white p-4 text-sm">
+      <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
+      <p className="text-ink-soft">{children}</p>
+    </div>
+  )
 }
 
 /** A 409 carries the id of the recipe imported from this URL the first time. */
@@ -195,10 +227,7 @@ function LinkTab() {
       )}
 
       {error && !duplicateId && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-line bg-white p-4 text-sm">
-          <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-ink-soft">{importErrorMessage(error)}</p>
-        </div>
+        <ErrorNotice>{importErrorMessage(error)}</ErrorNotice>
       )}
 
       {data && (
@@ -220,15 +249,16 @@ function LinkTab() {
 function GenerateTab() {
   const [prompt, setPrompt] = useState('')
 
-  const { mutate, data, isPending } = useMutation({
-    mutationFn: async (p: string): Promise<Recipe> => {
-      const res = await apiFetch('/api/recipes/generate/', {
+  // apiJson, not apiFetch: the recipe endpoints are rate limited now, so a 429
+  // is an ordinary outcome. apiFetch would hand the error body straight to
+  // RecipeCard, which would then crash reading `ingredients` off it.
+  const { mutate, data, isPending, error } = useMutation<Recipe, Error, string>({
+    mutationFn: (p) =>
+      apiJson<Recipe>('/api/recipes/generate/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: p }),
-      })
-      return res.json()
-    },
+      }),
   })
 
   return (
@@ -257,6 +287,8 @@ function GenerateTab() {
         )}
       </Button>
 
+      {error && <ErrorNotice>{aiErrorMessage(error)}</ErrorNotice>}
+
       {data && <RecipeCard recipe={data} />}
     </div>
   )
@@ -270,6 +302,8 @@ type RecipeGroup = {
 function ExtractTab() {
   const [groups, setGroups] = useState<RecipeGroup[]>([])
   const [results, setResults] = useState<Recipe[]>([])
+  const [failures, setFailures] = useState(0)
+  const [extractError, setExtractError] = useState<Error | null>(null)
   const [isExtracting, setIsExtracting] = useState(false)
   const [progress, setProgress] = useState<number>(0)
 
@@ -301,6 +335,8 @@ function ExtractTab() {
     if (groups.length === 0 || totalFiles === 0) return
     setIsExtracting(true)
     setResults([])
+    setFailures(0)
+    setExtractError(null)
     setProgress(0)
 
     for (let i = 0; i < groups.length; i++) {
@@ -313,14 +349,17 @@ function ExtractTab() {
       form.append('group_sizes', String(group.files.length))
 
       try {
-        const res = await apiFetch('/api/recipes/extract-from-images/', {
-          method: 'POST',
-          body: form,
-        })
-        const recipes: Recipe[] = await res.json()
+        const recipes = await apiJson<Recipe[]>(
+          '/api/recipes/extract-from-images/',
+          { method: 'POST', body: form },
+        )
         setResults((prev) => [...prev, ...recipes])
-      } catch {
-        // Continue with next group on error
+      } catch (err) {
+        // Keep going — one bad group shouldn't lose the others — but say so
+        // afterwards. Failing silently here meant a rate-limited run looked
+        // like the photos simply had no recipe in them.
+        setFailures((prev) => prev + 1)
+        setExtractError(err as Error)
       }
     }
 
@@ -368,6 +407,13 @@ function ExtractTab() {
             `Create ${groups.length} Recipe${groups.length !== 1 ? 's' : ''}`
           )}
         </Button>
+      )}
+
+      {failures > 0 && !isExtracting && extractError && (
+        <ErrorNotice>
+          {failures} of {groups.length} didn't come through.{' '}
+          {aiErrorMessage(extractError)}
+        </ErrorNotice>
       )}
 
       {/* Results */}
