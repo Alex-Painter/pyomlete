@@ -1,28 +1,46 @@
 import { useRef, useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
-import { useMutation } from '@tanstack/react-query'
-import { ImageIcon, Loader2, Plus, Trash2, UploadCloud, X } from 'lucide-react'
+import { Link, createFileRoute } from '@tanstack/react-router'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  AlertCircle,
+  ImageIcon,
+  Link2,
+  Loader2,
+  Plus,
+  Trash2,
+  UploadCloud,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RecipeCard } from '@/components/RecipeCard'
 import type { Recipe } from '@/components/RecipeCard'
-import { apiFetch } from '@/lib/api'
+import { ApiError, apiFetch, apiJson } from '@/lib/api'
 import '@/index.css'
 
 export const Route = createFileRoute('/create')({ component: CreatePage })
 
-type Tab = 'generate' | 'extract'
+type Tab = 'link' | 'generate' | 'extract'
+
+const TAB_LABELS: Record<Tab, string> = {
+  link: 'From link',
+  generate: 'Generate',
+  extract: 'Extract from Images',
+}
 
 function CreatePage() {
-  const [tab, setTab] = useState<Tab>('extract')
+  // Pasting a link is the most common way people acquire a recipe, so it leads.
+  const [tab, setTab] = useState<Tab>('link')
 
   return (
     <div className="min-h-screen bg-cream text-ink">
       <div className="max-w-2xl mx-auto px-4 py-12">
         <h1 className="text-2xl font-bold mb-2">Create Recipe</h1>
-        <p className="text-ink-muted mb-8">Generate or extract recipes with AI</p>
+        <p className="text-ink-muted mb-8">
+          Import a recipe from a link, or make one with AI
+        </p>
 
-        <div className="flex gap-1 p-1 bg-mist rounded-lg mb-8 w-fit">
-          {(['generate', 'extract'] as const).map((t) => (
+        <div className="flex flex-wrap gap-1 p-1 bg-mist rounded-lg mb-8 w-fit">
+          {(['link', 'generate', 'extract'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -31,13 +49,170 @@ function CreatePage() {
                   : 'text-ink-muted hover:text-ink-soft'
                 }`}
             >
-              {t === 'generate' ? 'Generate' : 'Extract from Images'}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
 
-        {tab === 'generate' ? <GenerateTab /> : <ExtractTab />}
+        {tab === 'link' && <LinkTab />}
+        {tab === 'generate' && <GenerateTab />}
+        {tab === 'extract' && <ExtractTab />}
       </div>
+    </div>
+  )
+}
+
+type ImportedRecipe = Recipe & { _id: string }
+
+// The two stages the server runs, in order. We can't observe the handover — the
+// request is a single round trip — so the copy advances on a timer sized to a
+// typical scrape. It tells the user what is happening, not when it happened.
+const SORTING_COPY_DELAY_MS = 2500
+
+type ImportPhase = 'reading' | 'sorting'
+
+function importErrorMessage(error: Error): string {
+  if (!(error instanceof ApiError)) {
+    return 'Could not reach Omlete. Check your connection and try again.'
+  }
+
+  switch (error.status) {
+    case 400:
+      return "That link can't be fetched. Check it's a full, public recipe URL."
+    case 404:
+      return "Couldn't find a recipe on that page. Try the recipe's own page rather than a listing or a video."
+    case 502:
+      return "That site didn't respond. It may be down or blocking us — try again in a minute."
+    default:
+      return 'Something went wrong importing that link. Try again.'
+  }
+}
+
+/** A 409 carries the id of the recipe imported from this URL the first time. */
+function alreadyImportedId(error: Error | null): string | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null
+  const detail = error.detail as { recipe_id?: string } | null
+  return detail?.recipe_id ?? null
+}
+
+function LinkTab() {
+  const queryClient = useQueryClient()
+  const [url, setUrl] = useState('')
+  const [phase, setPhase] = useState<ImportPhase>('reading')
+
+  const { mutate, data, isPending, error, reset } = useMutation<
+    ImportedRecipe,
+    Error,
+    string
+  >({
+    mutationFn: async (target) => {
+      setPhase('reading')
+      const advance = setTimeout(() => setPhase('sorting'), SORTING_COPY_DELAY_MS)
+      try {
+        return await apiJson<ImportedRecipe>('/api/recipes/import-from-url/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: target }),
+        })
+      } finally {
+        clearTimeout(advance)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recipes'] })
+    },
+  })
+
+  const trimmed = url.trim()
+  const looksLikeUrl = /^https?:\/\/\S+\.\S+/.test(trimmed)
+  const duplicateId = alreadyImportedId(error)
+
+  const submit = () => {
+    if (!looksLikeUrl || isPending) return
+    mutate(trimmed)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <label htmlFor="import-url" className="text-sm font-medium text-ink-soft">
+          Paste a recipe link
+        </label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Link2 className="size-4 text-ink-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              id="import-url"
+              type="url"
+              inputMode="url"
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value)
+                if (error || data) reset()
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+              }}
+              placeholder="https://www.bbcgoodfood.com/recipes/..."
+              disabled={isPending}
+              className="w-full bg-white border border-line rounded-lg pl-9 pr-4 py-3 text-sm text-ink placeholder-ink-faint focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+          <Button onClick={submit} disabled={isPending || !looksLikeUrl}>
+            {isPending ? <Loader2 className="animate-spin" /> : 'Import'}
+          </Button>
+        </div>
+        {trimmed !== '' && !looksLikeUrl && (
+          <p className="text-xs text-ink-muted">
+            That doesn't look like a link — it should start with https://
+          </p>
+        )}
+      </div>
+
+      {isPending && (
+        <div className="flex items-center gap-2.5 text-sm text-ink-muted">
+          <Loader2 className="size-4 animate-spin shrink-0" />
+          {phase === 'reading'
+            ? 'Reading the page…'
+            : 'Sorting the ingredients…'}
+        </div>
+      )}
+
+      {duplicateId && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-line bg-white p-4 text-sm">
+          <AlertCircle className="size-4 text-ink-muted shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-ink-soft">You've already imported that link.</p>
+            <Link
+              to="/recipe/$recipeId"
+              params={{ recipeId: duplicateId }}
+              className="text-ink font-medium underline underline-offset-4 hover:text-ink-soft"
+            >
+              Open the recipe
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {error && !duplicateId && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-line bg-white p-4 text-sm">
+          <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
+          <p className="text-ink-soft">{importErrorMessage(error)}</p>
+        </div>
+      )}
+
+      {data && (
+        <div className="space-y-3">
+          <RecipeCard recipe={data} />
+          <Link
+            to="/recipe/$recipeId"
+            params={{ recipeId: data._id }}
+            className="inline-block text-sm text-ink-soft hover:text-ink underline underline-offset-4"
+          >
+            Open in your recipes
+          </Link>
+        </div>
+      )}
     </div>
   )
 }

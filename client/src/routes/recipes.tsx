@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { LayoutGrid, List, Loader2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { StarRating } from '@/components/StarRating'
+import { RecipeHeroImage, formatMinutes } from '@/components/RecipeMetaRow'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import '@/index.css'
@@ -14,6 +15,11 @@ type RecipeSummary = {
   ingredient_count: number
   rating: number | null
   created_at: string | null
+  // Set only on imported recipes.
+  image_url: string | null
+  total_minutes: number | null
+  servings: number | null
+  source_name: string | null
 }
 
 type ViewMode = 'list' | 'grid'
@@ -150,11 +156,23 @@ function RecipeList() {
 
 function RecipeMeta({ recipe }: { recipe: RecipeSummary }) {
   return (
-    <div className="flex items-center gap-3 mt-1.5 text-sm text-ink-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-ink-muted">
       <span>
         {recipe.ingredient_count} ingredient
         {recipe.ingredient_count !== 1 ? 's' : ''}
       </span>
+      {recipe.total_minutes != null && (
+        <>
+          <span className="text-ink-subtle">·</span>
+          <span>{formatMinutes(recipe.total_minutes)}</span>
+        </>
+      )}
+      {recipe.source_name && (
+        <>
+          <span className="text-ink-subtle">·</span>
+          <span className="truncate max-w-[12rem]">{recipe.source_name}</span>
+        </>
+      )}
       <span className="text-ink-subtle">·</span>
       <span>
         {recipe.created_at
@@ -173,6 +191,13 @@ type RecipeItemProps = {
 function RecipeListRow({ recipe, onRate }: RecipeItemProps) {
   return (
     <div className="bg-white border border-line rounded-xl p-5 flex items-center gap-4 shadow-sm">
+      {recipe.image_url && (
+        <RecipeHeroImage
+          src={recipe.image_url}
+          alt={recipe.title}
+          className="size-16 rounded-lg shrink-0"
+        />
+      )}
       <div className="flex-1 min-w-0">
         <Link
           to="/recipe/$recipeId"
@@ -193,21 +218,30 @@ function RecipeListRow({ recipe, onRate }: RecipeItemProps) {
 
 function RecipeGridCard({ recipe, onRate }: RecipeItemProps) {
   return (
-    <div className="bg-white border border-line rounded-xl p-5 flex flex-col gap-4 h-full shadow-sm">
-      <div className="flex-1 min-w-0">
-        <Link
-          to="/recipe/$recipeId"
-          params={{ recipeId: recipe.id }}
-          className="text-ink font-medium hover:underline underline-offset-4"
-        >
-          {recipe.title}
-        </Link>
-        <RecipeMeta recipe={recipe} />
+    <div className="bg-white border border-line rounded-xl overflow-hidden flex flex-col h-full shadow-sm">
+      {recipe.image_url && (
+        <RecipeHeroImage
+          src={recipe.image_url}
+          alt={recipe.title}
+          className="h-36"
+        />
+      )}
+      <div className="p-5 flex flex-col gap-4 flex-1">
+        <div className="flex-1 min-w-0">
+          <Link
+            to="/recipe/$recipeId"
+            params={{ recipeId: recipe.id }}
+            className="text-ink font-medium hover:underline underline-offset-4"
+          >
+            {recipe.title}
+          </Link>
+          <RecipeMeta recipe={recipe} />
+        </div>
+        <StarRating
+          value={recipe.rating}
+          onChange={(rating) => onRate(recipe.id, rating)}
+        />
       </div>
-      <StarRating
-        value={recipe.rating}
-        onChange={(rating) => onRate(recipe.id, rating)}
-      />
     </div>
   )
 }

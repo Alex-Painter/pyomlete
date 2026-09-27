@@ -9,6 +9,9 @@ annotated-types==0.7.0
 anthropic==0.84.0
 anyio==4.12.1
 attrs==25.4.0
+# A transitive dependency of recipe-scrapers, pinned here because main.py
+# imports it directly to strip pages down to text for the model fallback.
+beautifulsoup4==4.15.0
 certifi==2026.1.4
 charset-normalizer==3.4.5
 click==8.3.1
@@ -57,6 +60,7 @@ beanie>=1.26,<2
 python-dotenv==1.2.1
 python-multipart==0.0.22
 PyYAML==6.0.3
+recipe-scrapers==15.11.0
 requests==2.32.5
 requests-toolbelt==1.0.0
 rich==14.3.3

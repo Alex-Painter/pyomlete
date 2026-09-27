@@ -5,7 +5,7 @@ from uuid import uuid4
 from beanie import Document
 from pydantic import BaseModel, Field
 
-from lib.types import Ingredient, IngredientRecipe, Recipe
+from lib.types import Ingredient, IngredientRecipe, Recipe, RecipeMetadata
 
 
 class IngredientDocument(Document, Ingredient):
@@ -16,18 +16,25 @@ class IngredientDocument(Document, Ingredient):
         name = "ingredients"
 
 
-class RecipeDocument(Document, Recipe):
+class RecipeDocument(Document, Recipe, RecipeMetadata):
     ingredients: list[IngredientRecipe]
     rating: Optional[int] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "recipes"
+        # Import looks a recipe up by source_url on every request to avoid
+        # re-importing the same page. Not unique: every hand-made recipe has
+        # source_url unset, and a unique index would collide on the second one.
+        indexes = ["source_url"]
 
 
 class ItemSource(BaseModel):
     recipe_id: Optional[str] = None
-    amount: float
+    # None for an ingredient the recipe never quantified ("salt, to taste").
+    # It still earns a source so the item survives until every recipe using it
+    # is removed from the list.
+    amount: Optional[float] = None
 
 
 class ListItem(BaseModel):
