@@ -667,7 +667,7 @@ function RecipeSidebar({
             <h3 className="text-xs font-medium text-ink-muted uppercase tracking-wider mb-2 px-1">
               On this list
             </h3>
-            <div className={isMain ? 'grid sm:grid-cols-2 gap-1.5' : 'space-y-1'}>
+            <div className={isMain ? 'grid grid-cols-1 sm:grid-cols-2 gap-1.5' : 'space-y-1'}>
               {selectedRecipes.map((recipe) => {
                 const count = visibleCounts?.get(recipe.id) ?? recipe.ingredient_count
                 return (
@@ -680,7 +680,7 @@ function RecipeSidebar({
                       <Link
                         to="/recipe/$recipeId"
                         params={{ recipeId: recipe.id }}
-                        className="text-sm truncate block hover:text-primary transition-colors"
+                        className="text-sm break-words block hover:text-primary transition-colors"
                       >
                         {recipe.title}
                       </Link>
@@ -727,7 +727,7 @@ function RecipeSidebar({
                 : 'All recipes added'}
             </p>
           )}
-          <div className={isMain ? 'grid sm:grid-cols-2 gap-0.5' : 'space-y-0.5'}>
+          <div className={isMain ? 'grid grid-cols-1 sm:grid-cols-2 gap-0.5' : 'space-y-0.5'}>
             {availableRecipes.map((recipe) => (
               <AvailableRecipeButton
                 key={recipe.id}
@@ -760,7 +760,7 @@ function AvailableRecipeButton({
     >
       <Plus className="size-3.5 text-ink-subtle shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm truncate">{recipe.title}</p>
+        <p className="text-sm break-words">{recipe.title}</p>
         <div className="flex items-center gap-2">
           <span className="text-xs text-ink-faint">
             {recipe.ingredient_count} ingredients
