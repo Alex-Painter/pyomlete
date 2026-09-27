@@ -8,7 +8,7 @@ from anthropic import AsyncAnthropic, transform_schema
 from beanie import PydanticObjectId, init_beanie
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, TypeAdapter
 
@@ -36,6 +36,7 @@ from lib.types import (
     SuggestMealsRequest,
 )
 from ingredient_structurer import structure_ingredients
+from rate_limit import enforce_cheap, enforce_paid
 from recipe_import import BlockedURL, FetchFailed, ScrapedRecipe, fetch_page, scrape
 from tools import find_similar_ingredients
 
@@ -124,7 +125,7 @@ async def _save_recipe(
     return db_recipe
 
 
-@router.post("/recipes/generate/")
+@router.post("/recipes/generate/", dependencies=[Depends(enforce_paid)])
 async def create_recipe(prompt: RecipePrompt):
     category_names = await _get_category_names()
     categories_str = ", ".join(category_names)
@@ -147,7 +148,7 @@ async def create_recipe(prompt: RecipePrompt):
     return await _save_recipe(recipe)
 
 
-@router.post("/recipes/suggest/")
+@router.post("/recipes/suggest/", dependencies=[Depends(enforce_paid)])
 async def suggest_meals(req: SuggestMealsRequest) -> MealSuggestions:
     constraints: list[str] = []
     if req.diet and req.diet.lower() != "any":
@@ -216,7 +217,7 @@ async def _extract_and_save(files: list[UploadFile], categories_str: str) -> Rec
     return await _save_recipe(recipe)
 
 
-@router.post("/recipes/extract-from-images/")
+@router.post("/recipes/extract-from-images/", dependencies=[Depends(enforce_paid)])
 async def extract_recipes_from_images(files: list[UploadFile], group_sizes: list[int] | None = None):
     """Extract recipes from grouped images.
 
@@ -317,7 +318,7 @@ def _metadata_from(scraped: ScrapedRecipe) -> RecipeMetadata:
     )
 
 
-@router.post("/recipes/import-from-url/")
+@router.post("/recipes/import-from-url/", dependencies=[Depends(enforce_paid)])
 async def import_recipe_from_url(body: ImportFromUrlRequest):
     """Import a recipe from a public web page.
 
@@ -617,7 +618,7 @@ async def update_categories(body: CategoriesUpdateRequest):
 # --- Categorization ---
 
 
-@router.post("/categorize", response_model=CategorizeResponse)
+@router.post("/categorize", response_model=CategorizeResponse, dependencies=[Depends(enforce_cheap)])
 async def categorize_item(body: CategorizeRequest):
     # 1. Check IngredientDocument cache (case-insensitive)
     escaped_name = re.escape(body.name)
