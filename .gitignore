@@ -1,1 +1,5 @@
 client/node_modules
+
+# Verification skill runtime state and evidence (.claude/skills/verify-omlete)
+.verify-run/
+verify-artifacts/

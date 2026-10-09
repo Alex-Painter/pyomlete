@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# Launch, health-check, seed, drive and tear down a local Omlete stack for
+# verification. See ../SKILL.md for when to use each subcommand.
+#
+#   omlete-verify setup                  install deps (py3.12 venv, npm, playwright)
+#   omlete-verify up                     start mongo + api + web, wait until ready
+#   omlete-verify doctor                 read-only: is this instance worth driving?
+#   omlete-verify seed                   insert the "Verify Fixture" recipes (local DB only)
+#   omlete-verify browse <path> [steps]  drive the real UI in headless Chromium, save evidence
+#   omlete-verify down [--keep-db]       stop what `up` started; evidence is kept
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$SKILL_DIR/../../.." && pwd)"
+RUN_DIR="${OMLETE_VERIFY_RUN_DIR:-$ROOT/.verify-run}"
+EVIDENCE_DIR="${OMLETE_VERIFY_EVIDENCE_DIR:-$ROOT/verify-artifacts}"
+TOOLS_DIR="$RUN_DIR/tools"
+
+# Always the explicit IPv4 loopback, never "localhost": on at least one dev
+# machine localhost resolved to ::1, where an unrelated Docker container held
+# port 8000 and answered with a bogus 503. uvicorn binds IPv4 only.
+API_PORT=8000
+WEB_PORT=5173 # fixed: the backend's CORS allowlist names this port
+API="http://127.0.0.1:$API_PORT"
+WEB="http://127.0.0.1:$WEB_PORT"
+
+MONGO_CONTAINER=omlete-verify-mongo
+MONGO_IMAGE=mongodb/mongodb-atlas-local:8.0 # Atlas-local: supports $vectorSearch
+MONGO_PORT="${OMLETE_VERIFY_MONGO_PORT:-27018}" # not 27017, to stay off any dev mongo
+LOCAL_DB_URI="mongodb://127.0.0.1:$MONGO_PORT/?directConnection=true"
+
+PLAYWRIGHT_VERSION=1.56.1
+
+DB_MODE="${OMLETE_VERIFY_DB:-local}" # local | env (server/.env, i.e. production)
+
+die() { echo "omlete-verify: $*" >&2; exit 1; }
+say() { echo "==> $*"; }
+
+pid_alive() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
+
+dotenv_has() { [ -f "$ROOT/server/.env" ] && grep -Eq "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]]" "$ROOT/server/.env"; }
+
+http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$@" || true; }
+
+server_header() { curl -s -D - -o /dev/null --max-time 3 "$1" | tr -d '\r' | awk -F': ' 'tolower($1)=="server"{print tolower($2)}'; }
+
+find_python312() {
+  for c in python3.12 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.12; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; assert sys.version_info[:2]==(3,12)' 2>/dev/null; then
+      command -v "$c"; return 0
+    fi
+  done
+  return 1
+}
+
+hash_of() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
+
+cmd_setup() {
+  mkdir -p "$RUN_DIR" "$TOOLS_DIR"
+
+  local py
+  py="$(find_python312)" || die "Python 3.12 not found (the backend targets 3.12 exactly).
+  macOS:  brew install python@3.12
+  Linux:  apt install python3.12 python3.12-venv   (or: uv python install 3.12)"
+
+  local venv="$ROOT/server/.venv"
+  if [ ! -x "$venv/bin/python" ] || ! "$venv/bin/python" -c 'import sys; assert sys.version_info[:2]==(3,12)' 2>/dev/null; then
+    say "creating server/.venv with $py"
+    rm -rf "$venv"
+    "$py" -m venv "$venv"
+  fi
+  local req_hash; req_hash="$(hash_of "$ROOT/server/requirements.txt")"
+  if [ "$(cat "$venv/.omlete-req-hash" 2>/dev/null)" != "$req_hash" ]; then
+    say "installing server/requirements.txt"
+    "$venv/bin/pip" install -q -r "$ROOT/server/requirements.txt"
+    echo "$req_hash" > "$venv/.omlete-req-hash"
+  fi
+
+  local lock_hash; lock_hash="$(hash_of "$ROOT/client/package-lock.json")"
+  if [ ! -d "$ROOT/client/node_modules" ] || [ "$(cat "$RUN_DIR/.client-lock-hash" 2>/dev/null)" != "$lock_hash" ]; then
+    say "npm ci in client/"
+    (cd "$ROOT/client" && npm ci --no-audit --no-fund --loglevel=error)
+    echo "$lock_hash" > "$RUN_DIR/.client-lock-hash"
+  fi
+
+  # Playwright lives in a scratch tools dir, not in client/package.json.
+  if [ ! -f "$TOOLS_DIR/node_modules/playwright/package.json" ]; then
+    say "installing playwright@$PLAYWRIGHT_VERSION into .verify-run/tools"
+    (cd "$TOOLS_DIR" && { [ -f package.json ] || echo '{"private":true}' > package.json; } \
+      && npm install --no-audit --no-fund --loglevel=error "playwright@$PLAYWRIGHT_VERSION")
+  fi
+  if ! (cd "$TOOLS_DIR" && node -e 'const fs=require("fs");process.exit(fs.existsSync(require("playwright").chromium.executablePath())?0:1)'); then
+    say "downloading Chromium for playwright"
+    (cd "$TOOLS_DIR" && npx --yes playwright install chromium)
+  fi
+  say "setup complete"
+}
+
+ensure_docker() {
+  docker info >/dev/null 2>&1 && return 0
+  # Cloud/CI containers ship dockerd but don't start it. On a laptop, start
+  # Docker Desktop / colima yourself instead.
+  if [ "$(uname)" = Linux ] && [ "$(id -u)" = 0 ] && command -v dockerd >/dev/null; then
+    say "starting dockerd (log: .verify-run/dockerd.log)"
+    nohup dockerd > "$RUN_DIR/dockerd.log" 2>&1 &
+    echo $! > "$RUN_DIR/dockerd.pid"
+    for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && return 0; sleep 1; done
+  fi
+  die "Docker daemon is not reachable. Start Docker Desktop (or colima) and retry."
+}
+
+start_mongo() {
+  ensure_docker
+  if [ -z "$(docker ps -aq -f "name=^${MONGO_CONTAINER}$")" ]; then
+    say "starting $MONGO_IMAGE as $MONGO_CONTAINER on 127.0.0.1:$MONGO_PORT"
+    docker run -d --name "$MONGO_CONTAINER" -p "127.0.0.1:$MONGO_PORT:27017" "$MONGO_IMAGE" >/dev/null
+  else
+    docker start "$MONGO_CONTAINER" >/dev/null
+  fi
+  local s=""
+  for _ in $(seq 1 90); do
+    s="$(docker inspect -f '{{.State.Health.Status}}' "$MONGO_CONTAINER" 2>/dev/null || true)"
+    [ "$s" = healthy ] && return 0
+    sleep 2
+  done
+  die "mongo container never became healthy (last status: $s); see: docker logs $MONGO_CONTAINER"
+}
+
+cmd_up() {
+  mkdir -p "$RUN_DIR" "$EVIDENCE_DIR"
+  [ -x "$ROOT/server/.venv/bin/uvicorn" ] && [ -d "$ROOT/client/node_modules" ] \
+    || die "dependencies missing; run: $0 setup"
+
+  # Refuse to double-drive: if something already answers on our ports and we
+  # didn't start it, it's someone's dev session (or a stray container).
+  if ! pid_alive "$RUN_DIR/api.pid" && [ "$(http_code "$API/")" != 000 ]; then
+    die "$API is already answering and was not started by omlete-verify. Stop it or free port $API_PORT."
+  fi
+  if ! pid_alive "$RUN_DIR/web.pid" && [ "$(http_code "$WEB/")" != 000 ]; then
+    die "$WEB is already answering and was not started by omlete-verify. Stop it or free port $WEB_PORT."
+  fi
+
+  local db_uri=""
+  case "$DB_MODE" in
+    local)
+      start_mongo
+      db_uri="$LOCAL_DB_URI" ;;
+    env)
+      [ "${OMLETE_VERIFY_I_KNOW_THIS_IS_PROD:-}" = 1 ] || die "OMLETE_VERIFY_DB=env points the API at whatever server/.env names,
+which for the Railway-pulled values is the LIVE production Atlas cluster: every
+write you make lands in real data. Re-run with OMLETE_VERIFY_I_KNOW_THIS_IS_PROD=1
+only if that is what you mean."
+      dotenv_has DB_URI || dotenv_has DB_USER || die "OMLETE_VERIFY_DB=env but server/.env has no DB_URI / DB_USER"
+      echo "!!! API is using the database from server/.env (likely PRODUCTION). Do not seed, edit, rate or delete." >&2 ;;
+    *) die "OMLETE_VERIFY_DB must be 'local' or 'env', got '$DB_MODE'" ;;
+  esac
+
+  if ! pid_alive "$RUN_DIR/api.pid"; then
+    say "starting API on $API (log: .verify-run/api.log)"
+    (
+      cd "$ROOT/server"
+      # Exported vars win over server/.env (load_dotenv doesn't override), so
+      # DB_URI here keeps a prod DB_URI in .env from being used in local mode.
+      [ -n "$db_uri" ] && export DB_URI="$db_uri"
+      # Both SDK clients are built at import time. Without keys, CRUD still
+      # works; only the AI endpoints (generate/extract/import/suggest/categorize) fail.
+      if [ -z "${ANTHROPIC_API_KEY:-}" ] && ! dotenv_has ANTHROPIC_API_KEY; then export ANTHROPIC_API_KEY=omlete-verify-no-key; fi
+      if [ -z "${VOYAGE_API_KEY:-}" ] && ! dotenv_has VOYAGE_API_KEY; then export VOYAGE_API_KEY=omlete-verify-no-key; fi
+      nohup .venv/bin/uvicorn main:app --host 127.0.0.1 --port "$API_PORT" > "$RUN_DIR/api.log" 2>&1 &
+      echo $! > "$RUN_DIR/api.pid"
+    )
+  fi
+
+  if ! pid_alive "$RUN_DIR/web.pid"; then
+    say "starting web on $WEB with VITE_API_URL=$API (log: .verify-run/web.log)"
+    (
+      cd "$ROOT/client"
+      # A VITE_* var in the process env beats client/.env, so a prod
+      # VITE_API_URL in someone's client/.env can't leak into a verify run.
+      export VITE_API_URL="$API"
+      nohup node node_modules/vite/bin/vite.js dev --host 127.0.0.1 --port "$WEB_PORT" --strictPort > "$RUN_DIR/web.log" 2>&1 &
+      echo $! > "$RUN_DIR/web.pid"
+    )
+  fi
+
+  printf 'db_mode=%s\napi=%s\nweb=%s\nvite_api_url=%s\n' "$DB_MODE" "$API" "$WEB" "$API" > "$RUN_DIR/state"
+
+  for _ in $(seq 1 60); do
+    [ "$(http_code "$API/api/recipes/")" = 200 ] && break
+    pid_alive "$RUN_DIR/api.pid" || { tail -20 "$RUN_DIR/api.log" >&2; die "API exited during startup"; }
+    sleep 1
+  done
+  [ "$(http_code "$API/api/recipes/")" = 200 ] || { tail -20 "$RUN_DIR/api.log" >&2; die "API not ready after 60s"; }
+  for _ in $(seq 1 90); do
+    [ "$(http_code "$WEB/")" = 200 ] && break
+    pid_alive "$RUN_DIR/web.pid" || { tail -20 "$RUN_DIR/web.log" >&2; die "web exited during startup"; }
+    sleep 1
+  done
+  [ "$(http_code "$WEB/")" = 200 ] || { tail -20 "$RUN_DIR/web.log" >&2; die "web not ready after 90s"; }
+  say "up: api=$API web=$WEB db=$DB_MODE"
+}
+
+cmd_doctor() {
+  local fail=0
+  ok()   { echo "ok    $*"; }
+  bad()  { echo "FAIL  $*"; fail=1; }
+  warn() { echo "warn  $*"; }
+
+  [ -f "$RUN_DIR/state" ] && ok "state: $(tr '\n' ' ' < "$RUN_DIR/state")" || bad "no .verify-run/state; run: omlete-verify up"
+  local mode; mode="$(sed -n 's/^db_mode=//p' "$RUN_DIR/state" 2>/dev/null || true)"
+
+  pid_alive "$RUN_DIR/api.pid" && ok "api pid $(cat "$RUN_DIR/api.pid") alive" || bad "api process not running (started by us)"
+  pid_alive "$RUN_DIR/web.pid" && ok "web pid $(cat "$RUN_DIR/web.pid") alive" || bad "web process not running (started by us)"
+
+  # Our API is uvicorn. Anything else on the port is not ours.
+  local srv; srv="$(server_header "$API/api/recipes/")"
+  [ "$srv" = uvicorn ] && ok "$API answers as uvicorn" || bad "$API server header is '${srv:-none}', expected uvicorn"
+  local code; code="$(http_code "$API/api/recipes/")"
+  [ "$code" = 200 ] && ok "GET /api/recipes/ -> 200" || bad "GET /api/recipes/ -> $code"
+
+  curl -s --max-time 5 "$WEB/recipes" | grep -q '<title>Omlete</title>' \
+    && ok "$WEB serves the Omlete shell" || bad "$WEB does not serve the Omlete HTML shell"
+
+  curl -s -D - -o /dev/null -H "Origin: $WEB" "$API/api/recipes/" | grep -qi "access-control-allow-origin: $WEB" \
+    && ok "CORS allows $WEB" || bad "API CORS does not allow origin $WEB (check allow_origins in server/main.py)"
+
+  # The IPv6 shadow: localhost may not be the process we started.
+  local lsrv; lsrv="$(server_header "http://localhost:$API_PORT/api/recipes/")"
+  if [ -n "$lsrv" ] && [ "$lsrv" != uvicorn ]; then
+    warn "localhost:$API_PORT is answered by '$lsrv', not our uvicorn (IPv6 ::1 shadow). Use 127.0.0.1 everywhere."
+  fi
+
+  if [ "$mode" = local ]; then
+    [ "$(docker inspect -f '{{.State.Health.Status}}' "$MONGO_CONTAINER" 2>/dev/null)" = healthy ] \
+      && ok "mongo $MONGO_CONTAINER healthy on 127.0.0.1:$MONGO_PORT" || bad "mongo container $MONGO_CONTAINER not healthy"
+  elif [ "$mode" = env ]; then
+    warn "API is on the server/.env database (likely PRODUCTION) - read-only driving only"
+  fi
+  return $fail
+}
+
+cmd_seed() {
+  [ "$(sed -n 's/^db_mode=//p' "$RUN_DIR/state" 2>/dev/null)" = local ] \
+    || die "seed only runs against the local verify DB (OMLETE_VERIFY_DB=local after 'up')"
+  "$ROOT/server/.venv/bin/python" "$SKILL_DIR/scripts/seed.py" "$LOCAL_DB_URI" "$@"
+}
+
+cmd_browse() {
+  [ $# -ge 1 ] || die "usage: omlete-verify browse <path> [--expect TEXT|--click-link TEXT|--click-button TEXT|--expect-url REGEX|--accept-dialogs|--label NAME]..."
+  [ -f "$TOOLS_DIR/node_modules/playwright/package.json" ] || die "playwright missing; run: $0 setup"
+  mkdir -p "$EVIDENCE_DIR"
+  OMLETE_WEB="$WEB" OMLETE_API="$API" OMLETE_EVIDENCE_DIR="$EVIDENCE_DIR" OMLETE_TOOLS_DIR="$TOOLS_DIR" \
+    node "$SKILL_DIR/scripts/browse.mjs" "$@"
+}
+
+stop_pidfile() {
+  local f="$1" name="$2"
+  if pid_alive "$f"; then
+    local p; p="$(cat "$f")"
+    kill "$p" 2>/dev/null || true
+    for _ in $(seq 1 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.25; done
+    kill -9 "$p" 2>/dev/null || true
+    say "stopped $name (pid $p)"
+  fi
+  rm -f "$f"
+}
+
+cmd_down() {
+  local keep_db=0
+  [ "${1:-}" = --keep-db ] && keep_db=1
+  stop_pidfile "$RUN_DIR/web.pid" web
+  stop_pidfile "$RUN_DIR/api.pid" api
+  if [ $keep_db = 0 ] && docker info >/dev/null 2>&1 && [ -n "$(docker ps -aq -f "name=^${MONGO_CONTAINER}$")" ]; then
+    docker rm -f "$MONGO_CONTAINER" >/dev/null && say "removed $MONGO_CONTAINER (disposable data)"
+  fi
+  # dockerd is left running if we started it: other containers may now depend on it.
+  rm -f "$RUN_DIR/state"
+  say "down. evidence kept in ${EVIDENCE_DIR#$ROOT/}/"
+}
+
+sub="${1:-}"; shift || true
+case "$sub" in
+  setup)  cmd_setup "$@" ;;
+  up)     cmd_up "$@" ;;
+  doctor|status) cmd_doctor "$@" ;;
+  seed)   cmd_seed "$@" ;;
+  browse) cmd_browse "$@" ;;
+  down)   cmd_down "$@" ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
