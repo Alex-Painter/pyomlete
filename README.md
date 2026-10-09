@@ -1,6 +1,6 @@
 ## Overview
 
-Omlete is a full-stack AI-powered recipe management app. Users provide ingredients (text or images) and Claude AI generates/extracts recipes. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Render.com.
+Omlete is a full-stack AI-powered recipe management app. Users provide ingredients (text or images) and Claude AI generates/extracts recipes. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Railway.
 
 ## Commands
 
@@ -57,7 +57,7 @@ Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 
 ### Deployment
 
-- `render.yaml` defines two Render services: `omlete-api` (Python) and `omlete-client` (Node)
+- `railway.json` defines two Railway services: `omlete-api` (Python) and `omlete-client` (Node)
 - Frontend uses `VITE_API_URL` at build time to point to the backend service URL
 
 ## Environment Variables
@@ -68,7 +68,7 @@ Python 3.12 required. Install deps: `pip install -r requirements.txt`.
 - `VOYAGE_API_KEY`
 - `DB_USER`, `DB_PASS` — MongoDB credentials
 
-**Frontend**: `VITE_API_URL` — base URL for API calls (empty in dev, set on Render for prod)
+**Frontend**: `VITE_API_URL` — base URL for API calls (empty in dev, set on Railway for prod)
 
 ## shadcn Components
 

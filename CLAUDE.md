@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Omlete is a full-stack AI-powered recipe management app. Users provide ingredients (text or images) and Claude AI generates/extracts recipes. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Render.com.
+Omlete is a full-stack AI-powered recipe management app. Users provide ingredients (text or images) and Claude AI generates/extracts recipes. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Railway.
 
 ## Commands
 
@@ -58,7 +58,7 @@ URL import is two stages, and the cheap one does most of the work:
 See `docs/PRD_URL_IMPORT.md` for the design and what's still outstanding.
 
 ### Deployment
-- `render.yaml` defines two Render services: `omlete-api` (Python) and `omlete-client` (Node)
+- `railway.json` defines two Railway services: `omlete-api` (Python) and `omlete-client` (Node)
 - Frontend uses `VITE_API_URL` at build time to point to the backend service URL
 
 ## Environment Variables
