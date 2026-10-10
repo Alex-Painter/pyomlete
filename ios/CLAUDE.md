@@ -41,6 +41,19 @@ Run a single test with `test_sim` and `extraArgs: ["-only-testing:OmleteTests/So
 
 A change is not done until it builds, the tests pass, and you have looked at a screenshot of the screen you changed. To prove a change on the running app, use the `verify` skill (`ios/.claude/skills/verify/`): it builds, launches, drives the app by accessibility identifier and saves the evidence.
 
+## The API the app talks to
+
+`APIEnvironment.baseURL` decides. Release builds (TestFlight) use production, `https://omlete-api-production.up.railway.app`. Debug builds use `http://127.0.0.1:8000`, or whatever the launch argument `-apiBaseURL <url>` names. There is no generated client yet: `API/APIClient.swift` is hand-written, with its JSON shapes private in `API/Wire.swift`.
+
+To run the app from Xcode against a local backend with fixture data, start one with the verify skill and leave it running (from `ios/`):
+
+```bash
+.claude/skills/verify/scripts/omlete-ios-verify api start    # http://127.0.0.1:8765, disposable Mongo
+.claude/skills/verify/scripts/omlete-ios-verify api seed     # one list, "Verify Fixture List"
+```
+
+Then add `-apiBaseURL http://127.0.0.1:8765` under the scheme's Run arguments in Xcode. `omlete-ios-verify down` stops it.
+
 ## How to write the code
 
 - **SwiftUI only.** No UIKit unless SwiftUI has no way to do it, and then wrap it in one small representable.

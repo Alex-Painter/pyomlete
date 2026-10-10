@@ -2,33 +2,129 @@
 # Build, launch, health-check, drive and tear down Omlete on the iOS Simulator
 # for verification. See ../SKILL.md for when to use each subcommand.
 #
-#   omlete-ios-verify up                    build, install and launch; wait until the UI answers
+#   omlete-ios-verify up                    start the local API with fixtures, then build, install and launch
 #   omlete-ios-verify doctor                read-only: is this instance worth driving?
 #   omlete-ios-verify begin <label>         start a new evidence folder for the steps that follow
 #   omlete-ios-verify snapshot              print the UI tree; save it and a screenshot
 #   omlete-ios-verify expect <text>         wait until <text> is on screen
 #   omlete-ios-verify gone <text>           wait until <text> is no longer on screen
 #   omlete-ios-verify expect-id <id>        wait until a control with accessibility id <id> exists
-#   omlete-ios-verify tap <id>              tap the control with accessibility id <id>
+#   omlete-ios-verify tap <id> [then <id>]  tap the control with accessibility id <id>, then at once a second one
 #   omlete-ios-verify type <id> <text>      replace the contents of field <id> with <text>
 #   omlete-ios-verify swipe <id> <dir>      swipe up|down|left|right inside scrollable <id>
-#   omlete-ios-verify down                  stop the app; shut the simulator down if `up` booted it
+#   omlete-ios-verify relaunch              cold-start the installed build: no rebuild, no reseed
+#   omlete-ios-verify api stop|start|seed   take the local API away, bring it back, or reset its fixtures
+#   omlete-ios-verify down                  stop the app and the local API; shut the simulator down if `up` booted it
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IOS="$(cd "$SKILL_DIR/../../.." && pwd)"
+ROOT="$(cd "$IOS/.." && pwd)"
 RUN_DIR="${OMLETE_IOS_VERIFY_RUN_DIR:-$IOS/.verify-run}"
 EVIDENCE_DIR="${OMLETE_IOS_VERIFY_EVIDENCE_DIR:-$IOS/verify-artifacts}"
 STATE="$RUN_DIR/state"
 BUNDLE_ID=com.alexpainter.omlete
 WAIT_MS="${OMLETE_IOS_VERIFY_TIMEOUT_MS:-20000}"
 
+# The app's own local API and database, apart from the web verify skill's
+# (8000 and 27018) so both can run at once. 127.0.0.1, never localhost: see
+# the root AGENTS.md.
+API_PORT="${OMLETE_IOS_VERIFY_API_PORT:-8765}"
+API="http://127.0.0.1:$API_PORT"
+MONGO_CONTAINER=omlete-ios-verify-mongo
+MONGO_IMAGE=mongodb/mongodb-atlas-local:8.0
+MONGO_PORT="${OMLETE_IOS_VERIFY_MONGO_PORT:-27019}"
+DB_URI_LOCAL="mongodb://127.0.0.1:$MONGO_PORT/?directConnection=true"
+FIXTURE_LIST="Verify Fixture List"
+
 die() { echo "omlete-ios-verify: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
 
 # XcodeBuildMCP's CLI reads .xcodebuildmcp/config.yaml from the directory it
 # runs in, so every call is made from ios/.
-xb() { (cd "$IOS" && npx -y xcodebuildmcp@latest "$@"); }
+# Resolved to the installed binary once per `up`: going through npx on every
+# call adds about a second, which the 5-second Undo banner cannot spare.
+xb() {
+  local bin; bin="$(cat "$RUN_DIR/xb-path" 2>/dev/null || true)"
+  if [ -x "$bin" ]; then (cd "$IOS" && "$bin" "$@"); else (cd "$IOS" && npx -y xcodebuildmcp@latest "$@"); fi
+}
+
+pid_alive() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
+
+http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$@" || true; }
+
+api() { curl -sf --max-time 10 -H 'Content-Type: application/json' "$@"; }
+
+start_mongo() {
+  docker info >/dev/null 2>&1 || die "Docker daemon is not reachable. Start Docker Desktop (or colima) and retry."
+  if [ -z "$(docker ps -aq -f "name=^${MONGO_CONTAINER}$")" ]; then
+    say "starting $MONGO_IMAGE as $MONGO_CONTAINER on 127.0.0.1:$MONGO_PORT"
+    docker run -d --name "$MONGO_CONTAINER" -p "127.0.0.1:$MONGO_PORT:27017" "$MONGO_IMAGE" >/dev/null
+  else
+    docker start "$MONGO_CONTAINER" >/dev/null
+  fi
+  local s=""
+  for _ in $(seq 1 90); do
+    s="$(docker inspect -f '{{.State.Health.Status}}' "$MONGO_CONTAINER" 2>/dev/null || true)"
+    [ "$s" = healthy ] && return 0
+    sleep 2
+  done
+  die "mongo container never became healthy (last status: $s); see: docker logs $MONGO_CONTAINER"
+}
+
+start_api() {
+  [ -x "$ROOT/server/.venv/bin/uvicorn" ] \
+    || die "server/.venv is missing; from the repo root run: .claude/skills/verify-omlete/scripts/omlete-verify setup"
+  if ! pid_alive "$RUN_DIR/api.pid"; then
+    [ "$(http_code "$API/")" = 000 ] \
+      || die "$API is already answering and was not started by this skill. Free port $API_PORT or set OMLETE_IOS_VERIFY_API_PORT."
+    say "starting API on $API (log: .verify-run/api.log)"
+    (
+      cd "$ROOT/server"
+      # Exported vars win over server/.env, so a production DB_URI there is never used.
+      export DB_URI="$DB_URI_LOCAL"
+      # Both SDK clients are built at import time; a placeholder lets CRUD work without keys.
+      grep -Eqs '^[[:space:]]*ANTHROPIC_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env || export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-omlete-verify-no-key}"
+      grep -Eqs '^[[:space:]]*VOYAGE_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env || export VOYAGE_API_KEY="${VOYAGE_API_KEY:-omlete-verify-no-key}"
+      nohup .venv/bin/uvicorn main:app --host 127.0.0.1 --port "$API_PORT" > "$RUN_DIR/api.log" 2>&1 &
+      echo $! > "$RUN_DIR/api.pid"
+    )
+  fi
+  for _ in $(seq 1 60); do
+    [ "$(http_code "$API/api/lists/")" = 200 ] && return 0
+    pid_alive "$RUN_DIR/api.pid" || { tail -20 "$RUN_DIR/api.log" >&2; die "API exited during startup"; }
+    sleep 1
+  done
+  tail -20 "$RUN_DIR/api.log" >&2; die "API not ready after 60s"
+}
+
+stop_api() {
+  if pid_alive "$RUN_DIR/api.pid"; then
+    local p; p="$(cat "$RUN_DIR/api.pid")"
+    kill "$p" 2>/dev/null || true
+    for _ in $(seq 1 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.25; done
+    kill -9 "$p" 2>/dev/null || true
+    say "stopped API (pid $p)"
+  fi
+  rm -f "$RUN_DIR/api.pid"
+}
+
+# Leaves exactly one list, "$FIXTURE_LIST": the Shakshuka fixture recipe's four
+# ingredients plus milk and bananas. Built through the API so it has the shape
+# the server really produces. Only ever runs against the disposable database.
+seed() {
+  "$ROOT/server/.venv/bin/python" "$ROOT/.claude/skills/verify-omlete/scripts/seed.py" "$DB_URI_LOCAL" >/dev/null
+  local id
+  for id in $(api "$API/api/lists/" | jq -r '.[].id'); do api -X DELETE "$API/api/lists/$id" >/dev/null; done
+  id="$(api -X POST "$API/api/lists/" | jq -r .id)"
+  api -X PATCH "$API/api/lists/$id" -d "$(jq -n --arg n "$FIXTURE_LIST" '{name: $n}')" >/dev/null
+  local recipe
+  recipe="$(api "$API/api/recipes/" | jq -r '[.[] | select(.title == "Verify Fixture Shakshuka")][0].id')"
+  api -X POST "$API/api/lists/$id/recipes" -d "$(jq -n --arg r "$recipe" '{recipe_id: $r}')" >/dev/null
+  api -X POST "$API/api/lists/$id/items" -d '{"name":"milk","amount":2,"unit":"pint","category":"Dairy & Eggs"}' >/dev/null
+  api -X POST "$API/api/lists/$id/items" -d '{"name":"bananas","amount":6,"unit":null,"category":"Fresh Produce"}' >/dev/null
+  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 1 meal"
+}
 
 state_get() { [ -f "$STATE" ] || return 0; sed -n "s/^$1=//p" "$STATE" | head -1; }
 
@@ -101,6 +197,26 @@ wait_for() {
   fi
 }
 
+# True when some element's label or value contains $1.
+on_screen() {
+  xb ui-automation snapshot-ui --simulator-id "$UDID" --output json \
+    | jq -e --arg t "$1" '[.data.capture | (.targets[], .scroll[], .text[]) | split("|") | (.[3], .[4]) | select(contains($t))] | length > 0' >/dev/null
+}
+
+# Polls the UI tree itself: wait-for-ui's text predicates fail outright when
+# the text is in more than one element, which any list row and its title are.
+wait_text() {
+  local what="$1" want="$2" text="$3" deadline=$(( $(date +%s) + WAIT_MS / 1000 ))
+  while :; do
+    if on_screen "$text"; then [ "$want" = present ] && break; else [ "$want" = absent ] && break; fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      log "FAIL $what"; echo "FAIL $what"; capture fail >/dev/null || true; exit 1
+    fi
+    sleep 0.5
+  done
+  log "PASS $what"; echo "PASS $what"
+}
+
 act() {
   local what="$1"; shift
   if xb "$@" > "$RUN_DIR/last-action.txt" 2>&1; then
@@ -125,8 +241,15 @@ Stop it in Xcode or the simulator first, or re-run with OMLETE_IOS_VERIFY_TAKEOV
   booted_by_us="$(state_get booted_by_us)"
   [ -n "$booted_by_us" ] || { [ "$before" = Booted ] && booted_by_us=0 || booted_by_us=1; }
 
-  say "building and launching Omlete on $(sim_name) (log: .verify-run/build.json)"
-  xb simulator build-and-run --output json > "$RUN_DIR/build.json" \
+  npx -y -p xcodebuildmcp@latest which xcodebuildmcp > "$RUN_DIR/xb-path" 2>/dev/null || rm -f "$RUN_DIR/xb-path"
+
+  start_mongo
+  start_api
+  seed
+
+  say "building and launching Omlete on $(sim_name) against $API (log: .verify-run/build.json)"
+  xb simulator build-and-run --output json \
+      --json "$(jq -nc --arg u "$API" '{launchArgs: ["-apiBaseURL", $u]}')" > "$RUN_DIR/build.json" \
     || { jq -r '.error, .data.diagnostics.errors[]?.message' "$RUN_DIR/build.json" >&2; die "build or launch failed"; }
 
   printf 'udid=%s\nbooted_by_us=%s\npid=%s\nrun=\n' "$udid" "$booted_by_us" \
@@ -153,6 +276,12 @@ cmd_doctor() {
   elif [ "$pid" = "$(state_get pid)" ]; then ok "Omlete pid $pid is the process up launched"
   else bad "Omlete is running as pid $pid, not the pid $(state_get pid) that up launched (crashed and relaunched, or started by Xcode)"; fi
 
+  pid_alive "$RUN_DIR/api.pid" && [ "$(http_code "$API/api/lists/")" = 200 ] \
+    && ok "local API answers on $API (pid $(cat "$RUN_DIR/api.pid"))" \
+    || bad "local API is not answering on $API; run: omlete-ios-verify api start"
+  [ "$(docker inspect -f '{{.State.Health.Status}}' "$MONGO_CONTAINER" 2>/dev/null || true)" = healthy ] \
+    && ok "mongo $MONGO_CONTAINER healthy on 127.0.0.1:$MONGO_PORT" || bad "mongo container $MONGO_CONTAINER not healthy"
+
   local stale; stale="$(stale_sources | head -3)"
   [ -z "$stale" ] && ok "installed build is newer than every file in ios/Omlete" \
     || bad "sources changed since the build; run up again: $(echo "$stale" | sed "s|$IOS/||" | tr '\n' ' ')"
@@ -177,12 +306,12 @@ cmd_snapshot() { require_up; capture snapshot; }
 
 cmd_expect() {
   [ $# -eq 1 ] || die "usage: omlete-ios-verify expect <text>"
-  require_up; wait_for "expect \"$1\"" --predicate textContains --text "$1"; capture expect >/dev/null
+  require_up; wait_text "expect \"$1\"" present "$1"; capture expect >/dev/null
 }
 
 cmd_gone() {
   [ $# -eq 1 ] || die "usage: omlete-ios-verify gone <text>"
-  require_up; wait_for "gone \"$1\"" --predicate gone --text "$1"; capture gone >/dev/null
+  require_up; wait_text "gone \"$1\"" absent "$1"; capture gone >/dev/null
 }
 
 cmd_expect_id() {
@@ -190,11 +319,17 @@ cmd_expect_id() {
   require_up; wait_for "expect-id $1" --predicate exists --identifier "$1"; capture expect-id >/dev/null
 }
 
+# `then <id>` taps a second control straight after the first, with no evidence
+# capture in between: a capture takes about as long as the Undo banner lasts.
 cmd_tap() {
-  [ $# -eq 1 ] || die "usage: omlete-ios-verify tap <accessibility id>"
+  [ $# -eq 1 ] || { [ $# -eq 3 ] && [ "$2" = then ]; } || die "usage: omlete-ios-verify tap <accessibility id> [then <accessibility id>]"
   require_up
   local ref; ref="$(ref_for "$1")"
   act "tap $1" ui-automation tap --simulator-id "$UDID" --element-ref "$ref"
+  if [ $# -eq 3 ]; then
+    ref="$(ref_for "$3")"
+    act "tap $3" ui-automation tap --simulator-id "$UDID" --element-ref "$ref"
+  fi
   capture tap >/dev/null
 }
 
@@ -214,8 +349,34 @@ cmd_swipe() {
   capture swipe >/dev/null
 }
 
+# Cold start of the installed build: no rebuild, no reseed, API left as it is.
+cmd_relaunch() {
+  require_up
+  xb simulator stop --simulator-id "$UDID" --bundle-id "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xb simulator launch-app --simulator-id "$UDID" --bundle-id "$BUNDLE_ID" --output json \
+      --json "$(jq -nc --arg u "$API" '{launchArgs: ["-apiBaseURL", $u]}')" > "$RUN_DIR/launch.json" \
+    || die "relaunch failed (see .verify-run/launch.json)"
+  xb ui-automation wait-for-ui --simulator-id "$UDID" --predicate settled --timeout-ms "$WAIT_MS" >/dev/null \
+    || die "app relaunched but its UI never answered; run: $0 doctor"
+  sed -i '' "s|^pid=.*|pid=$(app_pid "$UDID")|" "$STATE"
+  say "relaunched: Omlete pid $(state_get pid)"
+}
+
+cmd_api() {
+  case "${1:-}" in
+    stop)  stop_api ;;
+    start) mkdir -p "$RUN_DIR"; start_mongo; start_api; say "API answers on $API" ;;
+    seed)  seed ;;
+    *) die "usage: omlete-ios-verify api stop|start|seed" ;;
+  esac
+}
+
 cmd_down() {
-  if [ ! -f "$STATE" ]; then say "nothing to stop: this skill has no instance running"; return 0; fi
+  stop_api
+  if docker info >/dev/null 2>&1 && [ -n "$(docker ps -aq -f "name=^${MONGO_CONTAINER}$")" ]; then
+    docker rm -f "$MONGO_CONTAINER" >/dev/null && say "removed $MONGO_CONTAINER (disposable data)"
+  fi
+  if [ ! -f "$STATE" ]; then say "no app instance to stop"; return 0; fi
   UDID="$(state_get udid)"
   # Only the instance up launched: a different pid belongs to someone else.
   if [ "$(app_pid "$UDID")" = "$(state_get pid)" ]; then
@@ -240,6 +401,8 @@ case "$sub" in
   tap)       cmd_tap "$@" ;;
   type)      cmd_type "$@" ;;
   swipe)     cmd_swipe "$@" ;;
+  relaunch)  cmd_relaunch "$@" ;;
+  api)       cmd_api "$@" ;;
   down)      cmd_down "$@" ;;
-  *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
