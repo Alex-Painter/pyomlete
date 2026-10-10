@@ -1,5 +1,7 @@
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import Omlete
 
 /// The server's JSON for Explore, read through the real client.
@@ -254,5 +256,47 @@ struct ExploreModelTests {
         #expect(RecipeRequest(text: "", photos: [photo]) == .photos([photo]))
         #expect(RecipeRequest(text: "https://a.b", photos: [photo])?.kind == .photos)
         #expect(RecipeRequest(text: " leek soup ", photos: []) == .describe("leek soup"))
+    }
+}
+
+struct PhotoEncoderTests {
+    private func png(width: Int, height: Int) throws -> Data {
+        let context = try #require(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 1, green: 0.5, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
+
+    private func size(of image: Data) throws -> (width: Int, height: Int, type: String?) {
+        let source = try #require(CGImageSourceCreateWithData(image as CFData, nil))
+        let decoded = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        return (decoded.width, decoded.height, CGImageSourceGetType(source) as String?)
+    }
+
+    @Test func aLargePhotoBecomesAJPEGNoLongerThanTheLimit() throws {
+        let jpeg = try #require(PhotoEncoder.jpeg(from: try png(width: 3000, height: 1500), longestSide: 1000))
+
+        let result = try size(of: jpeg)
+        #expect(result.type == UTType.jpeg.identifier)
+        #expect(result.width == 1000)
+        #expect(result.height == 500)
+    }
+
+    @Test func aSmallPhotoKeepsItsSize() throws {
+        let jpeg = try #require(PhotoEncoder.jpeg(from: try png(width: 40, height: 30)))
+
+        let result = try size(of: jpeg)
+        #expect(result.type == UTType.jpeg.identifier)
+        #expect((result.width, result.height) == (40, 30))
+    }
+
+    @Test func dataThatIsNotAnImageIsRefused() {
+        #expect(PhotoEncoder.jpeg(from: Data("not a picture".utf8)) == nil)
     }
 }
