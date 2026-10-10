@@ -105,13 +105,6 @@ nonisolated struct ItemDraft: Equatable, Sendable {
     var unit: String?
     var category: String
 
-    init(_ item: ListItem) {
-        name = item.name
-        amount = item.amount
-        unit = item.unit.flatMap { $0.isEmpty ? nil : $0 }
-        category = item.category
-    }
-
     func patch(from item: ListItem) -> ItemPatch {
         var patch = ItemPatch()
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -121,5 +114,11 @@ nonisolated struct ItemDraft: Equatable, Sendable {
         if unit != ItemDraft(item).unit { patch.unit = .set(unit) }
         if category != item.category { patch.category = .set(category) }
         return patch
+    }
+}
+
+nonisolated extension ItemDraft {
+    init(_ item: ListItem) {
+        self.init(name: item.name, amount: item.amount, unit: item.unit.flatMap { $0.isEmpty ? nil : $0 }, category: item.category)
     }
 }
