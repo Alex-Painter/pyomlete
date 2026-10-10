@@ -2,6 +2,8 @@
 
 _July 2026. Based on `main` @ `9ec7077`._
 
+> **Driving principle:** eat better and reduce cognitive load. See [PRINCIPLES.md](PRINCIPLES.md).
+
 ---
 
 ## 1. What Omlete actually is today

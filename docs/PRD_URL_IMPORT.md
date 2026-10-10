@@ -2,6 +2,8 @@
 
 _Child of #50. Verified against `recipe-scrapers` 15.11.0._
 
+> **Driving principle:** eat better and reduce cognitive load. See [PRINCIPLES.md](PRINCIPLES.md).
+
 ---
 
 ## Problem

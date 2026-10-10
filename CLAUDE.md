@@ -2,9 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Driving principle
+
+**Eat better and reduce cognitive load.** Better means cooking from scratch more often because lists are easy, and more variety because Omlete proactively suggests new recipes and lists. Less cognitive load means eating better takes less mental energy. Every design and code decision should serve this; see `docs/PRINCIPLES.md` for what it means in practice (one-gesture list edits, Undo instead of confirm dialogs, four separate modes that never switch on their own, offline lists, suggestions that learn from ratings).
+
 ## Overview
 
-Omlete is a full-stack AI-powered recipe management app. Users provide ingredients (text or images) and Claude AI generates/extracts recipes. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Railway.
+Omlete helps people eat better with less effort: it turns recipes (from a link, a description or photos) into shopping lists that are easy to edit and work in the shop with no signal, suggests new meals from your taste, and walks you through cooking. Claude does the recipe extraction and suggestions. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Railway.
 
 ## Commands
 
@@ -36,14 +40,18 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
 
 ### Frontend (`/client/src/`)
 - **TanStack Start** (React meta-framework with Nitro SSR) + **TanStack Router** for routing
-- **TanStack Query** for server state; routes are in `src/routes/`
+- **TanStack Query** for server state; routes are in `src/routes/`, shared queries in `src/lib/queries.ts`
+- Four modes, each its own route and layout: **Explore** (`/discover` suggestion feed, `/recipes` library, `/recipe/$id`, `/create`), **Plan** (`/list/$id`), **Shop** (`/shop/$id`, fullscreen, offline) and **Cook** (`/cook/$id`, step by step with timers). Finishing one never navigates to another.
+- `src/lib/offline.ts` — every list change goes through a localStorage queue and list snapshots, so lists work with no signal; `public/sw.js` caches the app shell in production
+- `src/components/UndoToast.tsx` — destructive actions apply at once with Undo; don't add confirm dialogs
+- `src/components/` also holds the iOS-style building blocks (`BottomSheet`, `ListRow`, `ItemSheet`, `QuickAdd`, `AddToListButton`, `SuggestionCard`)
 - `src/lib/api.ts` — `apiFetch()` wrapper using `VITE_API_URL` env var
 - shadcn/ui components (New York style) in `src/components/ui/`
 - Route tree auto-generated at `src/routeTree.gen.ts` — do not edit manually
 
 ### Backend (`/server/`)
-- **FastAPI**, all routes under an `/api` prefix in `main.py`. Three ways to create a recipe: `POST /recipes/generate/` (from an ingredient list), `POST /recipes/extract-from-images/` (from photos), and `POST /recipes/import-from-url/` (from a link). The rest of the file is CRUD for recipes, lists, list items and categories.
-- **Beanie** (async MongoDB ODM) with four document types in `data_models/`: `IngredientDocument` (with 2048-dim Voyage-4 embeddings), `RecipeDocument`, `ListDocument` and `UserSettingsDocument`
+- **FastAPI**, all routes under an `/api` prefix in `main.py`. Three ways to create a recipe: `POST /recipes/generate/` (from an ingredient list), `POST /recipes/extract-from-images/` (from photos), and `POST /recipes/import-from-url/` (from a link). The rest of the file is CRUD for recipes, lists, list items and categories, plus Discover suggestions: `POST /suggestions/` is where an agent drops suggestion cards, `POST /suggestions/refresh` asks Claude for new ones from the user's taste (ratings, dismissals, recent lists), and `POST /suggestions/{id}/save` turns one into a recipe in the background.
+- **Beanie** (async MongoDB ODM) with five document types in `data_models/`: `IngredientDocument` (with 2048-dim Voyage-4 embeddings), `RecipeDocument`, `ListDocument`, `UserSettingsDocument` and `SuggestionDocument`
 - `tools.py` — defines the `find_similar_ingredients` Claude tool, which runs a MongoDB `$vectorSearch` to find semantically similar existing ingredients (threshold ≥ 0.9)
 - `recipe_import.py` — SSRF-guarded page fetch + `recipe-scrapers` parsing (stage 1 of URL import)
 - `ingredient_structurer.py` — Haiku pass that turns free-text ingredient lines into structured ingredients (stage 2 of URL import)

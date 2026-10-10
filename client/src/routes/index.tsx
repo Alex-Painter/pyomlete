@@ -1,84 +1,82 @@
+import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Copy, Loader2, Plus, ShoppingCart, Trash2 } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Copy, Loader2, MoreHorizontal, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { apiFetch } from '@/lib/api'
-
-type RecipeSummary = {
-  id: string
-  title: string
-}
-
-type ListSummary = {
-  id: string
-  name: string
-  created_at: string | null
-  item_count: number
-  checked_count: number
-  recipes: RecipeSummary[]
-}
+import { ActionSheet } from '@/components/BottomSheet'
+import { ErrorState } from '@/components/ErrorState'
+import { PageHeader } from '@/components/PageHeader'
+import { useUndo } from '@/components/UndoToast'
+import { RenameListSheet } from '@/components/RenameListSheet'
+import { createList } from '@/hooks/useAddToList'
+import { apiFetch, apiJson } from '@/lib/api'
+import { useLists } from '@/lib/queries'
+import type { ListSummary } from '@/lib/types'
 
 export const Route = createFileRoute('/')({ component: ListsPage })
 
 function ListsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const showUndo = useUndo()
+  const { data: lists, isLoading, error, refetch } = useLists()
+  const [actionsFor, setActionsFor] = useState<ListSummary | null>(null)
+  const [renaming, setRenaming] = useState<ListSummary | null>(null)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
 
-  const { data: lists, isLoading } = useQuery({
-    queryKey: ['lists'],
-    queryFn: async (): Promise<ListSummary[]> => {
-      const res = await apiFetch('/api/lists/')
-      return res.json()
-    },
-  })
-
-  const createList = useMutation({
-    mutationFn: async () => {
-      const res = await apiFetch('/api/lists/', { method: 'POST' })
-      return res.json()
-    },
+  const newList = useMutation({
+    mutationFn: createList,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-      navigate({ to: '/list/$listId', params: { listId: data.id } })
+      void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      void navigate({ to: '/list/$listId', params: { listId: data.id } })
     },
   })
 
   const duplicateList = useMutation({
-    mutationFn: async (listId: string) => {
-      const res = await apiFetch(`/api/lists/${listId}/duplicate`, { method: 'POST' })
-      return res.json()
-    },
+    mutationFn: (listId: string) =>
+      apiJson<{ id: string }>(`/api/lists/${listId}/duplicate`, { method: 'POST' }),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-      navigate({ to: '/list/$listId', params: { listId: data.id } })
+      void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      void navigate({ to: '/list/$listId', params: { listId: data.id } })
     },
   })
 
-  const deleteList = useMutation({
-    mutationFn: async (listId: string) => {
-      await apiFetch(`/api/lists/${listId}`, { method: 'DELETE' })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const deleteList = (list: ListSummary) => {
+    setHidden((h) => new Set(h).add(list.id))
+    showUndo({
+      message: `Deleted ${list.name}`,
+      onUndo: () =>
+        setHidden((h) => {
+          const next = new Set(h)
+          next.delete(list.id)
+          return next
+        }),
+      onCommit: () =>
+        void apiFetch(`/api/lists/${list.id}`, { method: 'DELETE', keepalive: true }).then(() =>
+          queryClient.invalidateQueries({ queryKey: ['lists'] }),
+        ),
+    })
+  }
+
+  const visible = lists?.filter((l) => !hidden.has(l.id))
 
   return (
-    <div className="min-h-screen bg-cream text-ink">
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold">My Lists</h1>
-          <Button onClick={() => createList.mutate()} disabled={createList.isPending}>
-            {createList.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <>
-                <Plus className="size-4" />
-                New List
-              </>
-            )}
-          </Button>
-        </div>
+    <main className="min-h-screen bg-cream text-ink">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+        <PageHeader
+          title="Lists"
+          subtitle="Pick meals, build the list, shop."
+          actions={
+            <Button
+              onClick={() => newList.mutate()}
+              disabled={newList.isPending}
+              className="min-h-[44px] font-semibold"
+            >
+              {newList.isPending ? <Loader2 className="animate-spin" /> : <Plus className="size-4" />}
+              New list
+            </Button>
+          }
+        />
 
         {isLoading && (
           <div className="flex justify-center py-12">
@@ -86,95 +84,96 @@ function ListsPage() {
           </div>
         )}
 
-        {lists && lists.length === 0 && (
-          <div className="text-center py-16">
-            <ShoppingCart className="size-12 mx-auto text-ink-subtle mb-4" />
-            <p className="text-ink-muted mb-4">No shopping lists yet</p>
-            <Button onClick={() => createList.mutate()} disabled={createList.isPending}>
+        {error && <ErrorState error={error} onRetry={() => void refetch()} />}
+
+        {visible && visible.length === 0 && (
+          <div className="py-16 text-center">
+            <ShoppingCart className="mx-auto mb-4 size-12 text-ink-faint" />
+            <p className="mb-1 font-medium text-ink-soft">No shopping lists yet</p>
+            <p className="mb-5 text-sm text-ink-muted">
+              Start one, add a few meals, and the ingredients collect themselves.
+            </p>
+            <Button onClick={() => newList.mutate()} disabled={newList.isPending} className="min-h-[44px]">
               <Plus className="size-4" />
-              Create your first list
+              Start a list
             </Button>
           </div>
         )}
 
-        {lists && lists.length > 0 && (
-          <div className="space-y-3">
-            {lists.map((list) => (
-              <div
-                key={list.id}
-                className="w-full text-left bg-white border border-line rounded-lg p-4 shadow-sm hover:shadow-md hover:border-primary transition-all cursor-pointer"
-                onClick={() => navigate({ to: '/list/$listId', params: { listId: list.id } })}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <h2 className="font-medium">{list.name}</h2>
-                  <span className="text-sm text-ink-muted">
-                    {list.checked_count}/{list.item_count} items
-                  </span>
-                </div>
-
-                {/* Progress bar */}
-                {list.item_count > 0 && (
-                  <div className="w-full h-1.5 bg-line rounded-full mb-2">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all"
-                      style={{ width: `${(list.checked_count / list.item_count) * 100}%` }}
-                    />
+        {visible && visible.length > 0 && (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {visible.map((list) => (
+              <li key={list.id} className="relative">
+                <Link
+                  to="/list/$listId"
+                  params={{ listId: list.id }}
+                  className="block rounded-2xl border border-line bg-white p-4 pr-14 shadow-sm transition-all hover:border-primary hover:shadow-md"
+                >
+                  <div className="mb-1 flex items-baseline justify-between gap-3">
+                    <h2 className="truncate text-lg font-semibold">{list.name}</h2>
                   </div>
-                )}
-
-                {list.recipes.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {list.recipes.map((recipe) => (
-                      <Link
-                        key={recipe.id}
-                        to="/recipe/$recipeId"
-                        params={{ recipeId: recipe.id }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-block text-xs px-2.5 py-1 rounded-full bg-cream text-ink-muted hover:bg-sand hover:text-ink transition-colors truncate max-w-[180px]"
-                      >
-                        {recipe.title}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-end mt-3">
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-ink-muted hover:text-ink h-9 gap-1.5"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        duplicateList.mutate(list.id)
-                      }}
-                      disabled={duplicateList.isPending}
-                    >
-                      <Copy className="size-3.5" />
-                      Duplicate
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-slate-500 hover:text-red-400 h-9 gap-1.5"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (confirm('Delete this list?')) {
-                          deleteList.mutate(list.id)
-                        }
-                      }}
-                      disabled={deleteList.isPending}
-                    >
-                      <Trash2 className="size-3.5" />
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              </div>
+                  <p className="text-sm text-ink-muted">
+                    {list.recipes.length} meal{list.recipes.length === 1 ? '' : 's'} ·{' '}
+                    {list.item_count - list.checked_count} to get
+                    {list.checked_count > 0 && ` · ${list.checked_count} got`}
+                  </p>
+                  {list.item_count > 0 && (
+                    <div className="mt-3 h-1.5 w-full rounded-full bg-line">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${(list.checked_count / list.item_count) * 100}%` }}
+                      />
+                    </div>
+                  )}
+                  {list.recipes.length > 0 && (
+                    <p className="mt-3 line-clamp-2 text-sm text-ink-soft">
+                      {list.recipes.map((r) => r.title).join(' · ')}
+                    </p>
+                  )}
+                </Link>
+                <button
+                  type="button"
+                  aria-label={`More for ${list.name}`}
+                  onClick={() => setActionsFor(list)}
+                  className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-full text-ink-muted hover:bg-sand hover:text-ink"
+                >
+                  <MoreHorizontal className="size-5" />
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
-    </div>
+
+      <ActionSheet
+        open={actionsFor != null}
+        onOpenChange={(o) => !o && setActionsFor(null)}
+        title={actionsFor?.name ?? ''}
+        actions={
+          actionsFor
+            ? [
+                {
+                  label: 'Rename',
+                  icon: <Pencil className="size-5 text-ink-muted" />,
+                  onSelect: () => setRenaming(actionsFor),
+                },
+                {
+                  label: 'Duplicate',
+                  icon: <Copy className="size-5 text-ink-muted" />,
+                  onSelect: () => duplicateList.mutate(actionsFor.id),
+                },
+                {
+                  label: 'Delete list',
+                  destructive: true,
+                  icon: <Trash2 className="size-5" />,
+                  onSelect: () => deleteList(actionsFor),
+                },
+              ]
+            : []
+        }
+      />
+
+      <RenameListSheet list={renaming} onClose={() => setRenaming(null)} />
+    </main>
   )
 }

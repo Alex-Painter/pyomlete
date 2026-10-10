@@ -52,11 +52,13 @@
   --color-mist: #efefef; /* tab track */
   --color-ink: #222222; /* primary text */
   --color-ink-soft: #444444; /* body text */
-  --color-ink-muted: #8e8e8e; /* muted labels */
-  --color-ink-faint: #adadad; /* placeholders, step numbers */
+  --color-ink-muted: #6b6b6b; /* secondary text: 4.9:1 on cream, 5.3:1 on white */
+  --color-ink-faint: #adadad; /* decoration only (dividers, inactive icons), never text */
   --color-ink-subtle: #cfcfcf; /* faint icons */
   --color-line: #e8e4dc; /* borders */
   --color-line-strong: #e0dace; /* nested input borders */
+  --color-danger: #c62828; /* destructive actions: 5.6:1 on white */
+  --color-success: #2e7d32;
 }
 
 :root {
@@ -72,7 +74,7 @@
   --secondary: oklch(0.95 0.008 82);
   --secondary-foreground: oklch(0.18 0 0);
   --muted: oklch(0.97 0.002 80);
-  --muted-foreground: oklch(0.6 0 0);
+  --muted-foreground: oklch(0.5 0 0);
   --accent: oklch(0.94 0.008 82);
   --accent-foreground: oklch(0.18 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -146,4 +148,33 @@
 
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Safari zooms into any focused field under 16px. Keeping fields at 16px on
+   phones lets pinch zoom stay enabled (no maximum-scale in the viewport). */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Rows that respond to taps shouldn't flash the grey WebKit highlight or
+   select their text on long-press. */
+.touch-row {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

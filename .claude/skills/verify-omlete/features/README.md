@@ -29,6 +29,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 ## Features
 
 - [Recipe library](./recipes.md): list, open, rate, edit and delete saved recipes. No API key needed.
-- [Shopping lists](./shopping-lists.md): create a list, quick-add items (auto-categorised), view by category. No key is needed for seeded item names.
+- [Shopping lists](./shopping-lists.md): Plan and Shop modes. Create a list, quick-add and paste items, edit in a sheet, delete with Undo, shop offline. No key needed.
+- [Discover and Cook](./discover-cook.md): suggestion cards (save, add to list, dismiss) and step-by-step cooking with timers and a rating. Refresh needs real keys.
 - [Settings: categories](./settings-categories.md): add, rename, reorder and delete shopping categories. No API key needed.
 - [AI recipe creation](./ai-recipe-creation.md): generate from ingredients, extract from photos, import from a URL. **Needs real keys.**

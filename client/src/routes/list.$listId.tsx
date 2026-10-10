@@ -1,1440 +1,577 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
 import {
   ArrowLeft,
-  Check,
+  ChefHat,
   ChevronDown,
-  ChevronRight,
-  GripVertical,
+  ChevronUp,
+  ExternalLink,
   Loader2,
-  Pencil,
   Plus,
   ShoppingCart,
-  Sparkles,
-  Star,
   Trash2,
-  UtensilsCrossed,
+  WifiOff,
   X,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet'
 import {
   DndContext,
-  KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
+  useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
-import type { DragEndEvent } from '@dnd-kit/core'
-import {
-  restrictToVerticalAxis,
-  restrictToParentElement,
-} from '@dnd-kit/modifiers'
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { apiFetch } from '@/lib/api'
+import { ActionSheet } from '@/components/BottomSheet'
+import { ErrorState } from '@/components/ErrorState'
+import { ItemSheet } from '@/components/ItemSheet'
+import { ListRow } from '@/components/ListRow'
+import { MealsSheet } from '@/components/MealsSheet'
+import { QuickAdd } from '@/components/QuickAdd'
+import { RecipeThumb } from '@/components/RecipeThumb'
+import { RenameListSheet } from '@/components/RenameListSheet'
+import { useListActions } from '@/hooks/useListActions'
+import { rememberCurrentList } from '@/hooks/useAddToList'
+import { useOnline } from '@/hooks/useOnline'
+import { useCategories, useList, useRecipes, useUnits } from '@/lib/queries'
+import type { ListItem, RecipeSummary } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
-type ItemSource = {
-  recipe_id: string | null
-  amount: number
+type PlanSearch = {
+  sheet?: 'meals' | 'rename'
+  item?: string
 }
 
-type ListItem = {
-  id: string
-  name: string
-  amount: number | null
-  unit: string | null
-  category: string
-  checked: boolean
-  sources: ItemSource[]
-}
+export const Route = createFileRoute('/list/$listId')({
+  component: PlanPage,
+  // Open sheets live in the URL, so they survive a reload and can be linked
+  // to, the way an iOS app restores its scenes.
+  validateSearch: (search: Record<string, unknown>): PlanSearch => ({
+    sheet: search.sheet === 'meals' || search.sheet === 'rename' ? search.sheet : undefined,
+    item: typeof search.item === 'string' ? search.item : undefined,
+  }),
+})
 
-type ListDetail = {
-  id: string
-  name: string
-  created_at: string | null
-  recipes: string[]
-  items: ListItem[]
-}
-
-type CategoryConfig = {
-  name: string
-  order: number
-}
-
-type RecipeSummary = {
-  id: string
-  title: string
-  ingredient_count: number
-  rating: number | null
-}
-
-type MealIdea = {
-  title: string
-  description: string
-}
-
-// Reapply a new ordering of item ids (all within one category) onto the full
-// item list. Mirrors the backend: the slots occupied by the reordered items
-// stay put and are rewritten in the new order; everything else is untouched.
-function reorderItemsInList(
-  items: ListItem[],
-  category: string,
-  itemIds: string[],
-): ListItem[] {
-  const byId = new Map(items.map((i) => [i.id, i]))
-  const ordered = itemIds
-    .map((id) => byId.get(id))
-    .filter((i): i is ListItem => i != null && i.category === category)
-  const reorderedIds = new Set(ordered.map((i) => i.id))
-  const queue = [...ordered]
-  return items.map((item) => (reorderedIds.has(item.id) ? queue.shift()! : item))
-}
-
-export const Route = createFileRoute('/list/$listId')({ component: ListDetailPage })
-
-function ListDetailPage() {
+/**
+ * Plan: pick meals and build the list, on one screen.
+ *
+ * Meals and items are both always visible (a strip above the items on a
+ * phone, two columns on desktop). Nothing here changes because something
+ * else happened: adding a meal, checking items off or going shopping never
+ * moves you to another mode. Shop and Cook are buttons you press.
+ */
+function PlanPage() {
   const { listId } = Route.useParams()
-  const queryClient = useQueryClient()
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
-  const [showCompleted, setShowCompleted] = useState(false)
-  const [quickAddValue, setQuickAddValue] = useState('')
-  const [quickAddAmount, setQuickAddAmount] = useState('')
-  const [quickAddUnit, setQuickAddUnit] = useState('')
-  const [isAdding, setIsAdding] = useState(false)
-  // Plan vs Shop layout. `null` means "follow the default" (Plan for an empty
-  // list you're building, Shop once it has items); an explicit choice sticks.
-  const [modeOverride, setModeOverride] = useState<'plan' | 'shop' | null>(null)
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
+  const router = useRouter()
+  const online = useOnline()
+  const { data: list, isLoading, error, refetch } = useList(listId)
+  const { data: categories } = useCategories()
+  const { data: recipes } = useRecipes()
+  const { data: units } = useUnits()
+  const actions = useListActions(listId)
+  const [mealActions, setMealActions] = useState<RecipeSummary | null>(null)
 
-  const { data: list, isLoading } = useQuery({
-    queryKey: ['list', listId],
-    queryFn: async (): Promise<ListDetail> => {
-      const res = await apiFetch(`/api/lists/${listId}`)
-      return res.json()
-    },
-  })
+  const setSearch = (next: PlanSearch) =>
+    void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true })
 
-  const { data: categories } = useQuery({
-    queryKey: ['categories'],
-    queryFn: async (): Promise<CategoryConfig[]> => {
-      const res = await apiFetch('/api/settings/categories')
-      return res.json()
-    },
-  })
-
-  const { data: allRecipes } = useQuery({
-    queryKey: ['recipes'],
-    queryFn: async (): Promise<RecipeSummary[]> => {
-      const res = await apiFetch('/api/recipes/')
-      return res.json()
-    },
-  })
-
-  const { data: units } = useQuery({
-    queryKey: ['units'],
-    queryFn: async (): Promise<string[]> => {
-      const res = await apiFetch('/api/units')
-      return res.json()
-    },
-  })
-
-  const updateItem = useMutation({
-    mutationFn: async ({ itemId, updates }: { itemId: string; updates: Record<string, unknown> }) => {
-      const res = await apiFetch(`/api/lists/${listId}/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      })
-      return res.json()
-    },
-    onMutate: async ({ itemId, updates }) => {
-      await queryClient.cancelQueries({ queryKey: ['list', listId] })
-      const previous = queryClient.getQueryData<ListDetail>(['list', listId])
-      queryClient.setQueryData<ListDetail>(['list', listId], (old) => {
-        if (!old) return old
-        return {
-          ...old,
-          items: old.items.map((item) =>
-            item.id === itemId ? { ...item, ...updates } : item
-          ),
-        }
-      })
-      return { previous }
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(['list', listId], context.previous)
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-    },
-  })
-
-  const deleteItem = useMutation({
-    mutationFn: async (itemId: string) => {
-      await apiFetch(`/api/lists/${listId}/items/${itemId}`, { method: 'DELETE' })
-    },
-    onMutate: async (itemId) => {
-      await queryClient.cancelQueries({ queryKey: ['list', listId] })
-      const previous = queryClient.getQueryData<ListDetail>(['list', listId])
-      queryClient.setQueryData<ListDetail>(['list', listId], (old) => {
-        if (!old) return old
-        return { ...old, items: old.items.filter((item) => item.id !== itemId) }
-      })
-      return { previous }
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(['list', listId], context.previous)
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-    },
-  })
-
-  const reorderItems = useMutation({
-    mutationFn: async ({ category, itemIds }: { category: string; itemIds: string[] }) => {
-      const res = await apiFetch(`/api/lists/${listId}/items/reorder`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, item_ids: itemIds }),
-      })
-      return res.json()
-    },
-    onMutate: async ({ category, itemIds }) => {
-      await queryClient.cancelQueries({ queryKey: ['list', listId] })
-      const previous = queryClient.getQueryData<ListDetail>(['list', listId])
-      queryClient.setQueryData<ListDetail>(['list', listId], (old) => {
-        if (!old) return old
-        return { ...old, items: reorderItemsInList(old.items, category, itemIds) }
-      })
-      return { previous }
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(['list', listId], context.previous)
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-    },
-  })
-
-  const addRecipe = useMutation({
-    mutationFn: async (recipeId: string) => {
-      const res = await apiFetch(`/api/lists/${listId}/recipes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipe_id: recipeId }),
-      })
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
-
-  const removeRecipe = useMutation({
-    mutationFn: async (recipeId: string) => {
-      const res = await apiFetch(`/api/lists/${listId}/recipes/${recipeId}`, {
-        method: 'DELETE',
-      })
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
-
-  const handleQuickAdd = async () => {
-    const name = quickAddValue.trim()
-    if (!name) return
-    setIsAdding(true)
-    try {
-      const catRes = await apiFetch('/api/categorize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      })
-      const { category } = await catRes.json()
-
-      const amount = quickAddAmount.trim() ? parseFloat(quickAddAmount) : undefined
-      const unit = quickAddUnit && quickAddUnit !== '__none' ? quickAddUnit : undefined
-
-      await apiFetch(`/api/lists/${listId}/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, category, ...(amount != null && !isNaN(amount) ? { amount } : {}), ...(unit ? { unit } : {}) }),
-      })
-
-      setQuickAddValue('')
-      setQuickAddAmount('')
-      setQuickAddUnit('')
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-    } finally {
-      setIsAdding(false)
+  useEffect(() => {
+    rememberCurrentList(listId)
+    // Load Shop ahead of time so it opens with no signal in the store.
+    void router.preloadRoute({ to: '/shop/$listId', params: { listId } }).catch(() => {})
+    if (import.meta.env.PROD && 'caches' in window) {
+      void caches
+        .open('omlete-pages-v1')
+        .then((c) => c.add(`/shop/${listId}`))
+        .catch(() => {})
     }
-  }
+  }, [listId, router])
 
-  const toggleCategory = (cat: string) => {
-    setCollapsedCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
-    })
-  }
+  const categoryNames = useMemo(() => (categories ?? []).map((c) => c.name), [categories])
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-cream text-ink flex justify-center pt-24">
+      <div className="flex min-h-screen justify-center bg-cream pt-24">
         <Loader2 className="size-6 animate-spin text-ink-muted" />
       </div>
     )
   }
 
-  if (!list) {
+  if (error || !list) {
     return (
-      <div className="min-h-screen bg-cream text-ink">
-        <div className="max-w-2xl mx-auto px-4 py-12">
-          <p className="text-ink-muted">List not found</p>
-        </div>
-      </div>
+      <main className="mx-auto min-h-screen max-w-5xl bg-cream px-4">
+        <BackLink />
+        <ErrorState
+          error={error}
+          onRetry={() => void refetch()}
+          notFoundMessage="This list has been deleted."
+        />
+      </main>
     )
   }
 
-  // Group items by category
-  const sortedCategories = categories
-    ? [...categories].sort((a, b) => a.order - b.order)
-    : []
-  const categoryOrder = new Map(sortedCategories.map((c, i) => [c.name, i]))
+  const meals = list.recipes
+    .map((id) => recipes?.find((r) => r.id === id))
+    .filter((r): r is RecipeSummary => r != null)
 
-  const itemsByCategory = new Map<string, ListItem[]>()
-  for (const item of list.items) {
-    const cat = item.category || 'Other'
-    if (!itemsByCategory.has(cat)) itemsByCategory.set(cat, [])
-    itemsByCategory.get(cat)!.push(item)
-  }
+  const unchecked = list.items.filter((i) => !i.checked)
+  const checked = list.items.filter((i) => i.checked)
+  const editingItem = search.item ? (list.items.find((i) => i.id === search.item) ?? null) : null
 
-  const orderedCategories = [...itemsByCategory.entries()].sort(([a], [b]) => {
-    const orderA = categoryOrder.get(a) ?? 999
-    const orderB = categoryOrder.get(b) ?? 999
-    return orderA - orderB
-  })
-
-  // Separate checked items out of categories
-  const checkedItemsList: ListItem[] = []
-  for (const [, items] of orderedCategories) {
-    const checked = items.filter((i) => i.checked)
-    checkedItemsList.push(...checked)
-  }
-  // Filter categories to only unchecked items, remove empty categories
-  const uncheckedCategories = orderedCategories
-    .map(([cat, items]) => [cat, items.filter((i) => !i.checked)] as [string, ListItem[]])
-    .filter(([, items]) => items.length > 0)
-
-  const totalItems = list.items.length
-  const checkedItems = checkedItemsList.length
-
-  const selectedRecipeIds = new Set(list.recipes)
-  const selectedRecipes = allRecipes?.filter((r) => selectedRecipeIds.has(r.id)) ?? []
-  const availableRecipes = allRecipes?.filter((r) => !selectedRecipeIds.has(r.id)) ?? []
-
-  // How many of each recipe's ingredients are still visible on the list, i.e.
-  // present and unchecked. As you check off / remove items you already have,
-  // this drops below the recipe's total ingredient count.
-  const recipeVisibleCount = new Map<string, number>()
-  for (const item of list.items) {
-    if (item.checked) continue
-    for (const source of item.sources) {
-      if (source.recipe_id) {
-        recipeVisibleCount.set(
-          source.recipe_id,
-          (recipeVisibleCount.get(source.recipe_id) ?? 0) + 1,
-        )
-      }
-    }
-  }
-
-  // Plan mode gives recipes the main real estate (items tucked to the side);
-  // Shop mode flips it for checking items off at the store.
-  const mode: 'plan' | 'shop' = modeOverride ?? (list.items.length > 0 ? 'shop' : 'plan')
-  const itemsIsMain = mode === 'shop'
-
-  const mainCol = 'flex-1 min-w-0'
-  const sideCol =
-    'lg:w-80 lg:shrink-0 lg:border-l lg:border-line lg:sticky lg:top-14 lg:self-start lg:max-h-[calc(100vh-3.5rem)] lg:overflow-y-auto'
-
-  const itemsPanelClass = [
-    itemsIsMain ? 'block' : 'hidden lg:block',
-    itemsIsMain ? mainCol : sideCol,
-    itemsIsMain ? 'lg:order-1' : 'lg:order-2',
-  ].join(' ')
-
-  const recipesPanelClass = [
-    itemsIsMain ? 'hidden lg:block' : 'block',
-    itemsIsMain ? sideCol : mainCol,
-    itemsIsMain ? 'lg:order-2' : 'lg:order-1',
-  ].join(' ')
+  const removeMeal = (r: RecipeSummary) => actions.removeRecipe(r.id, r.title)
 
   return (
-    <div className="min-h-screen bg-cream text-ink">
+    <main className="min-h-screen bg-cream text-ink">
       {/* Header */}
-      <div className="border-b border-line">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link to="/" className="text-ink-muted hover:text-ink transition-colors">
-            <ArrowLeft className="size-5" />
+      <header className="sticky top-0 z-30 border-b border-line bg-cream/95 backdrop-blur safe-area-top sm:top-14">
+        <div className="mx-auto flex max-w-5xl items-center gap-2 px-2 py-2 sm:px-6">
+          <BackLink />
+          <button
+            type="button"
+            onClick={() => setSearch({ sheet: 'rename' })}
+            className="min-w-0 flex-1 truncate rounded-lg px-1 py-1 text-left text-xl font-bold hover:bg-sand"
+            aria-label={`${list.name}, rename`}
+          >
+            {list.name}
+          </button>
+          <Link
+            to="/shop/$listId"
+            params={{ listId }}
+            className="flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-semibold text-white shadow-sm hover:bg-ink/90"
+          >
+            <ShoppingCart className="size-4" />
+            Start shopping
           </Link>
-          <h1 className="text-xl font-bold flex-1 min-w-0 truncate">{list.name}</h1>
-          {/* Plan / Shop mode toggle */}
-          <div className="flex items-center gap-0.5 p-0.5 bg-mist rounded-lg shrink-0">
-            <button
-              onClick={() => setModeOverride('plan')}
-              aria-pressed={mode === 'plan'}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-sm font-medium transition-colors cursor-pointer ${
-                mode === 'plan'
-                  ? 'bg-white text-ink shadow-sm'
-                  : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              <UtensilsCrossed className="size-4" />
-              Plan
-            </button>
-            <button
-              onClick={() => setModeOverride('shop')}
-              aria-pressed={mode === 'shop'}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-sm font-medium transition-colors cursor-pointer ${
-                mode === 'shop'
-                  ? 'bg-white text-ink shadow-sm'
-                  : 'text-ink-muted hover:text-ink'
-              }`}
-            >
-              <ShoppingCart className="size-4" />
-              Shop
-            </button>
-          </div>
         </div>
-      </div>
+        {!online && (
+          <p className="flex items-center justify-center gap-2 bg-sand py-1.5 text-sm text-ink-soft">
+            <WifiOff className="size-4" />
+            Offline. Changes are saved on this phone and sync later.
+          </p>
+        )}
+      </header>
 
-      <div className="max-w-6xl mx-auto lg:flex lg:items-start">
-        {/* Items panel */}
-        <section className={itemsPanelClass}>
-          <div className={itemsIsMain ? 'px-4 py-6 lg:max-w-2xl lg:mx-auto' : 'px-4 py-6'}>
-            {/* Progress */}
-            {totalItems > 0 && (
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="flex-1 h-1.5 bg-line rounded-full">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all"
-                      style={{ width: `${(checkedItems / totalItems) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-xs text-ink-muted">
-                    {checkedItems}/{totalItems}
-                  </span>
-                </div>
-              </div>
-            )}
+      <div className="mx-auto max-w-5xl px-4 pb-10 sm:px-6 lg:grid lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:gap-8">
+        {/* Meals */}
+        <MealsPanel
+          meals={meals}
+          onAdd={() => setSearch({ sheet: 'meals' })}
+          onMealActions={setMealActions}
+          onRemove={removeMeal}
+          listId={listId}
+        />
 
-            {/* Quick add */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                handleQuickAdd()
-              }}
-              className="sticky top-0 sm:top-14 z-10 bg-cream/95 backdrop-blur-sm pb-4 mb-2 -mx-4 px-4 pt-2 sm:static sm:bg-transparent sm:backdrop-blur-none sm:pb-0 sm:mb-6 sm:mx-0 sm:px-0 sm:pt-0"
-            >
-              <div className="flex gap-2">
-                <Input
-                  type="text"
-                  value={quickAddValue}
-                  onChange={(e) => setQuickAddValue(e.target.value)}
-                  placeholder="Add item..."
-                  className="flex-1 min-w-0 h-10 bg-white border-line text-ink placeholder:text-ink-faint"
-                />
-                {/* Quantity/unit are hidden when the item list is tucked to the
-                    side (Plan mode) — there the row is a narrow quick-add. */}
-                {itemsIsMain && (
-                  <>
-                    <Input
-                      type="number"
-                      value={quickAddAmount}
-                      onChange={(e) => setQuickAddAmount(e.target.value)}
-                      placeholder="Qty"
-                      className="w-16 sm:w-20 h-10 bg-white border-line text-ink placeholder:text-ink-faint"
-                    />
-                    <Select value={quickAddUnit} onValueChange={setQuickAddUnit}>
-                      <SelectTrigger className="w-24 sm:w-28 h-10 bg-white border-line text-ink">
-                        <SelectValue placeholder="Unit" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none">No unit</SelectItem>
-                        {units?.map((u) => (
-                          <SelectItem key={u} value={u}>{u}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </>
-                )}
-                <Button type="submit" disabled={isAdding || !quickAddValue.trim()} className="h-10 w-10 shrink-0 p-0">
-                  {isAdding ? <Loader2 className="animate-spin size-4" /> : <Plus className="size-4" />}
-                </Button>
-              </div>
-            </form>
-
-            {/* Empty state */}
-            {list.items.length === 0 &&
-              (itemsIsMain ? (
-                <EmptyListStart
-                  listId={listId}
-                  availableRecipes={availableRecipes}
-                  allRecipes={allRecipes}
-                  selectedTitles={selectedRecipes.map((r) => r.title)}
-                  onAdd={(id) => addRecipe.mutate(id)}
-                  isAdding={addRecipe.isPending}
-                />
-              ) : (
-                <p className="text-sm text-ink-faint text-center py-6">
-                  No items yet — add recipes to build your list.
-                </p>
-              ))}
-
-            {/* Categorized items (unchecked only) */}
-            <div className="space-y-2">
-              {uncheckedCategories.map(([category, items]) => (
-                <CategorySection
-                  key={category}
-                  category={category}
-                  items={items}
-                  isCollapsed={collapsedCategories.has(category)}
-                  onToggle={() => toggleCategory(category)}
-                  units={units ?? []}
-                  categoryNames={sortedCategories.map((c) => c.name)}
-                  onToggleCheck={(itemId, checked) =>
-                    updateItem.mutate({ itemId, updates: { checked } })
-                  }
-                  onUpdate={(itemId, updates) =>
-                    updateItem.mutate({ itemId, updates })
-                  }
-                  onDelete={(itemId) => deleteItem.mutate(itemId)}
-                  onReorder={(itemIds) =>
-                    reorderItems.mutate({ category, itemIds })
-                  }
-                />
-              ))}
-            </div>
-
-            {/* Completed items section */}
-            {checkedItems > 0 && (
-              <div className="mt-4">
-                <button
-                  onClick={() => setShowCompleted(!showCompleted)}
-                  className="flex items-center gap-2 px-2 py-2 text-sm text-ink-muted hover:text-ink-soft transition-colors cursor-pointer"
-                >
-                  {showCompleted ? (
-                    <ChevronDown className="size-3.5" />
-                  ) : (
-                    <ChevronRight className="size-3.5" />
-                  )}
-                  <span>Completed ({checkedItems})</span>
-                </button>
-
-                {showCompleted && (
-                  <div className="mt-1 px-2 flex flex-wrap gap-1.5">
-                    {checkedItemsList.map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() =>
-                          updateItem.mutate({
-                            itemId: item.id,
-                            updates: { checked: false },
-                          })
-                        }
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cream text-xs text-ink-faint line-through hover:bg-line hover:text-ink-soft transition-colors cursor-pointer"
-                      >
-                        <Check className="size-3" />
-                        {item.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+        {/* Items */}
+        <section aria-labelledby="items-heading" className="pt-4 lg:pt-6">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 id="items-heading" className="text-lg font-semibold">
+              Items <span className="font-normal text-ink-muted">({unchecked.length})</span>
+            </h2>
           </div>
-        </section>
+          <QuickAdd onAdd={(parsed) => actions.addItems(parsed, categoryNames)} className="mb-4" />
 
-        {/* Recipes panel */}
-        <section className={recipesPanelClass}>
-          <RecipeSidebar
-            variant={itemsIsMain ? 'side' : 'main'}
-            visibleCounts={recipeVisibleCount}
-            listId={listId}
-            selectedRecipes={selectedRecipes}
-            availableRecipes={availableRecipes}
-            allRecipes={allRecipes}
-            onAdd={(id) => addRecipe.mutate(id)}
-            onRemove={(id) => removeRecipe.mutate(id)}
-            isAdding={addRecipe.isPending}
-            isRemoving={removeRecipe.isPending}
-          />
-        </section>
-      </div>
-    </div>
-  )
-}
-
-function RecipeSidebar({
-  listId,
-  selectedRecipes,
-  availableRecipes,
-  allRecipes,
-  onAdd,
-  onRemove,
-  isAdding,
-  isRemoving,
-  variant = 'side',
-  visibleCounts,
-}: {
-  listId: string
-  selectedRecipes: RecipeSummary[]
-  availableRecipes: RecipeSummary[]
-  allRecipes: RecipeSummary[] | undefined
-  onAdd: (id: string) => void
-  onRemove: (id: string) => void
-  isAdding: boolean
-  isRemoving: boolean
-  variant?: 'side' | 'main'
-  visibleCounts?: Map<string, number>
-}) {
-  const isMain = variant === 'main'
-  return (
-    <div
-      className={
-        isMain
-          ? 'w-full'
-          : 'bg-white overflow-hidden lg:rounded-none lg:bg-linen rounded-lg'
-      }
-    >
-      <div className={isMain ? 'max-w-2xl mx-auto px-4 py-6' : ''}>
-        <div className={isMain ? 'pb-4 mb-1' : 'px-4 py-3 border-b border-line'}>
-          <h2
-            className={`font-semibold flex items-center gap-2 ${
-              isMain ? 'text-lg' : 'text-sm'
-            }`}
-          >
-            <UtensilsCrossed className={isMain ? 'size-5 text-ink-muted' : 'size-4 text-ink-muted'} />
-            Recipes
-          </h2>
-          {isMain && (
-            <p className="text-sm text-ink-muted mt-1">
-              Pick the recipes for this list — ingredients are gathered on the side.
+          {list.items.length === 0 && (
+            <p className="rounded-xl bg-white px-4 py-6 text-center text-ink-muted">
+              Add meals and their ingredients appear here, or type items above. Paste a whole
+              list if you have one.
             </p>
           )}
-        </div>
 
-        {/* Selected recipes */}
-        {selectedRecipes.length > 0 && (
-          <div className={isMain ? 'py-4 border-b border-line' : 'p-3 border-b border-line'}>
-            <h3 className="text-xs font-medium text-ink-muted uppercase tracking-wider mb-2 px-1">
-              On this list
-            </h3>
-            <div className={isMain ? 'grid grid-cols-1 sm:grid-cols-2 gap-1.5' : 'space-y-1'}>
-              {selectedRecipes.map((recipe) => {
-                const count = visibleCounts?.get(recipe.id) ?? recipe.ingredient_count
-                return (
-                  <div
-                    key={recipe.id}
-                    className="flex items-center gap-2 px-2 py-2 rounded-md bg-cream"
-                  >
-                    <Check className="size-3.5 text-primary shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <Link
-                        to="/recipe/$recipeId"
-                        params={{ recipeId: recipe.id }}
-                        className="text-sm break-words block hover:text-primary transition-colors"
-                      >
-                        {recipe.title}
-                      </Link>
-                      <p className="text-xs text-ink-faint">{count} ingredients</p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => onRemove(recipe.id)}
-                      disabled={isRemoving}
-                      className="shrink-0 text-slate-500 hover:text-red-400"
-                    >
-                      <X className="size-3.5" />
-                    </Button>
-                  </div>
+          <ItemsByCategory
+            items={unchecked}
+            categories={categoryNames}
+            onToggle={(item) => actions.setChecked(item, !item.checked)}
+            onEdit={(item) => setSearch({ item: item.id })}
+            onDelete={(item) => actions.removeItems([item], `Removed ${item.name}`)}
+            onMove={(item, category) => actions.update(item.id, { category })}
+            onReorder={actions.reorder}
+          />
+
+          {checked.length > 0 && (
+            <GotItSection
+              items={checked}
+              onToggle={(item) => actions.setChecked(item, false)}
+              onClear={() =>
+                actions.removeItems(
+                  checked,
+                  `Cleared ${checked.length} checked item${checked.length === 1 ? '' : 's'}`,
                 )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Suggest meals */}
-        <div className={isMain ? 'py-4 border-b border-line' : 'p-3 border-b border-slate-700/50'}>
-          <SuggestMealsSheet
-            listId={listId}
-            existingTitles={selectedRecipes.map((r) => r.title)}
-          />
-        </div>
-
-        {/* Available recipes */}
-        <div className={isMain ? 'py-4' : 'p-3'}>
-          <h3 className="text-xs font-medium text-ink-muted uppercase tracking-wider mb-2 px-1">
-            {selectedRecipes.length > 0 ? 'Add more' : 'Add recipes'}
-          </h3>
-          {!allRecipes && (
-            <div className="flex justify-center py-4">
-              <Loader2 className="size-5 animate-spin text-ink-muted" />
-            </div>
-          )}
-          {allRecipes && availableRecipes.length === 0 && (
-            <p className="text-xs text-ink-faint py-3 text-center">
-              {allRecipes.length === 0
-                ? 'No recipes yet. Create some first!'
-                : 'All recipes added'}
-            </p>
-          )}
-          <div className={isMain ? 'grid grid-cols-1 sm:grid-cols-2 gap-0.5' : 'space-y-0.5'}>
-            {availableRecipes.map((recipe) => (
-              <AvailableRecipeButton
-                key={recipe.id}
-                recipe={recipe}
-                onAdd={onAdd}
-                disabled={isAdding}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AvailableRecipeButton({
-  recipe,
-  onAdd,
-  disabled,
-}: {
-  recipe: RecipeSummary
-  onAdd: (id: string) => void
-  disabled: boolean
-}) {
-  return (
-    <button
-      onClick={() => onAdd(recipe.id)}
-      disabled={disabled}
-      className="w-full flex items-center gap-2 px-2 py-2.5 min-h-[44px] rounded-md hover:bg-sand transition-colors cursor-pointer text-left"
-    >
-      <Plus className="size-3.5 text-ink-subtle shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm break-words">{recipe.title}</p>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-ink-faint">
-            {recipe.ingredient_count} ingredients
-          </span>
-          {recipe.rating && (
-            <span className="flex items-center gap-0.5 text-xs text-amber-500">
-              <Star className="size-3 fill-current" />
-              {recipe.rating}
-            </span>
-          )}
-        </div>
-      </div>
-    </button>
-  )
-}
-
-function EmptyListStart({
-  listId,
-  availableRecipes,
-  allRecipes,
-  selectedTitles,
-  onAdd,
-  isAdding,
-}: {
-  listId: string
-  availableRecipes: RecipeSummary[]
-  allRecipes: RecipeSummary[] | undefined
-  selectedTitles: string[]
-  onAdd: (id: string) => void
-  isAdding: boolean
-}) {
-  return (
-    <div className="py-8">
-      <div className="text-center mb-6">
-        <p className="text-ink-muted mb-1">No items yet</p>
-        <p className="text-sm text-ink-faint">
-          Add an item above, suggest meals, or pick a recipe from your library to get started
-        </p>
-      </div>
-
-      <div className="max-w-md mx-auto space-y-4">
-        {/* Suggest meals */}
-        <SuggestMealsSheet listId={listId} existingTitles={selectedTitles} />
-
-        {/* Recipe suggestions from the library */}
-        {!allRecipes && (
-          <div className="flex justify-center py-4">
-            <Loader2 className="size-5 animate-spin text-ink-muted" />
-          </div>
-        )}
-        {allRecipes && availableRecipes.length > 0 && (
-          <div className="bg-white rounded-lg border border-line shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-line flex items-center gap-2">
-              <UtensilsCrossed className="size-4 text-ink-muted" />
-              <h2 className="text-sm font-semibold">From your library</h2>
-            </div>
-            <div className="p-2 space-y-0.5">
-              {availableRecipes.slice(0, 6).map((recipe) => (
-                <AvailableRecipeButton
-                  key={recipe.id}
-                  recipe={recipe}
-                  onAdd={onAdd}
-                  disabled={isAdding}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-const DIET_OPTIONS = [
-  { value: 'any', label: 'Any' },
-  { value: 'vegetarian', label: 'Vegetarian' },
-  { value: 'vegan', label: 'Vegan' },
-  { value: 'pescatarian', label: 'Pescatarian' },
-  { value: 'meaty', label: 'Meaty' },
-]
-
-const EASE_OPTIONS = [
-  { value: 'any', label: 'Any' },
-  { value: 'quick', label: 'Quick & easy' },
-  { value: 'moderate', label: 'Moderate' },
-  { value: 'involved', label: 'Involved' },
-]
-
-function SuggestMealsSheet({
-  listId,
-  existingTitles,
-}: {
-  listId: string
-  existingTitles: string[]
-}) {
-  const queryClient = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [diet, setDiet] = useState('any')
-  const [ease, setEase] = useState('any')
-  const [notes, setNotes] = useState('')
-  const [suggestions, setSuggestions] = useState<MealIdea[]>([])
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [generating, setGenerating] = useState<{ done: number; total: number } | null>(null)
-
-  const suggest = useMutation({
-    mutationFn: async (): Promise<MealIdea[]> => {
-      const res = await apiFetch('/api/recipes/suggest/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          diet,
-          ease,
-          notes,
-          // Don't repeat meals already on the list, nor ones already shown.
-          exclude_titles: [...existingTitles, ...suggestions.map((s) => s.title)],
-        }),
-      })
-      const data: { suggestions: MealIdea[] } = await res.json()
-      return data.suggestions
-    },
-    onSuccess: (ideas) => {
-      // Append on "Suggest again", replace on first run.
-      setSuggestions((prev) => [...prev, ...ideas])
-    },
-  })
-
-  const toggleSelected = (title: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(title)) next.delete(title)
-      else next.add(title)
-      return next
-    })
-  }
-
-  const handleAddSelected = async () => {
-    const picked = suggestions.filter((s) => selected.has(s.title))
-    if (picked.length === 0) return
-    setGenerating({ done: 0, total: picked.length })
-    try {
-      // Sequential: each recipe is generated, then attached to the list.
-      // Attaching reads-modifies-writes the list document, so we must not race.
-      for (let i = 0; i < picked.length; i++) {
-        const idea = picked[i]
-        const promptParts = [
-          `Create a recipe for: ${idea.title}.`,
-          idea.description,
-        ]
-        if (diet !== 'any') promptParts.push(`Dietary preference: ${diet}.`)
-        if (ease !== 'any') promptParts.push(`Effort level: ${ease}.`)
-        if (notes.trim()) promptParts.push(notes.trim())
-
-        const genRes = await apiFetch('/api/recipes/generate/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: promptParts.join(' ') }),
-        })
-        // The generate endpoint returns a raw document; depending on
-        // serialization the id may come back as `id` or `_id`.
-        const recipe: { id?: string; _id?: string } = await genRes.json()
-        const recipeId = recipe.id ?? recipe._id
-        if (!recipeId) continue
-
-        await apiFetch(`/api/lists/${listId}/recipes`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recipe_id: recipeId }),
-        })
-        setGenerating({ done: i + 1, total: picked.length })
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['list', listId] })
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-      queryClient.invalidateQueries({ queryKey: ['recipes'] })
-
-      // Reset and close.
-      setSelected(new Set())
-      setSuggestions([])
-      setNotes('')
-      setOpen(false)
-    } finally {
-      setGenerating(null)
-    }
-  }
-
-  const isGenerating = generating !== null
-
-  return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button variant="outline" className="w-full border-line text-ink-soft hover:text-ink">
-          <Sparkles className="size-4" />
-          Suggest meals
-        </Button>
-      </SheetTrigger>
-      <SheetContent
-        side="right"
-        className="bg-slate-900 border-slate-700 text-white w-full sm:max-w-md overflow-y-auto"
-      >
-        <SheetHeader>
-          <SheetTitle className="text-white flex items-center gap-2">
-            <Sparkles className="size-4 text-emerald-400" />
-            Suggest meals
-          </SheetTitle>
-          <SheetDescription className="text-slate-400">
-            Set a few preferences and let AI suggest meal ideas for this list.
-          </SheetDescription>
-        </SheetHeader>
-
-        <div className="px-4 pb-4 space-y-5">
-          {/* Constraints */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-400">Diet</label>
-              <Select value={diet} onValueChange={setDiet}>
-                <SelectTrigger className="h-10 bg-slate-800 border-slate-700 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DIET_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-400">Ease of cooking</label>
-              <Select value={ease} onValueChange={setEase}>
-                <SelectTrigger className="h-10 bg-slate-800 border-slate-700 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EASE_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-400">Notes (optional)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. use up leftover spinach, kid-friendly, Italian..."
-              rows={2}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500 resize-none"
+              }
             />
-          </div>
-
-          <Button
-            onClick={() => suggest.mutate()}
-            disabled={suggest.isPending || isGenerating}
-            className="w-full"
-          >
-            {suggest.isPending ? (
-              <>
-                <Loader2 className="animate-spin size-4" />
-                Thinking...
-              </>
-            ) : suggestions.length > 0 ? (
-              'Suggest again'
-            ) : (
-              'Suggest meals'
-            )}
-          </Button>
-
-          {/* Suggestions */}
-          {suggestions.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Ideas — pick the ones you like
-              </h3>
-              <div className="space-y-1.5">
-                {suggestions.map((idea) => (
-                  <button
-                    key={idea.title}
-                    onClick={() => toggleSelected(idea.title)}
-                    disabled={isGenerating}
-                    className="w-full flex items-start gap-3 px-3 py-2.5 rounded-md bg-slate-800 hover:bg-slate-700/70 transition-colors text-left cursor-pointer"
-                  >
-                    <Checkbox
-                      checked={selected.has(idea.title)}
-                      className="mt-0.5 shrink-0 size-5 border-slate-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600 pointer-events-none"
-                    />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{idea.title}</p>
-                      <p className="text-xs text-slate-400">{idea.description}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <Button
-                onClick={handleAddSelected}
-                disabled={selected.size === 0 || isGenerating}
-                className="w-full"
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="animate-spin size-4" />
-                    Generating recipe {Math.min(generating.done + 1, generating.total)} of {generating.total}...
-                  </>
-                ) : (
-                  `Add ${selected.size || ''} ${selected.size === 1 ? 'meal' : 'meals'} to list`
-                )}
-              </Button>
-            </div>
           )}
-        </div>
-      </SheetContent>
-    </Sheet>
+        </section>
+      </div>
+
+      <MealsSheet
+        open={search.sheet === 'meals'}
+        onOpenChange={(o) => setSearch({ sheet: o ? 'meals' : undefined })}
+        listId={listId}
+        listName={list.name}
+        onList={new Set(list.recipes)}
+        onRemove={removeMeal}
+      />
+
+      <ItemSheet
+        item={editingItem}
+        open={editingItem != null}
+        onOpenChange={(o) => !o && setSearch({ item: undefined })}
+        categories={categoryNames}
+        units={units ?? []}
+        onSave={(updates) => editingItem && actions.update(editingItem.id, updates)}
+        onDelete={() =>
+          editingItem && actions.removeItems([editingItem], `Removed ${editingItem.name}`)
+        }
+      />
+
+      <RenameListSheet
+        list={search.sheet === 'rename' ? list : null}
+        onClose={() => setSearch({ sheet: undefined })}
+      />
+
+      <ActionSheet
+        open={mealActions != null}
+        onOpenChange={(o) => !o && setMealActions(null)}
+        title={mealActions?.title ?? ''}
+        actions={
+          mealActions
+            ? [
+                {
+                  label: 'Cook this',
+                  icon: <ChefHat className="size-5 text-ink-muted" />,
+                  onSelect: () =>
+                    void navigate({
+                      to: '/cook/$recipeId',
+                      params: { recipeId: mealActions.id },
+                      search: { list: listId },
+                    }),
+                },
+                {
+                  label: 'Open recipe',
+                  icon: <ExternalLink className="size-5 text-ink-muted" />,
+                  onSelect: () =>
+                    void navigate({ to: '/recipe/$recipeId', params: { recipeId: mealActions.id } }),
+                },
+                {
+                  label: 'Remove from list',
+                  destructive: true,
+                  icon: <Trash2 className="size-5" />,
+                  onSelect: () => removeMeal(mealActions),
+                },
+              ]
+            : []
+        }
+      />
+    </main>
   )
 }
 
-function CategorySection({
-  category,
-  items,
-  isCollapsed,
-  onToggle,
-  units,
-  categoryNames,
-  onToggleCheck,
-  onUpdate,
-  onDelete,
-  onReorder,
-}: {
-  category: string
-  items: ListItem[]
-  isCollapsed: boolean
-  onToggle: () => void
-  units: string[]
-  categoryNames: string[]
-  onToggleCheck: (itemId: string, checked: boolean) => void
-  onUpdate: (itemId: string, updates: Record<string, unknown>) => void
-  onDelete: (itemId: string) => void
-  onReorder: (itemIds: string[]) => void
-}) {
-  // Local drag order so rows commit instantly on drop; reset whenever the
-  // server-provided items actually change.
-  const idsKey = items.map((i) => i.id).join(',')
-  const [order, setOrder] = useState<string[]>(() => items.map((i) => i.id))
-
-  useEffect(() => {
-    setOrder(items.map((i) => i.id))
-  }, [idsKey])
-
-  // Require a small drag distance before a drag starts, so taps/clicks on the
-  // handle (and the buttons within a row) still behave normally. The pointer
-  // sensor also covers touch, so reordering works on mobile too.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  )
-
-  const itemsById = new Map(items.map((i) => [i.id, i]))
-  const orderedItems = order
-    .map((id) => itemsById.get(id))
-    .filter((i): i is ListItem => i != null)
-  const canReorder = items.length > 1
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const from = order.indexOf(String(active.id))
-    const to = order.indexOf(String(over.id))
-    if (from === -1 || to === -1) return
-    const next = arrayMove(order, from, to)
-    setOrder(next)
-    onReorder(next)
-  }
-
+function BackLink() {
   return (
-    <div className="bg-white rounded-lg border border-line shadow-sm overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 px-4 py-3 min-h-[44px] text-sm font-medium text-ink-muted hover:text-ink transition-colors cursor-pointer"
-      >
-        {isCollapsed ? (
-          <ChevronRight className="size-4 text-ink-faint" />
-        ) : (
-          <ChevronDown className="size-4 text-ink-faint" />
-        )}
-        <span className="flex-1 text-left">{category}</span>
-        <span className="text-xs text-ink-faint">{items.length}</span>
-      </button>
-
-      {!isCollapsed && (
-        <div className="px-2 pb-2 space-y-0.5">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={order}
-              strategy={verticalListSortingStrategy}
-            >
-              {orderedItems.map((item) => (
-                <SortableItemRow
-                  key={item.id}
-                  item={item}
-                  units={units}
-                  categoryNames={categoryNames}
-                  canReorder={canReorder}
-                  onToggleCheck={onToggleCheck}
-                  onUpdate={onUpdate}
-                  onDelete={onDelete}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SortableItemRow({
-  item,
-  units,
-  categoryNames,
-  canReorder,
-  onToggleCheck,
-  onUpdate,
-  onDelete,
-}: {
-  item: ListItem
-  units: string[]
-  categoryNames: string[]
-  canReorder: boolean
-  onToggleCheck: (itemId: string, checked: boolean) => void
-  onUpdate: (itemId: string, updates: Record<string, unknown>) => void
-  onDelete: (itemId: string) => void
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: item.id })
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`flex items-center rounded-md ${
-        isDragging ? 'relative z-10 opacity-80 bg-cream shadow-sm' : ''
-      }`}
+    <Link
+      to="/"
+      aria-label="Back to lists"
+      className="flex size-11 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-sand hover:text-ink"
     >
-      {canReorder && (
-        // Only the handle activates a drag, so the checkbox, edit and delete
-        // controls in the row keep working normally.
+      <ArrowLeft className="size-5" />
+    </Link>
+  )
+}
+
+function MealsPanel({
+  meals,
+  onAdd,
+  onMealActions,
+  onRemove,
+  listId,
+}: {
+  meals: RecipeSummary[]
+  onAdd: () => void
+  onMealActions: (r: RecipeSummary) => void
+  onRemove: (r: RecipeSummary) => void
+  listId: string
+}) {
+  return (
+    <section aria-labelledby="meals-heading" className="pt-4 lg:pt-6">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 id="meals-heading" className="text-lg font-semibold">
+          Meals <span className="font-normal text-ink-muted">({meals.length})</span>
+        </h2>
         <button
           type="button"
-          ref={setActivatorNodeRef}
-          aria-label="Drag to reorder"
-          className="shrink-0 flex items-center self-stretch px-0.5 text-ink-faint hover:text-ink-muted cursor-grab active:cursor-grabbing touch-none"
-          {...attributes}
-          {...listeners}
+          onClick={onAdd}
+          className="flex min-h-[40px] items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-ink hover:bg-sand"
         >
-          <GripVertical className="size-4" />
+          <Plus className="size-4" />
+          Add meals
         </button>
-      )}
-      <div className="flex-1 min-w-0">
-        <ItemRow
-          item={item}
-          units={units}
-          categories={categoryNames}
-          onToggleCheck={() => onToggleCheck(item.id, !item.checked)}
-          onUpdate={(updates) => onUpdate(item.id, updates)}
-          onDelete={() => onDelete(item.id)}
-        />
       </div>
-    </div>
+
+      {meals.length === 0 ? (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex min-h-[64px] w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line px-4 text-sm text-ink-muted hover:border-primary hover:text-ink"
+        >
+          <Plus className="size-4" />
+          Pick this week's meals
+        </button>
+      ) : (
+        <>
+          {/* Phone: a compact strip */}
+          <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
+            {meals.map((r) => (
+              <li key={r.id} className="shrink-0 snap-start">
+                <button
+                  type="button"
+                  onClick={() => onMealActions(r)}
+                  className="flex h-14 max-w-[15rem] items-center gap-2 rounded-xl border border-line bg-white pr-3 text-left shadow-sm"
+                >
+                  <RecipeThumb src={r.image_url} title={r.title} className="h-full w-14 shrink-0 rounded-l-xl" />
+                  <span className="line-clamp-2 text-sm font-medium leading-tight">{r.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {/* Desktop: a column of meal cards */}
+          <ul className="hidden space-y-2 lg:block">
+            {meals.map((r) => (
+              <li
+                key={r.id}
+                className="flex items-center gap-3 rounded-xl border border-line bg-white p-2 shadow-sm"
+              >
+                <RecipeThumb src={r.image_url} title={r.title} className="size-14 shrink-0 rounded-lg" />
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to="/recipe/$recipeId"
+                    params={{ recipeId: r.id }}
+                    className="block font-medium leading-snug hover:underline underline-offset-4"
+                  >
+                    {r.title}
+                  </Link>
+                  <p className="text-sm text-ink-muted">{r.ingredient_count} ingredients</p>
+                </div>
+                <Link
+                  to="/cook/$recipeId"
+                  params={{ recipeId: r.id }}
+                  search={{ list: listId }}
+                  className="flex min-h-[40px] items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
+                >
+                  <ChefHat className="size-4" />
+                  Cook
+                </Link>
+                <button
+                  type="button"
+                  aria-label={`Remove ${r.title}`}
+                  onClick={() => onRemove(r)}
+                  className="flex size-10 items-center justify-center rounded-lg text-ink-muted hover:bg-sand hover:text-danger"
+                >
+                  <X className="size-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   )
 }
 
-function ItemRow({
-  item,
-  units,
+function ItemsByCategory({
+  items,
   categories,
-  onToggleCheck,
-  onUpdate,
+  onToggle,
+  onEdit,
   onDelete,
+  onMove,
+  onReorder,
 }: {
-  item: ListItem
-  units: string[]
+  items: ListItem[]
   categories: string[]
-  onToggleCheck: () => void
-  onUpdate: (updates: Record<string, unknown>) => void
-  onDelete: () => void
+  onToggle: (item: ListItem) => void
+  onEdit: (item: ListItem) => void
+  onDelete: (item: ListItem) => void
+  onMove: (item: ListItem, category: string) => void
+  onReorder: (category: string, ids: string[]) => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState(item.name)
-  const [editAmount, setEditAmount] = useState(item.amount?.toString() ?? '')
-  const [editUnit, setEditUnit] = useState(item.unit ?? '__none')
-  const [editCategory, setEditCategory] = useState(item.category)
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const order = new Map(categories.map((c, i) => [c, i]))
+  const groups = new Map<string, ListItem[]>()
+  for (const item of items) {
+    const cat = item.category || 'Other'
+    if (!groups.has(cat)) groups.set(cat, [])
+    groups.get(cat)!.push(item)
+  }
+  const sorted = [...groups.entries()].sort(
+    ([a], [b]) => (order.get(a) ?? 999) - (order.get(b) ?? 999),
+  )
+  const byId = new Map(items.map((i) => [i.id, i]))
 
-  const handleSave = () => {
-    const updates: Record<string, unknown> = {}
-    const newName = editName.trim()
-    if (newName && newName !== item.name) updates.name = newName
-    const newAmount = editAmount.trim() ? parseFloat(editAmount) : null
-    if (newAmount !== item.amount) updates.amount = newAmount
-    const newUnit = editUnit && editUnit !== '__none' ? editUnit : null
-    if (newUnit !== item.unit) updates.unit = newUnit
-    if (editCategory !== item.category) updates.category = editCategory
-    if (Object.keys(updates).length > 0) onUpdate(updates)
-    setEditing(false)
+  // A mouse drags after moving a few pixels. A finger drags after a short
+  // hold, so swipes and scrolling stay free; a hold released without moving
+  // is a long-press, which opens the edit sheet.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 380, tolerance: 8 } }),
+  )
+
+  const onDragStart = (e: DragStartEvent) => {
+    setActiveId(String(e.active.id))
+    if ('vibrate' in navigator) navigator.vibrate(10)
   }
 
-  const handleCancel = () => {
-    setEditName(item.name)
-    setEditAmount(item.amount?.toString() ?? '')
-    setEditUnit(item.unit ?? '__none')
-    setEditCategory(item.category)
-    setEditing(false)
-  }
-
-  // Swipe-to-delete state
-  const swipeRef = useRef<HTMLDivElement>(null)
-  const touchStartX = useRef(0)
-  const [swipeOffset, setSwipeOffset] = useState(0)
-  const [swiping, setSwiping] = useState(false)
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX
-    setSwiping(true)
-  }, [])
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!swiping) return
-    const diff = touchStartX.current - e.touches[0].clientX
-    // Only allow swiping left (positive diff)
-    setSwipeOffset(Math.max(0, Math.min(diff, 80)))
-  }, [swiping])
-
-  const handleTouchEnd = useCallback(() => {
-    setSwiping(false)
-    if (swipeOffset > 60) {
-      onDelete()
+  const onDragEnd = ({ active, over, delta }: DragEndEvent) => {
+    setActiveId(null)
+    const item = byId.get(String(active.id))
+    if (!item) return
+    if (Math.abs(delta.x) < 8 && Math.abs(delta.y) < 8) {
+      onEdit(item)
+      return
     }
-    setSwipeOffset(0)
-  }, [swipeOffset, onDelete])
-
-  if (editing) {
-    return (
-      <div className="px-2 py-2 rounded-md bg-white border border-line space-y-2">
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Input
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            placeholder="Name"
-            className="flex-1 h-10 bg-cream border-line-strong text-ink text-sm"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave()
-              if (e.key === 'Escape') handleCancel()
-            }}
-          />
-          <div className="flex gap-2">
-            <Input
-              type="number"
-              value={editAmount}
-              onChange={(e) => setEditAmount(e.target.value)}
-              placeholder="Qty"
-              className="w-20 h-10 bg-cream border-line-strong text-ink text-sm"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSave()
-                if (e.key === 'Escape') handleCancel()
-              }}
-            />
-            <Select value={editUnit} onValueChange={setEditUnit}>
-              <SelectTrigger className="w-28 h-10 bg-cream border-line-strong text-ink text-sm">
-                <SelectValue placeholder="Unit" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none">No unit</SelectItem>
-                {units.map((u) => (
-                  <SelectItem key={u} value={u}>{u}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={editCategory} onValueChange={setEditCategory}>
-            <SelectTrigger className="w-40 h-10 bg-cream border-line-strong text-ink text-sm">
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-ink-muted hover:text-ink">
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} className="h-9 px-3">
-            Save
-          </Button>
-        </div>
-      </div>
-    )
+    if (!over) return
+    const overId = String(over.id)
+    const target = overId.startsWith('cat:') ? overId.slice(4) : byId.get(overId)?.category
+    if (!target) return
+    if (target !== item.category) {
+      onMove(item, target)
+      return
+    }
+    const ids = (groups.get(target) ?? []).map((i) => i.id)
+    const from = ids.indexOf(item.id)
+    const to = ids.indexOf(overId)
+    if (from !== -1 && to !== -1 && from !== to) onReorder(target, arrayMove(ids, from, to))
   }
 
   return (
-    <div className="relative overflow-hidden rounded-md">
-      {/* Delete background revealed on swipe */}
-      <div className="absolute inset-y-0 right-0 flex items-center justify-center w-20 bg-red-600 text-white">
-        <Trash2 className="size-4" />
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToVerticalAxis]}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
+      <div className="space-y-4">
+        {sorted.map(([category, catItems]) => (
+          <CategoryGroup key={category} category={category} highlight={activeId != null}>
+            <SortableContext items={catItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+              <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+                {catItems.map((item) => (
+                  <SortableRow
+                    key={item.id}
+                    item={item}
+                    onToggle={() => onToggle(item)}
+                    onEdit={() => onEdit(item)}
+                    onDelete={() => onDelete(item)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </CategoryGroup>
+        ))}
       </div>
-      <div
-        ref={swipeRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        style={{ transform: `translateX(-${swipeOffset}px)` }}
-        className={`relative flex items-center gap-3 px-2 py-2.5 rounded-md group bg-white transition-opacity ${
-          !swiping ? 'transition-transform duration-200' : ''
-        } ${item.checked ? 'opacity-50' : ''}`}
+    </DndContext>
+  )
+}
+
+function CategoryGroup({
+  category,
+  highlight,
+  children,
+}: {
+  category: string
+  highlight: boolean
+  children: React.ReactNode
+}) {
+  // The header is a drop target: drag an item onto it to re-file it.
+  const { setNodeRef, isOver } = useDroppable({ id: `cat:${category}` })
+  return (
+    <section>
+      <h3
+        ref={setNodeRef}
+        className={cn(
+          'mb-1.5 rounded-lg px-1 py-1 text-sm font-semibold text-ink-soft transition-colors',
+          highlight && 'border border-dashed border-line',
+          isOver && 'border-primary bg-[#fdf6e3]',
+        )}
       >
-        <Checkbox
-          checked={item.checked}
-          onCheckedChange={onToggleCheck}
-          className="shrink-0 size-5 border-ink-subtle data-[state=checked]:bg-primary data-[state=checked]:border-primary [&>[data-state=checked]>svg]:text-ink"
-        />
+        {category}
+      </h3>
+      {children}
+    </section>
+  )
+}
 
-        <div className={`flex-1 min-w-0 ${item.checked ? 'line-through text-ink-muted' : ''}`}>
-          <span className="text-sm">{item.name}</span>
-          {(item.amount != null || item.unit) && (
-            <span className="text-xs text-ink-faint ml-2">
-              {item.amount != null ? item.amount : ''}{item.unit ? ` ${item.unit}` : ''}
-            </span>
-          )}
-          {item.sources.filter((s) => s.recipe_id).length > 1 && (
-            <span className="ml-2 text-[10px] text-ink-muted bg-cream px-1.5 py-0.5 rounded-full">
-              {item.sources.filter((s) => s.recipe_id).length} recipes
-            </span>
-          )}
-        </div>
+function SortableRow({
+  item,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  item: ListItem
+  onToggle: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+  })
+  return (
+    <ListRow
+      item={item}
+      rowRef={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      gestureHandlers={listeners as never}
+      dragging={isDragging}
+      onToggle={onToggle}
+      onEdit={onEdit}
+      onDelete={onDelete}
+    />
+  )
+}
 
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => setEditing(true)}
-          className="shrink-0 size-8 text-ink-subtle hover:text-ink-soft sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+function GotItSection({
+  items,
+  onToggle,
+  onClear,
+}: {
+  items: ListItem[]
+  onToggle: (item: ListItem) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(true)
+  return (
+    <section className="mt-6">
+      <div className="mb-1.5 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="flex min-h-[40px] items-center gap-1.5 px-1 text-sm font-semibold text-ink-soft"
         >
-          <Pencil className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={onDelete}
-          className="shrink-0 size-8 text-ink-subtle hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+          Got it ({items.length})
+          {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={onClear}
+          className="min-h-[40px] rounded-lg px-3 text-sm font-medium text-ink-muted hover:bg-sand hover:text-ink"
         >
-          <Trash2 className="size-3.5" />
-        </Button>
+          Clear checked
+        </button>
       </div>
-    </div>
+      {open && (
+        <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white/70">
+          {items.map((item) => (
+            <ListRow key={item.id} item={item} onToggle={() => onToggle(item)} />
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
