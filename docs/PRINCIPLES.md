@@ -27,3 +27,5 @@ Every feature, screen and line of code should be judged against this. If a chang
 - **Designing:** start from "what's the least someone has to think to eat well here?" Prefer a sensible default plus Undo over a question.
 - **Writing code:** components and hooks that encode one of the rules above say so in their doc comment, so the reason survives refactors.
 - **Reviewing:** a PR that adds a confirmation dialog, a required field, a settings toggle or a mode switch should explain why it's worth the extra thought.
+
+For the modes, Chef and what's planned next, see [DESIGN.md](DESIGN.md).

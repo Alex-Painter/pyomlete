@@ -4,7 +4,7 @@ Guidance for coding agents (Claude Code, Codex and others) working in this repos
 
 ## Driving principle
 
-**Eat better and reduce cognitive load.** Better means cooking from scratch more often because lists are easy, and more variety because Omlete proactively suggests new recipes and lists. Less cognitive load means eating better takes less mental energy. Every design and code decision should serve this; see `docs/PRINCIPLES.md` for what it means in practice (one-gesture list edits, Undo instead of confirm dialogs, four separate modes that never switch on their own, offline lists, suggestions that learn from ratings).
+**Eat better and reduce cognitive load.** Better means cooking from scratch more often because lists are easy, and more variety because Omlete proactively suggests new recipes and lists. Less cognitive load means eating better takes less mental energy. Every design and code decision should serve this; see `docs/PRINCIPLES.md` for what it means in practice and `docs/DESIGN.md` for how the app is shaped around it (one-gesture list edits, Undo instead of confirm dialogs, four separate modes that never switch on their own, offline lists, suggestions that learn from ratings).
 
 ## Overview
 
