@@ -1,0 +1,9 @@
+schemaVersion: 1
+enabledWorkflows:
+  - simulator
+  - ui-automation
+sessionDefaults:
+  projectPath: Omlete/Omlete.xcodeproj
+  scheme: Omlete
+  configuration: Debug
+  simulatorName: iPhone 17 Pro
