@@ -223,7 +223,13 @@ class SuggestionRefreshRequest(BaseModel):
 
 
 class SuggestionStatusUpdate(BaseModel):
-    status: str = Field(pattern="^(new|dismissed)$")
+    status: str = Field(pattern="^(new|dismissed|cleared)$")
+
+
+class SuggestionsClearRequest(BaseModel):
+    # None clears every visible card; a list clears just those (what the
+    # person saw when they tapped Clear, so newer cards survive).
+    ids: Optional[list[str]] = None
 
 
 class SuggestionSaveRequest(BaseModel):

@@ -6,8 +6,8 @@ import { useUndo } from '@/components/UndoToast'
 import { rememberCurrentList, useAddRecipeToList } from '@/hooks/useAddToList'
 
 /**
- * The three things a Discover card can do. Each one is also a taste signal
- * the server keeps: what you save, what you shop for, what's not for you.
+ * What you can do with Discover cards. Save, add to list and "Not for me"
+ * are taste signals the server keeps; Clear just tidies the feed.
  */
 export function useSuggestionActions() {
   const queryClient = useQueryClient()
@@ -79,5 +79,30 @@ export function useSuggestionActions() {
     [patchCache, queryClient, showUndo],
   )
 
-  return { save, addToList, dismiss }
+  /**
+   * Clear these cards off Home and Discover. Unlike "Not for me", it's not a
+   * taste signal: Chef learns nothing from it.
+   */
+  const clear = useCallback(
+    (cards: Suggestion[]) => {
+      const ids = cards.filter((s) => s.status !== 'saving').map((s) => s.id)
+      if (ids.length === 0) return
+      const gone = new Set(ids)
+      queryClient.setQueryData<Suggestion[]>(['suggestions'], (old) => old?.filter((s) => !gone.has(s.id)))
+      showUndo({
+        message: `Cleared ${ids.length} suggestion${ids.length === 1 ? '' : 's'}`,
+        onUndo: () => void queryClient.invalidateQueries({ queryKey: ['suggestions'] }),
+        onCommit: () =>
+          void apiJson('/api/suggestions/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+            keepalive: true,
+          }).catch(() => {}),
+      })
+    },
+    [queryClient, showUndo],
+  )
+
+  return { save, addToList, dismiss, clear }
 }

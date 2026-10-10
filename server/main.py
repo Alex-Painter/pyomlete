@@ -44,6 +44,7 @@ from lib.types import (
     SuggestionRefreshRequest,
     SuggestionSaveRequest,
     SuggestionStatusUpdate,
+    SuggestionsClearRequest,
     SuggestionsCreateRequest,
 )
 from ingredient_structurer import structure_ingredients
@@ -910,10 +911,15 @@ async def _get_suggestion(suggestion_id: PydanticObjectId) -> SuggestionDocument
     return s
 
 
+# "dismissed" is "Not for me", a taste signal Chef learns from. "cleared" is
+# just tidying the feed: hidden, but it says nothing about what you like.
+HIDDEN_SUGGESTION_STATUSES = ("dismissed", "cleared")
+
+
 @router.get("/suggestions/")
 async def list_suggestions():
     suggestions = (
-        await SuggestionDocument.find(SuggestionDocument.status != "dismissed")
+        await SuggestionDocument.find({"status": {"$nin": list(HIDDEN_SUGGESTION_STATUSES)}})
         .sort("-created_at")
         .limit(60)
         .to_list()
@@ -1017,6 +1023,16 @@ async def refresh_suggestions(req: SuggestionRefreshRequest):
     for d in docs:
         await d.insert()
     return [_suggestion_out(d) for d in docs]
+
+
+@router.post("/suggestions/clear")
+async def clear_suggestions(body: SuggestionsClearRequest):
+    """Hide these cards (or every visible card) without counting it against them."""
+    query: dict = {"status": {"$in": ["new", "saved", "failed"]}}
+    if body.ids is not None:
+        query["_id"] = {"$in": [PydanticObjectId(i) for i in body.ids]}
+    result = await SuggestionDocument.find(query).update({"$set": {"status": "cleared"}})
+    return {"cleared": getattr(result, "modified_count", 0)}
 
 
 @router.patch("/suggestions/{suggestion_id}")

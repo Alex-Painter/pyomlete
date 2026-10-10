@@ -72,7 +72,7 @@ export type RecipeDetail = RecipeMetadata & {
   created_at: string
 }
 
-export type SuggestionStatus = 'new' | 'saving' | 'saved' | 'failed' | 'dismissed'
+export type SuggestionStatus = 'new' | 'saving' | 'saved' | 'failed' | 'dismissed' | 'cleared'
 
 /**
  * A Discover card. Deliberately not a recipe: anything that can produce a

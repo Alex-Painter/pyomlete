@@ -55,7 +55,7 @@ function DiscoverPage() {
   const queryClient = useQueryClient()
   const showUndo = useUndo()
   const { data: suggestions, isLoading, error, refetch } = useSuggestions()
-  const { save, addToList, dismiss } = useSuggestionActions()
+  const { save, addToList, dismiss, clear } = useSuggestionActions()
   const [tuneOpen, setTuneOpen] = useState(false)
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS)
   useEffect(() => setPrefs(loadPrefs()), [])
@@ -76,7 +76,7 @@ function DiscoverPage() {
   }
   const pull = usePullToRefresh(getIdeas)
 
-  const visible = (suggestions ?? []).filter((s) => s.status !== 'dismissed')
+  const visible = (suggestions ?? []).filter((s) => s.status !== 'dismissed' && s.status !== 'cleared')
   const sections = groupSections(visible)
 
   return (
@@ -93,7 +93,16 @@ function DiscoverPage() {
           title="Discover"
           subtitle="New things to cook, picked for you by Chef."
           actions={
-            <div className="flex gap-1">
+            <div className="flex items-center gap-1">
+              {visible.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => clear(visible)}
+                  className="min-h-[44px] rounded-full px-3 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
+                >
+                  Clear all
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setTuneOpen(true)}

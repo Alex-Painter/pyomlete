@@ -11,6 +11,7 @@ import { RecipeThumb } from '@/components/RecipeThumb'
 import { RenameListSheet } from '@/components/RenameListSheet'
 import { createList, useCurrentList } from '@/hooks/useAddToList'
 import { apiFetch, apiJson } from '@/lib/api'
+import { useSuggestionActions } from '@/hooks/useSuggestionActions'
 import { useLists, useRecipes, useSuggestions } from '@/lib/queries'
 import type { ListSummary } from '@/lib/types'
 
@@ -243,6 +244,7 @@ function CookFromList({ hidden }: { hidden: Set<string> }) {
  */
 function ChefPicks() {
   const { data } = useSuggestions()
+  const { clear } = useSuggestionActions()
   const picks = data?.filter((s) => s.status === 'new').slice(0, 3) ?? []
   if (picks.length === 0) return null
 
@@ -253,13 +255,22 @@ function ChefPicks() {
           <Sparkles className="size-4 text-[#7a5a12]" />
           Chef's picks
         </h2>
-        <Link
-          to="/discover"
-          className="flex min-h-[44px] items-center gap-0.5 text-sm font-medium text-ink-soft hover:text-ink"
-        >
-          See all
-          <ChevronRight className="size-4" />
-        </Link>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => clear(data?.filter((s) => s.status === 'new') ?? [])}
+            className="min-h-[44px] rounded-full px-3 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
+          >
+            Clear
+          </button>
+          <Link
+            to="/discover"
+            className="flex min-h-[44px] items-center gap-0.5 text-sm font-medium text-ink-soft hover:text-ink"
+          >
+            See all
+            <ChevronRight className="size-4" />
+          </Link>
+        </div>
       </div>
       <ul className="grid gap-2 sm:grid-cols-3">
         {picks.map((s) => (

@@ -101,7 +101,8 @@ class SuggestionDocument(Document):
     source_name: Optional[str] = None
     total_minutes: Optional[int] = None
     section: Optional[str] = None
-    # new -> saving -> saved, or failed; dismissed is "Not for me".
+    # new -> saving -> saved, or failed; dismissed is "Not for me" (a taste
+    # signal); cleared is hidden by Clear and says nothing about taste.
     status: str = "new"
     origin: str = "suggest"
     recipe_id: Optional[str] = None
