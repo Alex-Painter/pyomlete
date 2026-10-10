@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# Build, launch, health-check, drive and tear down Omlete on the iOS Simulator
+# for verification. See ../SKILL.md for when to use each subcommand.
+#
+#   omlete-ios-verify up                    build, install and launch; wait until the UI answers
+#   omlete-ios-verify doctor                read-only: is this instance worth driving?
+#   omlete-ios-verify begin <label>         start a new evidence folder for the steps that follow
+#   omlete-ios-verify snapshot              print the UI tree; save it and a screenshot
+#   omlete-ios-verify expect <text>         wait until <text> is on screen
+#   omlete-ios-verify gone <text>           wait until <text> is no longer on screen
+#   omlete-ios-verify expect-id <id>        wait until a control with accessibility id <id> exists
+#   omlete-ios-verify tap <id>              tap the control with accessibility id <id>
+#   omlete-ios-verify type <id> <text>      replace the contents of field <id> with <text>
+#   omlete-ios-verify swipe <id> <dir>      swipe up|down|left|right inside scrollable <id>
+#   omlete-ios-verify down                  stop the app; shut the simulator down if `up` booted it
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+IOS="$(cd "$SKILL_DIR/../../.." && pwd)"
+RUN_DIR="${OMLETE_IOS_VERIFY_RUN_DIR:-$IOS/.verify-run}"
+EVIDENCE_DIR="${OMLETE_IOS_VERIFY_EVIDENCE_DIR:-$IOS/verify-artifacts}"
+STATE="$RUN_DIR/state"
+BUNDLE_ID=com.alexpainter.omlete
+WAIT_MS="${OMLETE_IOS_VERIFY_TIMEOUT_MS:-20000}"
+
+die() { echo "omlete-ios-verify: $*" >&2; exit 1; }
+say() { echo "==> $*"; }
+
+# XcodeBuildMCP's CLI reads .xcodebuildmcp/config.yaml from the directory it
+# runs in, so every call is made from ios/.
+xb() { (cd "$IOS" && npx -y xcodebuildmcp@latest "$@"); }
+
+state_get() { [ -f "$STATE" ] || return 0; sed -n "s/^$1=//p" "$STATE" | head -1; }
+
+sim_name() { sed -n 's/^ *simulatorName: *//p' "$IOS/.xcodebuildmcp/config.yaml"; }
+
+# Prints "<udid> <state>" for the pinned simulator.
+sim_lookup() {
+  xcrun simctl list devices available -j | jq -r --arg n "$(sim_name)" \
+    '[.devices[][] | select(.name == $n)][0] | "\(.udid) \(.state)"'
+}
+
+sim_state() { xcrun simctl list devices -j | jq -r --arg u "$1" '.devices[][] | select(.udid == $u) | .state'; }
+
+# PID of Omlete on the simulator, or nothing when it is not running.
+app_pid() {
+  xcrun simctl spawn "$1" launchctl list 2>/dev/null \
+    | awk -v b="UIKitApplication:$BUNDLE_ID" 'index($3, b) == 1 && $1 != "-" { print $1 }'
+}
+
+# Swift, asset and project files changed since the build `up` made.
+stale_sources() { find "$IOS/Omlete" -type f -newer "$RUN_DIR/build.json" -not -path '*/xcuserdata/*' -not -name .DS_Store; }
+
+require_up() {
+  [ -f "$STATE" ] || die "no instance started by this skill; run: $0 up"
+  UDID="$(state_get udid)"
+}
+
+run_dir() {
+  local d; d="$(state_get run)"
+  if [ -z "$d" ] || [ ! -d "$d" ]; then cmd_begin run >/dev/null; d="$(state_get run)"; fi
+  echo "$d"
+}
+
+log() { echo "$(date +%H:%M:%S) $*" >> "$(run_dir)/run.log"; }
+
+next_prefix() {
+  local d; d="$(run_dir)"
+  printf '%s/%02d-%s' "$d" "$(( $(find "$d" -name '*.json' | wc -l) + 1 ))" "$1"
+}
+
+# Saves <prefix>.json (UI tree) and <prefix>.jpg, and prints the tree rows.
+capture() {
+  local prefix; prefix="$(next_prefix "$1")"
+  xb ui-automation snapshot-ui --simulator-id "$UDID" --output json > "$prefix.json" \
+    || die "UI snapshot failed (see $prefix.json); run: $0 doctor"
+  local shot
+  shot="$(xb simulator screenshot --simulator-id "$UDID" --output json | jq -r '.data.artifacts.screenshotPath // empty')"
+  [ -n "$shot" ] && cp "$shot" "$prefix.jpg"
+  echo "ref|action|role|label|value|id"
+  jq -r '.data.capture | (.targets[], .scroll[], .text[])' "$prefix.json"
+  echo "evidence: ${prefix#$IOS/}.{json,jpg}"
+}
+
+# Finds the element whose accessibility identifier is $1 in a fresh snapshot.
+ref_for() {
+  local ref
+  ref="$(xb ui-automation snapshot-ui --simulator-id "$UDID" --output json \
+    | jq -r --arg id "$1" '[.data.capture | (.targets[], .scroll[]) | split("|") | select(.[-1] == $id) | .[0]][0] // empty')"
+  [ -n "$ref" ] || die "no tappable or scrollable control with accessibility id '$1' on screen; run: $0 snapshot"
+  echo "$ref"
+}
+
+wait_for() {
+  local what="$1"; shift
+  if xb ui-automation wait-for-ui --simulator-id "$UDID" --timeout-ms "$WAIT_MS" "$@" > "$RUN_DIR/last-wait.txt" 2>&1; then
+    log "PASS $what"; echo "PASS $what"
+  else
+    log "FAIL $what"; echo "FAIL $what"; capture fail >/dev/null || true
+    tail -6 "$RUN_DIR/last-wait.txt" >&2; exit 1
+  fi
+}
+
+act() {
+  local what="$1"; shift
+  if xb "$@" > "$RUN_DIR/last-action.txt" 2>&1; then
+    log "PASS $what"; echo "PASS $what"
+  else
+    log "FAIL $what"; echo "FAIL $what"; tail -8 "$RUN_DIR/last-action.txt" >&2; exit 1
+  fi
+}
+
+cmd_up() {
+  mkdir -p "$RUN_DIR" "$EVIDENCE_DIR"
+  local udid before booted_by_us
+  read -r udid before <<< "$(sim_lookup)"
+  [ -n "$udid" ] && [ "$udid" != null ] || die "no available simulator named '$(sim_name)' (ios/.xcodebuildmcp/config.yaml)"
+
+  # Refuse to double-drive: Omlete already running on the pinned simulator and
+  # not launched by us is someone's Xcode or manual session.
+  if [ ! -f "$STATE" ] && [ "$before" = Booted ] && [ -n "$(app_pid "$udid")" ]; then
+    [ "${OMLETE_IOS_VERIFY_TAKEOVER:-}" = 1 ] || die "Omlete is already running on $(sim_name) and this skill did not launch it.
+Stop it in Xcode or the simulator first, or re-run with OMLETE_IOS_VERIFY_TAKEOVER=1 to replace it."
+  fi
+  booted_by_us="$(state_get booted_by_us)"
+  [ -n "$booted_by_us" ] || { [ "$before" = Booted ] && booted_by_us=0 || booted_by_us=1; }
+
+  say "building and launching Omlete on $(sim_name) (log: .verify-run/build.json)"
+  xb simulator build-and-run --output json > "$RUN_DIR/build.json" \
+    || { jq -r '.error, .data.diagnostics.errors[]?.message' "$RUN_DIR/build.json" >&2; die "build or launch failed"; }
+
+  printf 'udid=%s\nbooted_by_us=%s\npid=%s\nrun=\n' "$udid" "$booted_by_us" \
+    "$(jq -r '.data.artifacts.processId' "$RUN_DIR/build.json")" > "$STATE"
+  UDID="$udid"
+  xb ui-automation wait-for-ui --simulator-id "$UDID" --predicate settled --timeout-ms "$WAIT_MS" >/dev/null \
+    || die "app launched but its UI never answered; run: $0 doctor"
+  say "up: Omlete pid $(state_get pid) on $(sim_name) ($udid)"
+}
+
+cmd_doctor() {
+  local fail=0
+  ok()  { echo "ok    $*"; }
+  bad() { echo "FAIL  $*"; fail=1; }
+
+  if [ ! -f "$STATE" ]; then bad "no .verify-run/state; run: omlete-ios-verify up"; return 1; fi
+  UDID="$(state_get udid)"
+  ok "state: $(tr '\n' ' ' < "$STATE")"
+
+  [ "$(sim_state "$UDID")" = Booted ] && ok "simulator $(sim_name) is booted" || bad "simulator $(sim_name) is not booted"
+
+  local pid; pid="$(app_pid "$UDID")"
+  if [ -z "$pid" ]; then bad "Omlete is not running on the simulator"
+  elif [ "$pid" = "$(state_get pid)" ]; then ok "Omlete pid $pid is the process up launched"
+  else bad "Omlete is running as pid $pid, not the pid $(state_get pid) that up launched (crashed and relaunched, or started by Xcode)"; fi
+
+  local stale; stale="$(stale_sources | head -3)"
+  [ -z "$stale" ] && ok "installed build is newer than every file in ios/Omlete" \
+    || bad "sources changed since the build; run up again: $(echo "$stale" | sed "s|$IOS/||" | tr '\n' ' ')"
+
+  local n
+  n="$(xb ui-automation snapshot-ui --simulator-id "$UDID" --output json 2>/dev/null | jq -r 'select(.didError == false) | .data.capture.count' || true)"
+  [ -n "$n" ] && [ "$n" -gt 0 ] && ok "UI tree answers ($n elements)" || bad "UI snapshot failed: the app is not on screen or accessibility is unreachable"
+  return $fail
+}
+
+cmd_begin() {
+  [ $# -eq 1 ] || die "usage: omlete-ios-verify begin <label>"
+  require_up
+  local d; d="$EVIDENCE_DIR/$(date +%Y%m%d-%H%M%S)-$1"
+  mkdir -p "$d"
+  sed -i '' "s|^run=.*|run=$d|" "$STATE"
+  echo "$(date +%H:%M:%S) begin $1 (pid $(state_get pid), $(git -C "$IOS" rev-parse --short HEAD))" > "$d/run.log"
+  echo "${d#$IOS/}"
+}
+
+cmd_snapshot() { require_up; capture snapshot; }
+
+cmd_expect() {
+  [ $# -eq 1 ] || die "usage: omlete-ios-verify expect <text>"
+  require_up; wait_for "expect \"$1\"" --predicate textContains --text "$1"; capture expect >/dev/null
+}
+
+cmd_gone() {
+  [ $# -eq 1 ] || die "usage: omlete-ios-verify gone <text>"
+  require_up; wait_for "gone \"$1\"" --predicate gone --text "$1"; capture gone >/dev/null
+}
+
+cmd_expect_id() {
+  [ $# -eq 1 ] || die "usage: omlete-ios-verify expect-id <accessibility id>"
+  require_up; wait_for "expect-id $1" --predicate exists --identifier "$1"; capture expect-id >/dev/null
+}
+
+cmd_tap() {
+  [ $# -eq 1 ] || die "usage: omlete-ios-verify tap <accessibility id>"
+  require_up
+  local ref; ref="$(ref_for "$1")"
+  act "tap $1" ui-automation tap --simulator-id "$UDID" --element-ref "$ref"
+  capture tap >/dev/null
+}
+
+cmd_type() {
+  [ $# -eq 2 ] || die "usage: omlete-ios-verify type <accessibility id> <text>"
+  require_up
+  local ref; ref="$(ref_for "$1")"
+  act "type $1 \"$2\"" ui-automation type-text --simulator-id "$UDID" --element-ref "$ref" --text "$2" --replace-existing
+  capture type >/dev/null
+}
+
+cmd_swipe() {
+  [ $# -eq 2 ] || die "usage: omlete-ios-verify swipe <accessibility id> up|down|left|right"
+  require_up
+  local ref; ref="$(ref_for "$1")"
+  act "swipe $1 $2" ui-automation swipe --simulator-id "$UDID" --within-element-ref "$ref" --direction "$2"
+  capture swipe >/dev/null
+}
+
+cmd_down() {
+  if [ ! -f "$STATE" ]; then say "nothing to stop: this skill has no instance running"; return 0; fi
+  UDID="$(state_get udid)"
+  # Only the instance up launched: a different pid belongs to someone else.
+  if [ "$(app_pid "$UDID")" = "$(state_get pid)" ]; then
+    xb simulator stop --simulator-id "$UDID" --bundle-id "$BUNDLE_ID" >/dev/null 2>&1 && say "stopped Omlete (pid $(state_get pid))"
+  fi
+  if [ "$(state_get booted_by_us)" = 1 ] && [ "$(sim_state "$UDID")" = Booted ]; then
+    xcrun simctl shutdown "$UDID" && say "shut down $(sim_name), which up had booted"
+  fi
+  rm -f "$STATE" "$RUN_DIR/last-wait.txt" "$RUN_DIR/last-action.txt"
+  say "down. evidence kept in ${EVIDENCE_DIR#$IOS/}/"
+}
+
+sub="${1:-}"; shift || true
+case "$sub" in
+  up)        cmd_up "$@" ;;
+  doctor)    cmd_doctor "$@" ;;
+  begin)     cmd_begin "$@" ;;
+  snapshot)  cmd_snapshot "$@" ;;
+  expect)    cmd_expect "$@" ;;
+  gone)      cmd_gone "$@" ;;
+  expect-id) cmd_expect_id "$@" ;;
+  tap)       cmd_tap "$@" ;;
+  type)      cmd_type "$@" ;;
+  swipe)     cmd_swipe "$@" ;;
+  down)      cmd_down "$@" ;;
+  *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
