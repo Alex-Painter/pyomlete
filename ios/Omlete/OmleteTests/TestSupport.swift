@@ -125,6 +125,102 @@ import Testing
     }
 }
 
+@MainActor final class MemoryCookStorage: CookStorage {
+    var records: [RecipeID: CookRecord] = [:]
+
+    func loadAll() -> [CookRecord] { Array(records.values) }
+    func save(_ record: CookRecord) { records[record.id] = record }
+    func discard(_ id: RecipeID) { records[id] = nil }
+}
+
+/// A clock that only moves when a test says so. A sleeper wakes when the
+/// clock is advanced past its date, or when its task is cancelled.
+@MainActor final class TestClock {
+    private(set) var now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    private var sleepers: [Int: (until: Date, wake: CheckedContinuation<Void, Never>)] = [:]
+    private var lastID = 0
+
+    func advance(by seconds: TimeInterval) {
+        now += seconds
+        for (id, sleeper) in sleepers where sleeper.until <= now { wake(id) }
+    }
+
+    func sleep(until date: Date) async throws {
+        guard date > now else { return }
+        lastID += 1
+        let id = lastID
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { sleepers[id] = (date, $0) }
+        } onCancel: {
+            Task { @MainActor in self.wake(id) }
+        }
+        try Task.checkCancellation()
+    }
+
+    private func wake(_ id: Int) {
+        sleepers.removeValue(forKey: id)?.wake.resume()
+    }
+}
+
+/// A phone with one recipe on a scripted server, an in-memory disk and a clock
+/// the test moves. `relaunch()` builds a fresh `Kitchen` over the same disk.
+@MainActor final class Stove {
+    static let recipeID: RecipeID = "curry"
+    static let recipeJSON = """
+        {"_id":"curry","title":"Curry","created_at":"2026-10-10T09:00:00","servings":4,"rating":null,
+         "source_name":null,"total_minutes":35,
+         "instructions":["Fry the onion with 200g rice for 5 mins.","Simmer 10–12 mins.","Rest for a minute.","Serve."],
+         "ingredients":[
+          {"name":"onions","amount":2,"unit":"whole","note":"finely chopped","category":"Produce","excluded_from_list":false},
+          {"name":"rice","amount":200,"unit":"g","note":null,"group":null,"category":"Pantry","excluded_from_list":false},
+          {"name":"coconut milk","amount":1,"unit":"tin","category":"Pantry","excluded_from_list":false}]}
+        """
+
+    let transport = ScriptedTransport()
+    let storage = MemoryCookStorage()
+    let clock = TestClock()
+    /// Chimes since the test began, across relaunches.
+    private(set) var chimes = 0
+    private(set) var kitchen: Kitchen!
+
+    init() {
+        serverAnswers()
+        relaunch()
+    }
+
+    var store: CookStore { kitchen.cook(Self.recipeID) }
+
+    var session: CookSession? {
+        if case .cooking(let session) = store.phase { session } else { nil }
+    }
+
+    func relaunch() {
+        kitchen = Kitchen(deps: KitchenDependencies(
+            api: APIClient(baseURL: URL(string: "http://phone.test")!, transport: transport),
+            disk: storage,
+            now: { [clock] in clock.now },
+            sleepUntil: { [clock] in try await clock.sleep(until: $0) },
+            chime: { [unowned self] in chimes += 1 }))
+    }
+
+    func kill() {
+        kitchen = nil
+    }
+
+    /// Scripts the server: the recipe GET returns the fixture, everything else
+    /// 200, except where `override` says otherwise.
+    func serverAnswers(_ override: @escaping (ScriptedTransport.Call) -> ScriptedTransport.Reply? = { _ in nil }) {
+        transport.reply = { call in
+            if let reply = override(call) { return reply }
+            return call == .init(method: "GET", path: "/api/recipes/curry") ? .status(200, Self.recipeJSON) : .status(200)
+        }
+    }
+
+    func serverIsUnreachable() {
+        transport.reply = { _ in .unreachable }
+    }
+}
+
 /// Lets queued main-actor work run until `condition` holds.
 @MainActor func eventually(_ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async {
     for _ in 0..<2000 where !condition() {
