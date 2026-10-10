@@ -91,7 +91,7 @@ function DiscoverPage() {
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <PageHeader
           title="Discover"
-          subtitle="New things to cook, picked for you."
+          subtitle="New things to cook, picked for you by Chef."
           actions={
             <div className="flex gap-1">
               <button

@@ -4,8 +4,8 @@ Lists are the Plan and Shop modes. Plan (`/list/<id>`) is where a list is built:
 
 ## Sub-features
 
-- `lists-cook` shows `Cook from <current list>` on `/`: each meal on the current list links straight to `/cook/<recipeId>?list=<id>`.
-- `lists-index` shows every list on `/` (headed `Lists`) as a card; its `…` button opens an action sheet with Rename, Duplicate and Delete (Delete has an Undo toast, no confirm dialog).
+- `lists-cook` shows `Cook from <current list>` on Home (`/`): each meal on the current list links straight to `/cook/<recipeId>?list=<id>`.
+- `lists-index` shows every list on Home (`/`, headed `Home`, section `Lists`) as a card; its `…` button opens an action sheet with Rename, Duplicate and Delete (Delete has an Undo toast, no confirm dialog).
 - `list-create` uses `New list` to create a list and open it.
 - `list-quick-add` parses the `Add items` field: `2 onions, 500g mince, oat milk` becomes three items with amounts and units. Pasting several lines adds them all. A local guess files the item under a category at once; `/api/categorize` corrects it afterwards if it can.
 - `list-edit-item` taps an item's chevron (`Edit <name>`) or swipes right to open the edit sheet: name, quantity stepper, unit chips, aisle chips, Delete and Done.
@@ -17,7 +17,7 @@ Lists are the Plan and Shop modes. Plan (`/list/<id>`) is where a list is built:
 
 ## How to get to it (user POV)
 
-- The `Lists` tab (phone) or nav link (desktop) goes to `/`.
+- The `Home` tab (phone) or nav link (desktop) goes to `/`.
 - `New list` creates one and opens it in Plan.
 - On a list: the `Add items` field, `Add meals`, the item rows, and `Start shopping` in the header.
 

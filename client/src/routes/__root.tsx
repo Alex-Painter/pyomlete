@@ -12,7 +12,8 @@ import {
   createRootRouteWithContext,
   useRouterState,
 } from '@tanstack/react-router'
-import { BookOpen, Compass, List, Plus, Settings } from 'lucide-react'
+import { BookOpen, Compass, House, Plus, Settings } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 
@@ -91,7 +92,7 @@ function useFullscreenMode() {
 }
 
 const TABS = [
-  { to: '/', label: 'Lists', icon: List, exact: true },
+  { to: '/', label: 'Home', icon: House, exact: true },
   { to: '/discover', label: 'Discover', icon: Compass, exact: false },
   { to: '/recipes', label: 'Recipes', icon: BookOpen, exact: false },
 ] as const
@@ -168,7 +169,7 @@ function TabLink({
 }: {
   to: string
   label: string
-  icon: typeof List
+  icon: LucideIcon
   exact: boolean
   className: string
 }) {

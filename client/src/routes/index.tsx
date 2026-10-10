@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChefHat, Clock, Copy, Loader2, MoreHorizontal, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
+import { ChefHat, ChevronRight, Clock, Sparkles, Copy, Loader2, MoreHorizontal, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ActionSheet } from '@/components/BottomSheet'
 import { ErrorState } from '@/components/ErrorState'
@@ -11,12 +11,18 @@ import { RecipeThumb } from '@/components/RecipeThumb'
 import { RenameListSheet } from '@/components/RenameListSheet'
 import { createList, useCurrentList } from '@/hooks/useAddToList'
 import { apiFetch, apiJson } from '@/lib/api'
-import { useLists, useRecipes } from '@/lib/queries'
+import { useLists, useRecipes, useSuggestions } from '@/lib/queries'
 import type { ListSummary } from '@/lib/types'
 
-export const Route = createFileRoute('/')({ component: ListsPage })
+export const Route = createFileRoute('/')({ component: HomePage })
 
-function ListsPage() {
+/**
+ * Home: where you land, built as a stack of sections so v2 can add more
+ * without a redesign. Today: meals to cook from the current list, Chef's
+ * picks (the proactive suggestions agent), and your lists. Recent activity
+ * and stats slot in as further sections below.
+ */
+function HomePage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const showUndo = useUndo()
@@ -65,10 +71,18 @@ function ListsPage() {
     <main className="min-h-screen bg-cream text-ink">
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
         <PageHeader
-          title="Lists"
-          subtitle="Pick meals, build the list, shop."
-          actions={
+          title="Home"
+          subtitle="Pick meals, build the list, shop, cook."
+        />
+
+        <CookFromList hidden={hidden} />
+        <ChefPicks />
+
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Lists</h2>
+          {visible && visible.length > 0 && (
             <Button
+              variant="outline"
               onClick={() => newList.mutate()}
               disabled={newList.isPending}
               className="min-h-[44px] font-semibold"
@@ -76,8 +90,8 @@ function ListsPage() {
               {newList.isPending ? <Loader2 className="animate-spin" /> : <Plus className="size-4" />}
               New list
             </Button>
-          }
-        />
+          )}
+        </div>
 
         {isLoading && (
           <div className="flex justify-center py-12">
@@ -88,7 +102,7 @@ function ListsPage() {
         {error && <ErrorState error={error} onRetry={() => void refetch()} />}
 
         {visible && visible.length === 0 && (
-          <div className="py-16 text-center">
+          <div className="rounded-2xl border border-dashed border-line py-12 text-center">
             <ShoppingCart className="mx-auto mb-4 size-12 text-ink-faint" />
             <p className="mb-1 font-medium text-ink-soft">No shopping lists yet</p>
             <p className="mb-5 text-sm text-ink-muted">
@@ -100,8 +114,6 @@ function ListsPage() {
             </Button>
           </div>
         )}
-
-        <CookFromList hidden={hidden} />
 
         {visible && visible.length > 0 && (
           <ul className="grid gap-3 sm:grid-cols-2">
@@ -193,11 +205,9 @@ function CookFromList({ hidden }: { hidden: Set<string> }) {
 
   return (
     <section aria-labelledby="cook-from-list" className="mb-8">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 id="cook-from-list" className="text-lg font-semibold">
-          Cook from {current.name}
-        </h2>
-      </div>
+      <h2 id="cook-from-list" className="mb-3 text-lg font-semibold">
+        Cook from {current.name}
+      </h2>
       <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:px-0 lg:grid-cols-4">
         {current.recipes.map((r) => {
           const d = details.get(r.id)
@@ -230,6 +240,50 @@ function CookFromList({ hidden }: { hidden: Set<string> }) {
             </li>
           )
         })}
+      </ul>
+    </section>
+  )
+}
+
+/**
+ * A taste of Discover: Chef's newest picks, so new ideas find you without
+ * going looking. Hidden until Chef has something to show.
+ */
+function ChefPicks() {
+  const { data } = useSuggestions()
+  const picks = data?.filter((s) => s.status === 'new').slice(0, 3) ?? []
+  if (picks.length === 0) return null
+
+  return (
+    <section aria-labelledby="chef-picks" className="mb-8">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="chef-picks" className="flex items-center gap-2 text-lg font-semibold">
+          <Sparkles className="size-4 text-[#7a5a12]" />
+          Chef's picks
+        </h2>
+        <Link
+          to="/discover"
+          className="flex min-h-[44px] items-center gap-0.5 text-sm font-medium text-ink-soft hover:text-ink"
+        >
+          See all
+          <ChevronRight className="size-4" />
+        </Link>
+      </div>
+      <ul className="grid gap-2 sm:grid-cols-3">
+        {picks.map((s) => (
+          <li key={s.id}>
+            <Link
+              to="/discover"
+              className="flex items-center gap-3 rounded-2xl border border-line bg-white p-2 pr-3 shadow-sm transition-all hover:border-primary hover:shadow-md"
+            >
+              <RecipeThumb src={s.image_url} title={s.title} className="size-16 shrink-0 rounded-xl" />
+              <span className="min-w-0">
+                <span className="line-clamp-1 font-semibold">{s.title}</span>
+                {s.reason && <span className="line-clamp-2 text-sm text-ink-muted">{s.reason}</span>}
+              </span>
+            </Link>
+          </li>
+        ))}
       </ul>
     </section>
   )
