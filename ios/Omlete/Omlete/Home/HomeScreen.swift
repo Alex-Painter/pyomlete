@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeScreen: View {
     @Environment(Library.self) private var library
+    @Environment(Kitchen.self) private var kitchen
     @Environment(AppNavigation.self) private var navigation
 
     @State private var renaming: ListSummary?
@@ -16,6 +17,9 @@ struct HomeScreen: View {
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("home.actionError")
             }
+            if let shelf = library.cookShelf {
+                cookSection(shelf)
+            }
             if !rows.isEmpty {
                 Section("Lists") {
                     ForEach(rows) { row in
@@ -28,7 +32,7 @@ struct HomeScreen: View {
             if rows.isEmpty { emptyState }
         }
         .contentMargins(.bottom, 72, for: .scrollContent)
-        .undoBanner()
+        .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Home")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -69,6 +73,35 @@ struct HomeScreen: View {
             }
         } else {
             ProgressView()
+        }
+    }
+
+    /// "What's for dinner?" answered above the fold: the meals on the list
+    /// last opened, one tap from cooking. Warming them means that tap usually
+    /// works with no signal.
+    private func cookSection(_ shelf: CookShelf) -> some View {
+        Section("Cook from \(shelf.listName)") {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(shelf.meals) { meal in
+                        Button {
+                            navigation.startCooking(meal.id)
+                        } label: {
+                            CookCard(meal: meal)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Cook \(meal.title)")
+                        .accessibilityIdentifier("home.cookCard.\(meal.id.rawValue)")
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .scrollIndicators(.hidden)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+        }
+        .task(id: shelf.meals.map(\.id)) {
+            await kitchen.warm(shelf.meals.map(\.id))
         }
     }
 
