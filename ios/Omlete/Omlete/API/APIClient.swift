@@ -72,32 +72,31 @@ nonisolated struct APIClient: Sendable {
         let base = "lists/\(list.rawValue)"
         switch op {
         case .add(let item):
-            _ = try await call("POST", "\(base)/items", body: Wire.newItem(item))
+            _ = try await call("POST", "\(base)/items", body: try Wire.newItem(item))
         case .patch(let item, let patch):
-            _ = try await call("PATCH", "\(base)/items/\(item.rawValue)", body: Wire.encode(patch))
+            _ = try await call("PATCH", "\(base)/items/\(item.rawValue)", body: try Wire.encode(patch))
         case .delete(let item):
             _ = try await call("DELETE", "\(base)/items/\(item.rawValue)")
         case .removeRecipe(let recipe):
             _ = try await call("DELETE", "\(base)/recipes/\(recipe.rawValue)")
         case .reorder(let category, let itemIDs):
-            _ = try await call("PUT", "\(base)/items/reorder", body: Wire.reorder(category: category, itemIDs: itemIDs))
+            _ = try await call("PUT", "\(base)/items/reorder", body: try Wire.reorder(category: category, itemIDs: itemIDs))
         case .rename(let name):
-            _ = try await call("PATCH", base, body: Wire.encode(["name": name]))
+            _ = try await call("PATCH", base, body: try Wire.encode(["name": name]))
         }
     }
 
     func addRecipe(_ recipe: RecipeID, to list: ListID) async throws(APIError) {
-        _ = try await call("POST", "lists/\(list.rawValue)/recipes", body: Wire.encode(["recipe_id": recipe.rawValue]))
+        _ = try await call("POST", "lists/\(list.rawValue)/recipes", body: try Wire.encode(["recipe_id": recipe.rawValue]))
     }
 
-    /// Aisle names in the user's order.
     func aisleOrder() async throws(APIError) -> [String] {
         try await decode(Wire.aisleOrder, from: call("GET", "settings/categories"))
     }
 
     /// May be slow: the server asks a model when its cache misses.
     func categorize(_ name: String) async throws(APIError) -> String {
-        try await decode(Wire.category, from: call("POST", "categorize", body: Wire.encode(["name": name])))
+        try await decode(Wire.category, from: call("POST", "categorize", body: try Wire.encode(["name": name])))
     }
 
     func units() async throws(APIError) -> [String] {

@@ -52,7 +52,6 @@ nonisolated func formatQuantity(_ amount: Double?, _ rawUnit: String?) -> String
     let unit = rawUnit.flatMap { $0.isEmpty ? nil : displayUnits[$0.lowercased()] ?? $0 }
     let number = formatAmount(amount)
     guard let unit, !unit.isEmpty else { return number }
-    // Short metric units sit against the number.
     return ["g", "kg", "mg", "ml", "l", "oz", "lb"].contains(unit) ? "\(number)\(unit)" : "\(number) \(unit)"
 }
 

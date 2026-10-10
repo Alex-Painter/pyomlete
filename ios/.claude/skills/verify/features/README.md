@@ -5,7 +5,8 @@ This directory is the maintained source for verifying what a user can do in Omle
 ## Baseline preconditions
 
 - Commands run from `ios/` with `V=.claude/skills/verify/scripts/omlete-ios-verify`.
-- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`.
+- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`. `up` seeds one list, `Verify Fixture List`, with six items and one meal.
+- Ids are new on every seed. Each recipe below uses `<listID>` and `<itemID>`: read them from `$V snapshot`, or with `curl -s http://127.0.0.1:8765/api/lists/ | jq -r '.[0].id'` and `curl -s http://127.0.0.1:8765/api/lists/<listID> | jq -r '.items[] | "\(.id) \(.name)"'`.
 - Never drive an Omlete instance that `$V up` did not launch.
 
 ## Driving conventions
@@ -27,21 +28,20 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 
 ## Features
 
-- [Launch screen](./launch.md): the app opens to its first screen. This is the only screen the app has today.
+- [Home](./home.md): your lists. Open one, start a new one, rename, duplicate, delete with Undo.
+- [Plan](./plan.md): one list. Quick add, check off, edit, delete with Undo, reorder, meals, Start shopping.
+- [Shop](./shop.md): the list full screen in aisle order. Check with Undo, quick add, works with the API stopped.
 
 ## Screens not built yet
 
-The app is a scaffold. Its screens will follow the web app's routes (`client/src/routes`, the spec named in `ios/CLAUDE.md`). When a screen is built, add its feature file here in the same change, and move it from this list to the one above.
+Each follows a web route (`client/src/routes`, the spec named in `ios/CLAUDE.md`). When a screen is built, add its feature file here in the same change, and move it from this table to the list above.
 
 | Screen | Web route that specifies it |
 |---|---|
-| Home | `/` |
+| Home's other sections (cook from list, Chef's picks) | `/` |
 | Discover | `/discover` |
 | Recipe library and recipe detail | `/recipes`, `/recipe/$recipeId` |
 | Add a recipe | `/create` |
-| Plan a list | `/list/$listId` |
-| Shop | `/shop/$listId` |
+| Meal picker in Plan ("Add meals") | `/list/$listId` (`MealsSheet`) |
 | Cook | `/cook/$recipeId` |
 | Settings | `/settings` |
-
-The app makes no network requests yet, so this skill starts no backend. The first screen that loads data needs a local API to talk to and known fixture data; extend `../SKILL.md` (Launch, Doctor, Cleanup) when that lands.

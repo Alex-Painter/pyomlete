@@ -2,7 +2,6 @@ import Foundation
 import Network
 import Observation
 
-/// Whether the phone has a network path, and a hook for the moment it gets one back.
 @Observable final class Connectivity {
     private(set) var isOnline = true
 

@@ -135,7 +135,6 @@ nonisolated struct ListReplica: Codable, Equatable, Sendable {
         return removed
     }
 
-    /// The banner settled without Undo.
     mutating func release(_ ids: Set<OpID>) {
         for index in pending.indices where ids.contains(pending[index].id) {
             pending[index].held = false

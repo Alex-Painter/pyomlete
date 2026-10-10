@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Build the Omlete iOS app (SwiftUI, ios/Omlete), launch it on the pinned iPhone 17 Pro simulator and drive it by accessibility identifier to prove a change works, with UI-tree snapshots and screenshots as evidence. Use whenever you need to show that a change under ios/ actually behaves on screen, not just compiles or passes unit tests.
+description: Build the Omlete iOS app (SwiftUI, ios/Omlete), launch it on the pinned iPhone 17 Pro simulator against a disposable local API with fixture data, and drive it by accessibility identifier to prove a change works, with UI-tree snapshots and screenshots as evidence. Use whenever you need to show that a change under ios/ actually behaves on screen, not just compiles or passes unit tests.
 ---
 
 # Verify Omlete for iOS
@@ -13,24 +13,30 @@ Everything goes through one helper. Run it from `ios/`:
 V=.claude/skills/verify/scripts/omlete-ios-verify
 ```
 
-The helper wraps the XcodeBuildMCP CLI (`npx -y xcodebuildmcp@latest`, the same tools as the MCP server in the root `.mcp.json`), which reads `ios/.xcodebuildmcp/config.yaml` for the project, scheme and simulator. It needs Xcode, `npx` and `jq`.
+The helper wraps the XcodeBuildMCP CLI (`npx -y xcodebuildmcp@latest`, the same tools as the MCP server in the root `.mcp.json`), which reads `ios/.xcodebuildmcp/config.yaml` for the project, scheme and simulator. It needs Xcode, `npx`, `jq`, Docker and the backend's `server/.venv`.
 
 ## Launch
 
 ```bash
-$V up        # build, install, launch; returns once the app's UI tree answers
+$V up        # local API and fixtures, then build, install, launch; returns once the app's UI tree answers
 $V doctor    # must print no FAIL lines before you drive anything
 ```
+
+- **The app talks to its own local backend.** `up` starts a disposable Mongo (container `omlete-ios-verify-mongo`, port 27019) and the FastAPI server on `http://127.0.0.1:8765`, then launches the app with `-apiBaseURL http://127.0.0.1:8765`. Debug builds read that launch argument; Release builds ignore it and use production. The ports differ from the web `verify-omlete` skill's (8000, 27018), so both can run at once. `OMLETE_IOS_VERIFY_API_PORT` and `OMLETE_IOS_VERIFY_MONGO_PORT` change them.
+- **`server/.venv` must exist.** If `up` says it is missing, run `.claude/skills/verify-omlete/scripts/omlete-verify setup` from the repo root once. Docker must be running.
+- **Every `up` reseeds.** It deletes every list in the disposable database and leaves one, `Verify Fixture List`: the four ingredients of the `Verify Fixture Shakshuka` recipe plus `milk` (2 pint) and `bananas` (6). Item and list ids change on every seed, so read them from `$V snapshot` or from `curl -s http://127.0.0.1:8765/api/lists/`.
+- **No API keys are needed.** `/api/categorize` fails without one, and the app keeps its own aisle guess, which is the offline behaviour anyway.
+- The API log is `.verify-run/api.log`. It is the second view of anything the app sends: one line per request.
 
 - `up` runs `simulator build-and-run`, which boots the pinned simulator (iPhone 17 Pro) if it is shut down. A warm build takes about 20 seconds.
 - **Ready means** `up` printed `==> up: Omlete pid <n> on iPhone 17 Pro`. Before that line it has already waited for the UI to settle.
 - A build failure prints the compiler errors. The full result, including the paths of the build log and the app's runtime log, is in `.verify-run/build.json`.
-- Run `up` again after every source change. It rebuilds and relaunches, so the app restarts from its launch screen.
+- Run `up` again after every source change. It rebuilds, reseeds and relaunches, so the app restarts on Home with the fixture list. The app's own saved copies of lists survive a reinstall; Home drops the ones the server no longer has once it has loaded.
 - The simulator runs headless. Nothing needs the Simulator window open.
 
 ### Isolation
 
-There is one pinned simulator and one install of the app on it, so only one instance runs at a time. `up` refuses to start when Omlete is already running on that simulator and this skill did not launch it, because that is someone's Xcode or manual session and a reinstall would kill it. Stop that session, or set `OMLETE_IOS_VERIFY_TAKEOVER=1` only when you know it is yours.
+There is one pinned simulator and one install of the app on it, so only one instance runs at a time. `up` also refuses to start when something it did not start already answers on the API port. `up` refuses to start when Omlete is already running on that simulator and this skill did not launch it, because that is someone's Xcode or manual session and a reinstall would kill it. Stop that session, or set `OMLETE_IOS_VERIFY_TAKEOVER=1` only when you know it is yours.
 
 ## Doctor
 
@@ -39,6 +45,7 @@ There is one pinned simulator and one install of the app on it, so only one inst
 - `up` has run (`.verify-run/state` exists)
 - the simulator is booted
 - Omlete is running, and as the same process `up` launched (a different pid means it crashed and was relaunched, or Xcode replaced it)
+- the local API answers and its Mongo container is healthy
 - no file under `ios/Omlete` is newer than the installed build
 - the UI tree answers
 
@@ -66,15 +73,29 @@ The last column is the control's `accessibilityIdentifier`. Every interactive co
 | `$V gone <text>` | wait until `<text>` is no longer on screen |
 | `$V expect-id <id>` | wait until a control with that identifier exists |
 | `$V tap <id>` | tap a button, row, tab or toggle |
+| `$V tap <id> then <id2>` | tap, then tap a second control at once with no capture in between |
 | `$V type <id> <text>` | replace a text field's contents with `<text>` |
 | `$V swipe <id> up\|down\|left\|right` | swipe inside a scrollable element (`up` scrolls the content down) |
 
 Every step waits up to 20 seconds (`OMLETE_IOS_VERIFY_TIMEOUT_MS` changes that), prints `PASS` or `FAIL`, and exits non-zero on failure. A typical proof:
 
 ```bash
-$V begin launch
-$V expect "Hello, omlete!"
+$V begin home
+$V expect "Verify Fixture List"
 ```
+
+**The Undo banner lasts five seconds**, and a normal step (find the control, act, capture) takes about that long. To press Undo, use `$V tap <id> then undo.button`. To prove the banner appeared, read the `NN-tap.json` the tap saved: it holds `undo.banner` and `undo.button`. An `expect "Got ..."` as a separate step usually arrives too late.
+
+`expect` and `gone` match a substring of any element's label or value, case-sensitively. An inline navigation title (Plan's list name) is not in the UI tree, so it cannot be expected; check it in the screenshot.
+
+Two more steps for what the app stores and for working offline:
+
+| step | meaning |
+|---|---|
+| `$V relaunch` | cold-start the installed build: no rebuild, no reseed, API left as it is |
+| `$V api stop` / `$V api start` | take the local API away and bring it back |
+
+With the API stopped the app is "offline" as far as lists go: changes are saved on the phone and shown, and they are sent when the API returns (the app retries with a backoff, so allow about 20 seconds, or `relaunch`).
 
 `tap`, `type` and `swipe` fail with `no tappable or scrollable control with accessibility id ...` when the id is not on screen. Run `$V snapshot` to see what is there. If the control exists but has no id, add an `accessibilityIdentifier` to it in the app rather than driving it another way.
 
@@ -96,7 +117,7 @@ Proof standards:
 
 - Drive the real user path: launch, then taps and typing by identifier. Do not prove a feature through a unit test, a debug-only launch argument or a SwiftUI preview.
 - Capture the action and the resulting state. `tap` then `expect` gives you both.
-- For anything the app stores, add a second view of it: relaunch with `$V up` and `expect` the stored value again.
+- For anything the app stores, add a second view of it: `$V relaunch` and `expect` the stored value again, and for anything it sends, read it back from the API (`curl -s http://127.0.0.1:8765/api/lists/<id>`).
 - Proof comes from the build `up` installed. If `doctor` reports changed sources, rebuild before capturing.
 
 `OMLETE_IOS_VERIFY_EVIDENCE_DIR` overrides the evidence location.
@@ -107,10 +128,10 @@ Proof standards:
 $V down
 ```
 
-`down` stops the Omlete process that `up` launched, and shuts the simulator down only if `up` was what booted it. A simulator that was already booted is left booted. It never erases the simulator, never uninstalls the app and never touches `verify-artifacts/`. Run `down` after a failed iteration too.
+`down` stops the Omlete process that `up` launched, stops the local API, removes the disposable Mongo container, and shuts the simulator down only if `up` was what booted it. A simulator that was already booted is left booted. It never erases the simulator, never uninstalls the app and never touches `verify-artifacts/`. Run `down` after a failed iteration too.
 
 Never `xcrun simctl shutdown all`, `simctl erase`, or `killall Simulator`: those hit simulators and sessions this run did not start.
 
 ## Helpers
 
-- `.claude/skills/verify/scripts/omlete-ios-verify`: the entry point above. Run it with no arguments for usage. State lives in `ios/.verify-run/` (gitignored): `state` (simulator id, app pid, current evidence folder) and `build.json` (the last build result).
+- `.claude/skills/verify/scripts/omlete-ios-verify`: the entry point above. Run it with no arguments for usage. State lives in `ios/.verify-run/` (gitignored): `state` (simulator id, app pid, current evidence folder), `build.json` (the last build result), `api.pid` and `api.log`.

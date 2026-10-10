@@ -11,7 +11,6 @@ nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var deletingLists: Set<ListID> = []
 }
 
-/// The disk seam. Tests pass an in-memory conformance.
 protocol ReplicaStorage {
     func loadAll() -> [ListReplica]
     func save(_ replica: ListReplica)

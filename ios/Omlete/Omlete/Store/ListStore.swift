@@ -179,7 +179,6 @@ struct StoreDependencies {
         }
     }
 
-    /// Sends due ops in order. Returns the error that stopped it, if one did.
     private func drain() async -> APIError? {
         while let next = replica.beginSend() {
             do {

@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// The meals on a list, as a strip above its items. Tapping one offers to
-/// remove it; Cook and the recipe page join that menu in later slices.
 struct MealsStrip: View {
     let meals: [RecipeSummary]
     let onRemove: (RecipeSummary) -> Void

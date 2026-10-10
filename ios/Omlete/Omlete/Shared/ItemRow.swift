@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// One item: tap anywhere on it to check or uncheck. Shop uses the large size.
 struct ItemRow: View {
     let item: ListItem
     let identifier: String

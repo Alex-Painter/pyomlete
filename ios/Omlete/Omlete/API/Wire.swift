@@ -48,17 +48,18 @@ nonisolated enum Wire {
     }
 
     /// `checked` is left out on purpose: POST items ignores it.
-    static func newItem(_ item: ListItem) -> Data {
-        encode(NewItemDTO(id: item.id.rawValue, name: item.name, amount: item.amount, unit: item.unit, category: item.category))
+    static func newItem(_ item: ListItem) throws(APIError) -> Data {
+        try encode(NewItemDTO(id: item.id.rawValue, name: item.name, amount: item.amount, unit: item.unit, category: item.category))
     }
 
-    static func reorder(category: String, itemIDs: [ItemID]) -> Data {
-        encode(ReorderDTO(category: category, item_ids: itemIDs.map(\.rawValue)))
+    static func reorder(category: String, itemIDs: [ItemID]) throws(APIError) -> Data {
+        try encode(ReorderDTO(category: category, item_ids: itemIDs.map(\.rawValue)))
     }
 
-    static func encode(_ value: some Encodable) -> Data {
-        // Every value passed here is strings, numbers and bools, which cannot fail to encode.
-        (try? JSONEncoder().encode(value)) ?? Data("{}".utf8)
+    /// A body that cannot be encoded (a non-finite amount) is a request the
+    /// server could never accept, so it is rejected here and the op is dropped.
+    static func encode(_ value: some Encodable) throws(APIError) -> Data {
+        do { return try JSONEncoder().encode(value) } catch { throw .rejected(400) }
     }
 }
 

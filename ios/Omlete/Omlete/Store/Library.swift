@@ -24,7 +24,6 @@ import Observation
         index = saved ?? LibraryIndex()
         hasLoaded = saved != nil
         for var replica in deps.disk.loadAll() {
-            // A kill mid-banner commits what the banner was holding.
             replica.releaseAll()
             deps.disk.save(replica)
             stores[replica.id] = makeStore(replica)
@@ -64,7 +63,6 @@ import Observation
         return title.map { RecipeSummary(id: id, title: $0, imageURL: nil) }
     }
 
-    /// The one way to get a list's store.
     func list(_ id: ListID) -> ListStore {
         if let store = stores[id] { return store }
         let store = makeStore(ListReplica(id: id))

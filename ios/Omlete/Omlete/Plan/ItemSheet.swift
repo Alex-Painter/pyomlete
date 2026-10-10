@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// Edit one item: name, quantity, unit and aisle. Only what changed is sent.
 struct ItemSheet: View {
     let item: ListItem
     let aisles: [String]

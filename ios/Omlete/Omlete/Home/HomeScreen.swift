@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// Home: your lists, with New list one tap away. Later slices add the meals to
-/// cook and Chef's picks as further sections.
 struct HomeScreen: View {
     @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
@@ -137,7 +135,6 @@ struct HomeScreen: View {
         failure == .unreachable ? "Couldn't reach Omlete. Check your connection." : "Something went wrong loading this."
     }
 
-    /// New list and Duplicate need signal: the server mints the id and the name.
     private func create(_ make: @escaping () async throws -> ListID) {
         isCreating = true
         actionFailure = nil
