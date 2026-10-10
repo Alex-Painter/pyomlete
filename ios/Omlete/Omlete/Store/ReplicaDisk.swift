@@ -9,6 +9,8 @@ nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var units: [String] = []
     /// Lists whose delete is committed but not yet confirmed by the server.
     var deletingLists: Set<ListID> = []
+    /// The list last opened: the one Home offers to cook from.
+    var currentList: ListID?
 }
 
 protocol ReplicaStorage {

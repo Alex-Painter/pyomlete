@@ -12,13 +12,20 @@ import Testing
          {"id":"other","name":"Party","created_at":null,"item_count":5,"checked_count":1,"recipes":[]}]
         """
 
+    private static let twoMealListsJSON = """
+        [{"id":"other","name":"Party","created_at":null,"item_count":5,"checked_count":1,
+          "recipes":[{"id":"tacos","title":"Tacos"}]},
+         {"id":"list","name":"Week","created_at":null,"item_count":2,"checked_count":0,
+          "recipes":[{"id":"curry","title":"Curry"}]}]
+        """
+
     private func serverAnswers(_ override: @escaping (Call) -> ScriptedTransport.Reply? = { _ in nil }) {
         phone.serverAnswers { call in
             if let reply = override(call) { return reply }
             switch call.description {
             case "GET /api/lists/": return .status(200, Self.listsJSON)
             case "GET /api/settings/categories": return .status(200, #"[{"name":"Dairy","order":1},{"name":"Bakery","order":0}]"#)
-            case "GET /api/recipes/": return .status(200, #"[{"id":"curry","title":"Thai curry","image_url":"https://img.test/c.jpg","rating":null}]"#)
+            case "GET /api/recipes/": return .status(200, #"[{"id":"curry","title":"Thai curry","image_url":"https://img.test/c.jpg","rating":null,"total_minutes":35}]"#)
             case "GET /api/units": return .status(200, #"["g","tin"]"#)
             case "POST /api/lists/": return .status(200, #"{"id":"new","name":"10th October","created_at":"2026-10-10T09:00:00"}"#)
             case "POST /api/lists/list/duplicate": return .status(200, #"{"id":"copy","name":"10th October","created_at":null}"#)
@@ -35,7 +42,8 @@ import Testing
         #expect(phone.library.rows.map(\.name) == ["Week", "Party"])
         #expect(phone.library.aisleOrder == ["Bakery", "Dairy"])
         #expect(phone.library.units == ["g", "tin"])
-        #expect(phone.library.meal("curry") == RecipeSummary(id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg")))
+        #expect(phone.library.meal("curry") == RecipeSummary(
+            id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg"), totalMinutes: 35))
 
         phone.serverIsUnreachable()
         phone.relaunch()
@@ -79,6 +87,53 @@ import Testing
 
         phone.relaunch()
         #expect(!phone.library.hasLoaded)
+    }
+
+    @Test func theShelfOffersTheMealsOfTheFirstListUntilOneIsOpened() async {
+        serverAnswers { $0.description == "GET /api/lists/" ? .status(200, Self.twoMealListsJSON) : nil }
+        await phone.library.refresh()
+
+        #expect(phone.library.cookShelf?.listName == "Party")
+        #expect(phone.library.cookShelf?.meals.map(\.title) == ["Tacos"])
+
+        phone.library.markCurrent("list")
+
+        #expect(phone.library.cookShelf == CookShelf(listID: "list", listName: "Week", meals: [
+            RecipeSummary(id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg"), totalMinutes: 35),
+        ]))
+    }
+
+    @Test func theListLastOpenedIsRememberedAcrossARelaunch() async {
+        serverAnswers { $0.description == "GET /api/lists/" ? .status(200, Self.twoMealListsJSON) : nil }
+        await phone.library.refresh()
+        phone.library.markCurrent("list")
+
+        phone.relaunch()
+
+        #expect(phone.library.cookShelf?.listID == "list")
+    }
+
+    @Test func aRememberedListThatIsGoneFallsBackToTheFirstRow() async {
+        serverAnswers { $0.description == "GET /api/lists/" ? .status(200, Self.twoMealListsJSON) : nil }
+        await phone.library.refresh()
+        phone.library.markCurrent("list")
+
+        phone.library.delete("list")
+
+        #expect(phone.library.cookShelf?.listName == "Party")
+    }
+
+    @Test func aListWithNoMealsHasNoShelf() async {
+        serverAnswers()
+        await phone.library.refresh()
+        #expect(phone.library.cookShelf?.listName == "Week")
+
+        phone.library.markCurrent("other")
+        #expect(phone.library.cookShelf == nil)
+
+        phone.library.markCurrent("list")
+        phone.store.removeMeal("curry", title: "Thai curry")
+        #expect(phone.library.cookShelf == nil)
     }
 
     @Test func aNewListAppearsFirstUnderTheServersName() async throws {
