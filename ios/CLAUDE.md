@@ -11,8 +11,8 @@ Native SwiftUI client for Omlete. Read the root `AGENTS.md` first for what the p
 | Xcode project | `ios/Omlete/Omlete.xcodeproj`, scheme `Omlete` |
 | Targets | `Omlete` (app), `OmleteTests` (Swift Testing), `OmleteUITests` (XCUITest) |
 | Bundle ID | `com.alexpainter.omlete` |
-| Minimum iOS | iOS 26 (the target is currently set to 26.5) |
-| Swift | Write Swift 6: strict concurrency, `MainActor` default isolation (already on). The target's language mode is still Swift 5 until Alex switches it in Xcode. |
+| Minimum iOS | iOS 26.0 |
+| Swift | Swift 6 language mode: strict concurrency, `MainActor` default isolation |
 | Signing | Automatic, Alex's team. Never touch it. |
 
 The project uses file-system synchronized groups: a file created under `ios/Omlete/Omlete/`, `OmleteTests/` or `OmleteUITests/` joins that target automatically. You never need to edit the project file to add, move or delete source files.
