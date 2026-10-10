@@ -8,7 +8,7 @@ Guidance for coding agents (Claude Code, Codex and others) working in this repos
 
 ## Overview
 
-Omlete helps people eat better with less effort: it turns recipes (from a link, a description or photos) into shopping lists that are easy to edit and work in the shop with no signal, suggests new meals from your taste, and walks you through cooking. Claude does the recipe extraction and suggestions. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Railway.
+Omlete helps people eat better with less effort: it turns recipes (from a link, a description or photos) into shopping lists that are easy to edit and work in the shop with no signal, suggests new meals from your taste, and walks you through cooking. Claude does the recipe extraction and suggestions. The app is split into a Python/FastAPI backend (`/server`) and a React/TanStack Start frontend (`/client`), deployed as two separate services on Railway. A native iOS client is being built in `/ios`.
 
 ## Commands
 
@@ -88,6 +88,10 @@ See `docs/PRD_URL_IMPORT.md` for the design and what's still outstanding.
 - `DB_USER`, `DB_PASS`: credentials for the production Atlas cluster. Or set `DB_URI`, which takes precedence. **Local dev against these reads and writes real data.**
 
 **Frontend**: `VITE_API_URL`, the base URL for API calls. Required in dev too (`http://127.0.0.1:8000`; see Running locally). On Railway it's set to the API service URL at build time.
+
+## iOS app (`/ios`)
+
+A native SwiftUI client lives in `ios/` (Xcode project at `ios/Omlete/Omlete.xcodeproj`). It has its own rules, build tooling and prohibitions: read `ios/CLAUDE.md` before touching anything there. The web routes in `client/src/routes` are the spec for each iOS screen.
 
 ## shadcn Components
 
