@@ -4,6 +4,34 @@ How the app is shaped and why. The principle behind every choice here is in [PRI
 
 This describes the October 2026 redesign as built. It is deliberately short; screenshots go stale, so check the app itself (or the `verify-omlete` feature map in `.claude/skills/verify-omlete/features/`) for what a screen looks like today.
 
+## Context
+
+The redesign started from a UX audit of the desktop and mobile apps in October 2026. Alex's priorities, in order:
+
+1. **Making shopping lists is the top pain**, especially adding, removing and editing items. It has to take one gesture each.
+2. **Discovery should be proactive and taste-based.** The app suggests recipes and lists from what you like, rather than waiting to be searched. Web search comes later, so the UI is built around suggestion cards any agent can fill.
+3. **Mobile first, and carry over to iOS.** Prefer patterns with native iOS equivalents so a future native app is a port, not a rethink.
+
+## Decisions
+
+Each of these was settled in discussion; the reason is what to weigh before changing it.
+
+| Decision | Why |
+|---|---|
+| Four separate modes: Explore, Plan, Shop, Cook | They used to blend into one list page, so no task had a screen built for it. |
+| Plan stays its own mode, separate from Explore | Building the list is the top priority and deserves its own focused screen rather than sharing one with browsing. |
+| Modes are entry points, not stages; the UI never changes because a step finished | People forget to tick things and shops have no signal. Cook can't wait on a "complete" list, and nothing should move or disappear on its own. |
+| Shop works offline | Many shops have no reception, so a list must open and accept changes with no network. |
+| Undo instead of confirm dialogs | Fewer decisions and taps; a mistake is one tap to reverse. |
+| The suggest-meals sheet moved off the list page into Discover | Suggestions on the list page got in the way of building the list. |
+| Lists live on Home, with New list above the fold | Lists are opened most and New list is the most common action, so a separate Lists tab would add a hop. |
+| Home leads with meals to cook from the current list | Opening the app to cook shouldn't mean opening the list first. |
+| Chef's picks sit below Lists on Home | Suggestions shouldn't push the most common action out of reach. |
+| Chef is the name of the suggestions agent | One named character for "the app suggests things" across Home, Discover and future features. |
+| Clear is separate from "Not for me" | Clearing the feed is tidying, not a verdict on the food; mixing them would skew Chef's taste profile. |
+| Detected timers in Cook | Alex liked them in the audit: times in the method become one-tap timers. |
+| Settings behind a cog, Add as a plain tab | A profile icon promised more than it did, and a raised plus button looked out of place. |
+
 ## Home plus four modes
 
 People use Omlete in four distinct ways, and the old app blended them into one list page. Each now has its own screen and layout:
