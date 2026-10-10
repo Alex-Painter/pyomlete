@@ -132,3 +132,18 @@ import Testing
     }
     #expect(condition(), "condition never held", sourceLocation: sourceLocation)
 }
+
+extension Recipe {
+    /// "Curry" with up to four steps; the first names two ingredients, an amount and a time.
+    static func fixture(steps: Int = 3, servings: Int? = 4, rating: Int? = nil) -> Recipe {
+        let all = ["Fry the onion with 200g rice for 5 mins.", "Simmer 10–12 mins.", "Rest for a minute.", "Serve."]
+        return Recipe(
+            id: "curry", title: "Curry", steps: Array(all.prefix(steps)),
+            ingredients: [
+                Ingredient(name: "onions", amount: 2, unit: "whole", note: "finely chopped"),
+                Ingredient(name: "rice", amount: 200, unit: "g", note: nil),
+                Ingredient(name: "coconut milk", amount: 1, unit: "tin", note: nil),
+            ],
+            baseServings: servings, rating: rating)
+    }
+}
