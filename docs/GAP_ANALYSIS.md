@@ -3,6 +3,8 @@
 _July 2026. Based on `main` @ `9ec7077`._
 
 > **Driving principle:** eat better and reduce cognitive load. See [PRINCIPLES.md](PRINCIPLES.md).
+>
+> **Written before the October 2026 redesign** (Home, Explore/Plan/Shop/Cook modes, offline lists, Chef's suggestions). For the app as it is now, see `AGENTS.md`.
 
 ---
 

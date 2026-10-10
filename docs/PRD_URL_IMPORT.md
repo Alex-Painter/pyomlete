@@ -3,6 +3,8 @@
 _Child of #50. Verified against `recipe-scrapers` 15.11.0._
 
 > **Driving principle:** eat better and reduce cognitive load. See [PRINCIPLES.md](PRINCIPLES.md).
+>
+> **Since the October 2026 redesign** `/create` has no tabs: one field takes a link or a description, and photos are added beside it. The import pipeline below is unchanged.
 
 ---
 

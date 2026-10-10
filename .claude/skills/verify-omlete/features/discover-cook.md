@@ -1,9 +1,10 @@
 # Discover and Cook
 
-Discover (`/discover`) is a feed of suggestion cards grouped into shelves, filled by an agent through `POST /api/suggestions/` or by `Refresh` (`POST /api/suggestions/refresh`, which calls Claude). Each card can be saved as a recipe, added to a list, or dismissed with `Not for me`. Cook (`/cook/<recipeId>`) walks through a recipe step by step with scaled amounts and detected timers, and ends with a rating that feeds future suggestions.
+Discover (`/discover`) is a feed of suggestion cards grouped into shelves, filled by Chef (the proactive suggestions agent) through `POST /api/suggestions/` or by `Refresh` (`POST /api/suggestions/refresh`, which calls Claude). Each card can be saved as a recipe, added to a list, or dismissed with `Not for me`. Cook (`/cook/<recipeId>`) walks through a recipe step by step with scaled amounts and detected timers, and ends with a rating that feeds future suggestions.
 
 ## Sub-features
 
+- `home-chef-picks` shows Chef's three newest picks on Home, below Lists, with `See all` going to Discover.
 - `discover-feed` shows shelves of cards from `GET /api/suggestions/`, with skeletons while loading and an empty state.
 - `discover-tune` opens `Tune suggestions` (diet, effort, free-text notes), stored on the phone and sent with Refresh.
 - `discover-save` uses `Save`; `POST /api/suggestions/<id>/save` returns at once and the recipe is made in the background (the card shows saving, then saved or failed).
@@ -14,8 +15,8 @@ Discover (`/discover`) is a feed of suggestion cards grouped into shelves, fille
 
 ## How to get to it (user POV)
 
-- The `Discover` tab or nav link.
-- A recipe page's `Cook` button, or `Cook` on a meal in a list.
+- The `Discover` tab or nav link, or `See all` beside Chef's picks on Home.
+- Home's `Cook from <list>` cards, a recipe page's `Cook` button, or `Cook` on a meal in a list.
 
 ## Driving it with omlete-verify browse
 
@@ -27,7 +28,8 @@ curl -s -X POST http://127.0.0.1:8000/api/suggestions/ -H 'Content-Type: applica
 ```
 
 - **Feed and dismiss.** Run `$V browse /discover --label discover-dismiss --expect "Miso salmon with greens" --click-button "Not for me" --expect "Undo"`. After the toast, `curl -s http://127.0.0.1:8000/api/suggestions/` no longer lists it.
-- **Cook a seeded recipe.** Open `/recipes`, click `Verify Fixture Shakshuka`, then `Cook`. Expect `Step 1 of 3`, `Next`, a `Start 10:00 timer` on step 2, and `How was it?` at the end.
+- **Cook a seeded recipe.** Run `$V browse /recipes --label recipe-cook --click-link "Verify Fixture Shakshuka" --expect-url '^/recipe/' --click-link "Cook" --expect-url '^/cook/' --click-button "Start cooking" --expect "Step 1 of 3" --click-button "Next" --expect "Start 10:00 timer"`. The last step ends on `How was it?`.
+- **Cook from Home.** With the Shakshuka on the current list (the last list opened, else the newest), Home shows `Cook from <list>` and a `Cook Verify Fixture Shakshuka` link straight to `/cook/<id>?list=<id>`.
 
 ## Gotchas
 

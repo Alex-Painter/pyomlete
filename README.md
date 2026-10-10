@@ -50,8 +50,8 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
 - `src/lib/api.ts` — `apiFetch()` wrapper using `VITE_API_URL` env var
 - shadcn/ui components (New York style) in `src/components/ui/`
 - Route tree auto-generated at `src/routeTree.gen.ts` — do not edit manually
-- **Pages:** Lists (`/`), List Detail with Plan/Shop modes (`/list/$listId`), My Recipes (`/recipes`), Recipe Detail (`/recipe/$recipeId`), Create (`/create`: from a link, generate, or extract from images), Settings (`/settings`: shopping categories)
-- **Shared components:** `StarRating` (interactive 1-5 stars), `RecipeCard` (recipe display), `RecipeMetaRow` (times, servings and source for imported recipes)
+- **Home** (`/`) is a stack of sections: meals to cook from the current list, your lists (with New list), then Chef's picks (Chef is the proactive suggestions agent). Recent activity and stats are planned as further sections.
+- **Other pages:** Settings (`/settings`, behind the cog: shopping aisles). Shared components include `StarRating`, `RecipeCard`, `RecipeThumb` and `RecipeMetaRow`.
 
 ### Backend (`/server/`)
 
@@ -60,6 +60,7 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
   - Recipes: `GET /recipes/`, `GET/PUT/DELETE /recipes/{id}`, `PATCH /recipes/{id}/rating`, `PATCH /recipes/{id}/ingredients/{index}/exclude`, `POST /recipes/suggest/` (AI meal suggestions for a list)
   - Lists: `GET/POST /lists/`, `GET/PATCH/DELETE /lists/{id}`, `POST /lists/{id}/duplicate`, `POST/DELETE /lists/{id}/recipes[/{recipe_id}]`, and item CRUD + reorder under `/lists/{id}/items`
   - Categories and units: `GET/PUT /settings/categories`, `POST /categorize` (cached lookup, then Haiku), `GET /units`
+  - Discover suggestions from Chef: `GET/POST /suggestions/` (`POST` is where an agent drops suggestion cards), `POST /suggestions/refresh` (Claude suggests from your ratings, dismissals and lists), `PATCH /suggestions/{id}` (dismiss), `POST /suggestions/{id}/save` (turn one into a recipe in the background)
 - **Beanie** (async MongoDB ODM) with five document types in `data_models/`: `IngredientDocument` (with 2048-dim Voyage-4 embeddings), `RecipeDocument`, `ListDocument`, `UserSettingsDocument` and `SuggestionDocument`
 - `tools.py` — defines the `find_similar_ingredients` Claude tool, which runs a MongoDB `$vectorSearch` to find semantically similar existing ingredients (threshold ≥ 0.9)
 - `recipe_import.py` — SSRF-guarded page fetch + `recipe-scrapers` parsing (stage 1 of URL import)

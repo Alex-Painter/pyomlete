@@ -79,7 +79,7 @@ $V browse <path> [steps...] [--label NAME]
 | `--press KEY` | press a key in the focused element, e.g. `Enter` |
 | `--expect-url REGEX` | wait until the URL pathname matches |
 | `--timeout MS` | per-step timeout for the steps after it (default 20000; AI calls need ~120000) |
-| `--accept-dialogs` | auto-accept `confirm()` from now on (needed for every Delete) |
+| `--accept-dialogs` | auto-accept `confirm()` from now on (the app no longer uses `confirm()`: deletes use an Undo toast, so this is rarely needed) |
 
 The run **fails** if any step fails, if any `/api/` request goes to an origin other than `http://127.0.0.1:8000` (that catches a missing `VITE_API_URL`), or if any `/api/` response is a 4xx/5xx or a network failure. A backend 500 appears in the browser as `net::ERR_FAILED`, as if it were CORS, because Starlette's error response carries no CORS headers. When you see that, read `.verify-run/api.log` for the traceback.
 
@@ -88,7 +88,7 @@ For example, the canonical smoke test of the app working end to end:
 ```bash
 $V seed
 curl -s http://127.0.0.1:8000/api/recipes/        # backend directly: both fixture titles present
-$V browse /recipes --expect "My Recipes" \
+$V browse /recipes --expect "Recipes" \
   --expect "Verify Fixture Shakshuka" --expect "Verify Fixture Lemon Drizzle Cake"
 ```
 

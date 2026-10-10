@@ -1,6 +1,8 @@
 # Whisk / Samsung Food — Deep Dive & Differentiation Strategy
 
 > **Driving principle:** eat better and reduce cognitive load. See [PRINCIPLES.md](PRINCIPLES.md).
+>
+> **Written before the October 2026 redesign.** Discover and Chef's picks now cover the proactive-suggestion ideas here; see `AGENTS.md` for the app as it is now.
 
 _July 2026. Companion to `GAP_ANALYSIS.md`._
 
