@@ -107,6 +107,16 @@ nonisolated struct APIClient: Sendable {
         try await decode(Wire.recipes, from: call("GET", "recipes/"))
     }
 
+    /// A deleted recipe is `.rejected(404)`.
+    func recipe(_ id: RecipeID) async throws(APIError) -> Recipe {
+        try await decode(Wire.recipe, from: call("GET", "recipes/\(id.rawValue)"))
+    }
+
+    /// Setting the same rating twice is harmless, so a retry is safe.
+    func rate(_ id: RecipeID, stars: Int) async throws(APIError) {
+        _ = try await call("PATCH", "recipes/\(id.rawValue)/rating", body: try Wire.encode(["rating": stars]))
+    }
+
     private func call(_ method: String, _ path: String, body: Data? = nil) async throws(APIError) -> Data {
         guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw .rejected(400) }
         var request = URLRequest(url: url)

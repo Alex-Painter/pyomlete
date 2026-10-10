@@ -70,4 +70,5 @@ nonisolated struct RecipeSummary: Identifiable, Codable, Equatable, Sendable {
     let id: RecipeID
     var title: String
     var imageURL: URL?
+    var totalMinutes: Int?
 }
