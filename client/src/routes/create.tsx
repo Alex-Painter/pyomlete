@@ -9,6 +9,7 @@ import { RecipeCard } from '@/components/RecipeCard'
 import type { Recipe } from '@/components/RecipeCard'
 import { useAddRecipeToList } from '@/hooks/useAddToList'
 import { ApiError, apiJson } from '@/lib/api'
+import { splitLink } from '@/lib/splitLink'
 import '@/index.css'
 
 export const Route = createFileRoute('/create')({ component: CreatePage })
@@ -16,8 +17,6 @@ export const Route = createFileRoute('/create')({ component: CreatePage })
 type Saved = Recipe & { _id?: string; id?: string }
 
 type Kind = 'link' | 'describe' | 'photos'
-
-const LOOKS_LIKE_URL = /^https?:\/\/\S+\.\S+$/
 
 function errorMessage(kind: Kind, error: Error): string {
   if (!(error instanceof ApiError)) return "Couldn't reach Omlete. Check your connection and try again."
@@ -68,18 +67,21 @@ function CreatePage() {
   }, [photos])
 
   const trimmed = text.trim()
-  const kind: Kind = photos.length > 0 ? 'photos' : LOOKS_LIKE_URL.test(trimmed) ? 'link' : 'describe'
+  // A link plus anything typed with it ("but use quorn mince") imports the
+  // page and applies the changes.
+  const link = splitLink(trimmed)
+  const kind: Kind = photos.length > 0 ? 'photos' : link ? 'link' : 'describe'
 
   const create = useMutation<Saved, Error, Kind>({
     mutationFn: async (k) => {
       setPhase(0)
       const advance = setTimeout(() => setPhase(1), 2500)
       try {
-        if (k === 'link') {
+        if (k === 'link' && link) {
           return await apiJson<Saved>('/api/recipes/import-from-url/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: trimmed }),
+            body: JSON.stringify({ url: link.url, changes: link.changes || undefined }),
           })
         }
         if (k === 'describe') {
@@ -118,7 +120,9 @@ function CreatePage() {
     kind === 'photos'
       ? `Read ${photos.length} photo${photos.length === 1 ? '' : 's'}`
       : kind === 'link'
-        ? 'Import recipe'
+        ? link?.changes
+          ? 'Import with changes'
+          : 'Import recipe'
         : 'Create recipe'
 
   return (
@@ -219,7 +223,7 @@ function CreatePage() {
         {create.isPending && (
           <p role="status" className="mt-6 flex items-center gap-2.5 text-ink-muted">
             <Loader2 className="size-4 animate-spin" />
-            {PROGRESS[kind][phase]}
+            {kind === 'link' && link?.changes && phase === 1 ? 'Making your changes…' : PROGRESS[kind][phase]}
           </p>
         )}
 

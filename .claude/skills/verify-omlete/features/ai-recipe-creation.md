@@ -4,7 +4,7 @@
 
 ## Sub-features
 
-- `create-import-url` imports from a link (`POST /api/recipes/import-from-url/`). The button reads `Import recipe` once the field looks like a URL. The same URL is not imported twice: a 409 shows `You've already saved that one. Open it`.
+- `create-import-url` imports from a link (`POST /api/recipes/import-from-url/`). The button reads `Import recipe` once the field holds a link. Text typed with the link (`<link> But use quorn mince`) is sent as `changes` and applied by Opus after the import; the button then reads `Import with changes`, the second progress line is `Making your changes…`, and the already-imported check is skipped. Without changes, the same URL is not imported twice: a 409 shows `You've already saved that one. Open it`.
 - `create-generate` generates from a description (`POST /api/recipes/generate/`); the button reads `Create recipe`.
 - `create-extract` reads photos (`POST /api/recipes/extract-from-images/`); the button reads `Read N photos`, and several photos are one recipe.
 - `create-result` shows `Saved to your recipes` with `Add to list` and `Open`.

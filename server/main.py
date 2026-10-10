@@ -326,6 +326,29 @@ async def _recipe_from_page_text(
     return recipe
 
 
+async def _apply_changes(
+    recipe: RecipeModelResponse, changes: str, categories_str: str
+) -> RecipeModelResponse:
+    """Adapt an imported recipe to what the user typed alongside the link.
+
+    Unchanged ingredients keep their structured form, so only swapped or added
+    ones go back through find_similar_ingredients.
+    """
+    runner = async_claude.beta.messages.tool_runner(
+        model="claude-opus-4-5",
+        max_tokens=4096,
+        messages=[{
+            "role": "user",
+            "content": f"Here is a recipe as JSON. Apply the user's requested changes to it and return the whole adapted recipe in the same format.\n\n- Change only what the request needs: swap or add ingredients, adjust amounts, and rewrite only the instruction steps the change affects (e.g. cooking times for a substituted ingredient). Leave everything else word for word.\n- Copy unchanged ingredients exactly as given, including is_new and category.\n- For every ingredient you add or swap in, call find_similar_ingredients to match it against the database (similarity over .90). For each NEW one (is_new=true), assign a category from this list: [{categories_str}]. For matched ones, set the category to 'Other'.\n- Update the title only if the change makes it wrong (e.g. it names an ingredient you removed).\n- Keep ingredient amounts in the instruction steps.\n\nRequested changes: {changes}\n\nRecipe:\n{recipe.model_dump_json()}",
+        }],
+        tools=[find_similar_ingredients],
+        stream=True,
+        output_config={"format": {"type": "json_schema", "schema": recipeSchema}},
+    )
+    final_message = await runner.until_done()
+    return RecipeModelResponse.model_validate_json(final_message.content[0].text)
+
+
 def _metadata_from(scraped: ScrapedRecipe) -> RecipeMetadata:
     return RecipeMetadata(
         servings=scraped.servings,
@@ -346,15 +369,21 @@ async def import_recipe_from_url(body: ImportFromUrlRequest):
 
     Two stages: scrape the page for structured data (free), then structure the
     free-text ingredient lines with Haiku. Pages that publish nothing readable
-    fall back to Opus over the page text.
+    fall back to Opus over the page text. Any `changes` typed alongside the
+    link are applied last, by Opus.
     """
     url = _canonical_url(body.url)
+    changes = (body.changes or "").strip()
 
     # Cheapest check first — a re-import shouldn't cost a fetch or a token.
     # Two simultaneous imports of the same URL can both get past this; the
     # index is deliberately non-unique, so that races to a duplicate rather
     # than an error. Re-importing is rare and a duplicate is deletable.
-    existing = await RecipeDocument.find_one(RecipeDocument.source_url == url)
+    # An adapted import is a new variant, so it skips the check.
+    existing = (
+        None if changes
+        else await RecipeDocument.find_one(RecipeDocument.source_url == url)
+    )
     if existing:
         raise HTTPException(
             status_code=409,
@@ -396,6 +425,9 @@ async def import_recipe_from_url(body: ImportFromUrlRequest):
         # Nothing was published to read, so provenance is all we can honestly
         # record — no image, no times, no servings.
         metadata = RecipeMetadata(source_url=url, source_name=urlparse(url).hostname)
+
+    if changes:
+        recipe = await _apply_changes(recipe, changes, categories_str)
 
     return await _save_recipe(recipe, metadata)
 

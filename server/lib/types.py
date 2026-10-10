@@ -75,6 +75,9 @@ class RecipeModelResponse(Recipe):
 
 class ImportFromUrlRequest(BaseModel):
     url: str
+    # Free text typed alongside the link, e.g. "but use quorn mince". Applied
+    # to the imported recipe before it's saved.
+    changes: Optional[str] = None
 
 
 class MealIdea(BaseModel):

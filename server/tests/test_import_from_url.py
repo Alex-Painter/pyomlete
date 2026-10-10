@@ -119,6 +119,51 @@ class TestImportFromUrl:
         assert exc.value.detail["recipe_id"] == "abc123"
         mocks["fetch"].assert_not_called()
 
+    async def test_applies_changes_typed_with_the_link(self):
+        ctx, mocks = patch_pipeline(scraped=make_scraped())
+        adapted = main.RecipeModelResponse(
+            title="Classic Lasagne",
+            instructions=["Fry the onions.", "Bake for 45 mins."],
+            ingredients=[structured(), structured(name="quorn mince", amount=500.0, unit="g")],
+        )
+        apply = AsyncMock(return_value=adapted)
+
+        with ctx, patch.object(main, "_apply_changes", apply):
+            await main.import_recipe_from_url(
+                ImportFromUrlRequest(url=URL, changes="  but use quorn mince ")
+            )
+
+        recipe, changes, _ = apply.call_args.args
+        assert recipe.title == "Classic Lasagne"
+        assert changes == "but use quorn mince"
+        saved, metadata = mocks["save"].call_args.args
+        assert saved is adapted
+        assert metadata.source_url == URL
+
+    async def test_an_adapted_import_of_a_known_page_is_not_a_repeat(self):
+        existing = MagicMock()
+        existing.id = "abc123"
+        ctx, mocks = patch_pipeline(existing=existing, scraped=make_scraped())
+        apply = AsyncMock(side_effect=lambda recipe, *_: recipe)
+
+        with ctx, patch.object(main, "_apply_changes", apply):
+            await main.import_recipe_from_url(
+                ImportFromUrlRequest(url=URL, changes="double it")
+            )
+
+        mocks["find_one"].assert_not_called()
+        mocks["save"].assert_called_once()
+
+    async def test_blank_changes_import_as_is(self):
+        ctx, mocks = patch_pipeline(scraped=make_scraped())
+        apply = AsyncMock()
+
+        with ctx, patch.object(main, "_apply_changes", apply):
+            await main.import_recipe_from_url(ImportFromUrlRequest(url=URL, changes="   "))
+
+        apply.assert_not_called()
+        mocks["find_one"].assert_called_once()
+
     async def test_blocked_url_is_a_client_error(self):
         ctx, _ = patch_pipeline(fetch_error=BlockedURL("resolves to non-public address"))
 
