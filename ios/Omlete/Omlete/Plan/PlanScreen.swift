@@ -34,6 +34,7 @@ struct PlanScreen: View {
                 items(of: list, in: store)
             }
         }
+        .undoBanner(isCovered: navigation.shopping != nil)
         .task { await store.refresh() }
     }
 
@@ -94,17 +95,20 @@ struct PlanScreen: View {
                 Button("Rename", systemImage: "pencil") { isRenaming = true }
                     .accessibilityIdentifier("plan.renameButton")
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .bottomBar) {
                 Button {
                     navigation.startShopping(listID)
                 } label: {
-                    HStack(spacing: 4) {
+                    // A toolbar shows a Label as its icon alone, and this is the screen's main action.
+                    HStack(spacing: 6) {
                         Image(systemName: "cart")
                         Text("Start shopping")
                     }
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 8)
                 }
                 .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("plan.startShoppingButton")
+                .accessibilityIdentifier("plan.startShoppingButton")
             }
         }
         .sheet(item: $editing) { id in

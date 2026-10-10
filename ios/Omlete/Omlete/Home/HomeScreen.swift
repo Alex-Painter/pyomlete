@@ -30,6 +30,7 @@ struct HomeScreen: View {
             if rows.isEmpty { emptyState }
         }
         .contentMargins(.bottom, 72, for: .scrollContent)
+        .undoBanner()
         .navigationTitle("Home")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

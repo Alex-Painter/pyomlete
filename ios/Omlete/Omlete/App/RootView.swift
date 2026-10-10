@@ -20,7 +20,6 @@ struct RootView: View {
         .fullScreenCover(item: Binding(get: { navigation.shopping }, set: { _ in })) { id in
             ShopScreen(listID: id)
         }
-        .undoBanner(isCovered: navigation.shopping != nil)
         .onChange(of: scenePhase) {
             if scenePhase == .active {
                 library.syncAll()

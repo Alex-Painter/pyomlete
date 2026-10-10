@@ -1,10 +1,11 @@
 import SwiftUI
 
 extension View {
-    /// Draws the current Undo banner at the bottom of this presentation. Needed
-    /// at the root and again on each full-screen cover, which hides the root's.
-    /// The root passes `isCovered` while a cover is up, so the banner and its
-    /// Undo button exist once on screen and once in the accessibility tree.
+    /// Draws the current Undo banner at the bottom of this screen, above any
+    /// bottom bar. Each screen hosts it, because a banner drawn at the root
+    /// would sit over a screen's bottom bar and under a full-screen cover.
+    /// A screen passes `isCovered` while a cover is over it, so the banner and
+    /// its Undo button exist once on screen and once in the accessibility tree.
     func undoBanner(isCovered: Bool = false) -> some View {
         modifier(UndoBannerHost(isCovered: isCovered))
     }
