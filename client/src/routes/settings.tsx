@@ -80,7 +80,7 @@ function SettingsPage() {
 
   return (
     <main className="min-h-screen bg-cream text-ink">
-      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
         <h1 className="mb-6 pt-4 text-3xl font-bold tracking-tight sm:pt-0">Settings</h1>
 
         <section className="max-w-xl">

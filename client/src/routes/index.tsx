@@ -18,8 +18,9 @@ export const Route = createFileRoute('/')({ component: HomePage })
 
 /**
  * Home: where you land, built as a stack of sections so v2 can add more
- * without a redesign. Today: meals to cook from the current list, Chef's
- * picks (the proactive suggestions agent), and your lists. Recent activity
+ * without a redesign. Today: meals to cook from the current list, your lists
+ * (New list is the most common action, so it stays above the fold), then
+ * Chef's picks (the proactive suggestions agent). Recent activity
  * and stats slot in as further sections below.
  */
 function HomePage() {
@@ -69,28 +70,24 @@ function HomePage() {
 
   return (
     <main className="min-h-screen bg-cream text-ink">
-      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
         <PageHeader
           title="Home"
           subtitle="Pick meals, build the list, shop, cook."
         />
 
         <CookFromList hidden={hidden} />
-        <ChefPicks />
-
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Lists</h2>
-          {visible && visible.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => newList.mutate()}
-              disabled={newList.isPending}
-              className="min-h-[44px] font-semibold"
-            >
-              {newList.isPending ? <Loader2 className="animate-spin" /> : <Plus className="size-4" />}
-              New list
-            </Button>
-          )}
+          <Button
+            variant={visible && visible.length === 0 ? 'default' : 'outline'}
+            onClick={() => newList.mutate()}
+            disabled={newList.isPending}
+            className="min-h-[44px] font-semibold"
+          >
+            {newList.isPending ? <Loader2 className="animate-spin" /> : <Plus className="size-4" />}
+            New list
+          </Button>
         </div>
 
         {isLoading && (
@@ -102,17 +99,10 @@ function HomePage() {
         {error && <ErrorState error={error} onRetry={() => void refetch()} />}
 
         {visible && visible.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-line py-12 text-center">
-            <ShoppingCart className="mx-auto mb-4 size-12 text-ink-faint" />
-            <p className="mb-1 font-medium text-ink-soft">No shopping lists yet</p>
-            <p className="mb-5 text-sm text-ink-muted">
-              Start one, add a few meals, and the ingredients collect themselves.
-            </p>
-            <Button onClick={() => newList.mutate()} disabled={newList.isPending} className="min-h-[44px]">
-              <Plus className="size-4" />
-              Start a list
-            </Button>
-          </div>
+          <p className="flex items-center gap-3 rounded-2xl border border-dashed border-line px-4 py-5 text-sm text-ink-muted">
+            <ShoppingCart className="size-6 shrink-0 text-ink-faint" />
+            No lists yet. Start one, add a few meals, and the ingredients collect themselves.
+          </p>
         )}
 
         {visible && visible.length > 0 && (
@@ -158,6 +148,8 @@ function HomePage() {
             ))}
           </ul>
         )}
+
+        <ChefPicks />
       </div>
 
       <ActionSheet
@@ -255,7 +247,7 @@ function ChefPicks() {
   if (picks.length === 0) return null
 
   return (
-    <section aria-labelledby="chef-picks" className="mb-8">
+    <section aria-labelledby="chef-picks" className="mt-8">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 id="chef-picks" className="flex items-center gap-2 text-lg font-semibold">
           <Sparkles className="size-4 text-[#7a5a12]" />

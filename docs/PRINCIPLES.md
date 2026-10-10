@@ -15,7 +15,7 @@ Every feature, screen and line of code should be judged against this. If a chang
 | Nothing to undo by hand | Destructive actions happen at once with an Undo toast, never an "Are you sure?" dialog. | `UndoToast`, `useListActions`, every delete |
 | Variety comes to you | Chef, the proactive suggestions agent, fills Discover (and Chef's picks on Home) from your taste (ratings, dismissals, what's on your lists). One tap saves it or adds it to a list. | `/discover`, `SuggestionDocument`, `POST /api/suggestions/` |
 | Your taste is learned, not configured | Rating a meal after cooking and saying "Not for me" feed future suggestions. No profile forms. | Cook's "How was it?", `_taste_profile()` |
-| Home is the starting point | The first screen answers "what's for dinner?": cook a meal from your list in one tap, see Chef's picks, open a list. | `/` (`HomePage`) |
+| Home is the starting point | The first screen answers "what's for dinner?": cook a meal from your list in one tap, open or start a list (the most common action, kept above the fold), then Chef's picks. | `/` (`HomePage`) |
 | Four modes, freely switched | Explore (Discover, Recipes), Plan (a list), Shop, Cook are separate entry points with their own layout. Finishing one never moves you into another. | Routes `/discover`, `/list/$id`, `/shop/$id`, `/cook/$id` |
 | The UI doesn't change when a step completes | Shops often have no signal and people forget to tick things. Nothing has to be checked off to reach Cook, and nothing is archived or hidden because a list is "done". | Shop has no done step; lists stay where they are |
 | Works with no signal | Every list change is saved on the phone first and synced when the network allows. | `lib/offline.ts`, `public/sw.js` |

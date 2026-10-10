@@ -123,7 +123,7 @@ function CreatePage() {
 
   return (
     <main className="min-h-screen bg-cream text-ink">
-      <div className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <div className="mx-auto max-w-2xl px-4 pt-3 pb-6 sm:py-10">
         <PageHeader title="Add a recipe" subtitle="Paste a link, describe a dish, or snap a recipe." />
 
         <form

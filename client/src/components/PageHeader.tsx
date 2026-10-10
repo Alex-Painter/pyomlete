@@ -16,7 +16,7 @@ export function PageHeader({
   actions?: ReactNode
 }) {
   return (
-    <header className="mb-6 flex items-end gap-3 pt-4 sm:pt-0">
+    <header className="safe-area-top mb-5 flex items-end gap-3 sm:mb-6">
       <div className="min-w-0 flex-1">
         <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-ink-muted">{subtitle}</p>}
