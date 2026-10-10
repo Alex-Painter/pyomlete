@@ -1,16 +1,17 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Copy, Loader2, MoreHorizontal, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
+import { ChefHat, Clock, Copy, Loader2, MoreHorizontal, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ActionSheet } from '@/components/BottomSheet'
 import { ErrorState } from '@/components/ErrorState'
 import { PageHeader } from '@/components/PageHeader'
 import { useUndo } from '@/components/UndoToast'
+import { RecipeThumb } from '@/components/RecipeThumb'
 import { RenameListSheet } from '@/components/RenameListSheet'
-import { createList } from '@/hooks/useAddToList'
+import { createList, useCurrentList } from '@/hooks/useAddToList'
 import { apiFetch, apiJson } from '@/lib/api'
-import { useLists } from '@/lib/queries'
+import { useLists, useRecipes } from '@/lib/queries'
 import type { ListSummary } from '@/lib/types'
 
 export const Route = createFileRoute('/')({ component: ListsPage })
@@ -100,6 +101,8 @@ function ListsPage() {
           </div>
         )}
 
+        <CookFromList hidden={hidden} />
+
         {visible && visible.length > 0 && (
           <ul className="grid gap-3 sm:grid-cols-2">
             {visible.map((list) => (
@@ -175,5 +178,59 @@ function ListsPage() {
 
       <RenameListSheet list={renaming} onClose={() => setRenaming(null)} />
     </main>
+  )
+}
+
+/**
+ * The meals on the current list, one tap from Cook. Opening the app to cook
+ * shouldn't mean opening the list first (less to think about at 6pm).
+ */
+function CookFromList({ hidden }: { hidden: Set<string> }) {
+  const current = useCurrentList()
+  const { data: recipes } = useRecipes()
+  if (!current || hidden.has(current.id) || current.recipes.length === 0) return null
+  const details = new Map(recipes?.map((r) => [r.id, r]))
+
+  return (
+    <section aria-labelledby="cook-from-list" className="mb-8">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="cook-from-list" className="text-lg font-semibold">
+          Cook from {current.name}
+        </h2>
+      </div>
+      <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:px-0 lg:grid-cols-4">
+        {current.recipes.map((r) => {
+          const d = details.get(r.id)
+          return (
+            <li key={r.id} className="w-40 shrink-0 snap-start sm:w-auto">
+              <Link
+                to="/cook/$recipeId"
+                params={{ recipeId: r.id }}
+                search={{ list: current.id }}
+                aria-label={`Cook ${r.title}`}
+                className="block overflow-hidden rounded-2xl border border-line bg-white shadow-sm transition-all hover:border-primary hover:shadow-md"
+              >
+                <RecipeThumb src={d?.image_url} title={r.title} className="aspect-[4/3] w-full" />
+                <div className="p-3">
+                  <p className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5">{r.title}</p>
+                  <p className="mt-2 flex items-center gap-3 text-sm text-ink-muted">
+                    <span className="flex items-center gap-1 font-medium text-ink">
+                      <ChefHat className="size-4" />
+                      Cook
+                    </span>
+                    {d?.total_minutes != null && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="size-3.5" />
+                        {d.total_minutes} min
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
