@@ -11,22 +11,26 @@ struct RootView: View {
     var body: some View {
         @Bindable var navigation = navigation
         TabView(selection: $navigation.tab) {
-            Tab("Home", systemImage: "house", value: AppTab.home) {
+            Tab(value: AppTab.home) {
                 stack(.home) { HomeScreen() }
+            } label: {
+                tabLabel("Home", systemImage: "house", identifier: "tab.home")
             }
-            .accessibilityIdentifier("tab.home")
-            Tab("Discover", systemImage: "safari", value: AppTab.discover) {
+            Tab(value: AppTab.discover) {
                 stack(.discover) { DiscoverScreen() }
+            } label: {
+                tabLabel("Discover", systemImage: "safari", identifier: "tab.discover")
             }
-            .accessibilityIdentifier("tab.discover")
-            Tab("Add", systemImage: "plus", value: AppTab.add) {
+            Tab(value: AppTab.add) {
                 stack(.add) { AddScreen() }
+            } label: {
+                tabLabel("Add", systemImage: "plus", identifier: "tab.add")
             }
-            .accessibilityIdentifier("tab.add")
-            Tab("Recipes", systemImage: "book", value: AppTab.recipes) {
+            Tab(value: AppTab.recipes) {
                 stack(.recipes) { RecipeLibraryScreen() }
+            } label: {
+                tabLabel("Recipes", systemImage: "book", identifier: "tab.recipes")
             }
-            .accessibilityIdentifier("tab.recipes")
         }
         // Read-only: only `leaveImmersive()` ends a mode.
         .fullScreenCover(item: Binding(get: { navigation.immersive }, set: { _ in })) { mode in
@@ -47,6 +51,11 @@ struct RootView: View {
                 undo.commitNow()
             }
         }
+    }
+
+    private func tabLabel(_ title: String, systemImage: String, identifier: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .accessibilityIdentifier(identifier)
     }
 
     /// One stack per tab, each with its own path, and the one place a route becomes a screen.
