@@ -109,7 +109,10 @@ export function SuggestionCard({
           </p>
         )}
 
-        <div className="flex items-center gap-2 pt-1">
+        {/* Add to list gets the full width: beside Save it overflowed the
+            narrow carousel cards on phones. */}
+        <AddToListButton size="sm" onAdd={onAddToList} disabled={saving} className="mt-1 w-full" />
+        <div className="-mb-1 flex items-center justify-between gap-2">
           {saved && s.recipe_id ? (
             <Link
               to="/recipe/$recipeId"
@@ -130,22 +133,16 @@ export function SuggestionCard({
               {failed ? 'Try again' : 'Save'}
             </button>
           )}
-          <AddToListButton
-            size="sm"
-            onAdd={onAddToList}
-            disabled={saving}
-            className="min-w-0 flex-1"
-          />
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label={`Not for me: ${s.title}`}
+            className="flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg px-2 text-sm text-ink-muted hover:bg-sand hover:text-ink"
+          >
+            <ThumbsDown className="size-4" />
+            Not for me
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label={`Not for me: ${s.title}`}
-          className="-mb-1 flex min-h-[40px] items-center justify-center gap-1.5 self-start rounded-lg px-2 text-sm text-ink-muted hover:bg-sand hover:text-ink"
-        >
-          <ThumbsDown className="size-4" />
-          Not for me
-        </button>
       </div>
     </article>
   )

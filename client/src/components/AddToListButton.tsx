@@ -60,11 +60,15 @@ export function AddToListButton({
           disabled={disabled || busy}
           onClick={() => void run(current ?? 'new')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-l-lg px-3 text-sm font-semibold hover:bg-black/5 disabled:opacity-50',
+            'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-lg px-3 text-sm font-semibold hover:bg-black/5 disabled:opacity-50',
             height,
           )}
         >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <ListPlus className="size-4" />}
+          {busy ? (
+            <Loader2 className="size-4 shrink-0 animate-spin" />
+          ) : (
+            <ListPlus className="size-4 shrink-0" />
+          )}
           <span className="truncate">Add to list</span>
         </button>
         <button
@@ -73,7 +77,7 @@ export function AddToListButton({
           disabled={disabled || busy}
           onClick={() => setPickerOpen(true)}
           className={cn(
-            'flex items-center rounded-r-lg border-l border-black/10 px-2 hover:bg-black/5 disabled:opacity-50',
+            'flex shrink-0 items-center rounded-r-lg border-l border-black/10 px-2 hover:bg-black/5 disabled:opacity-50',
             height,
           )}
         >
