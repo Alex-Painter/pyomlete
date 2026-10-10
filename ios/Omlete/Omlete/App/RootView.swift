@@ -24,6 +24,7 @@ struct RootView: View {
             if scenePhase == .active {
                 library.syncAll()
                 if let open = navigation.openList { library.list(open).sync(refresh: true) }
+                Task { await library.refresh() }
             } else {
                 // Leaving the app settles the banner, as closing the page does on the web.
                 undo.commitNow()

@@ -44,6 +44,17 @@ import Testing
         #expect(phone.library.aisleOrder == ["Bakery", "Dairy"])
     }
 
+    @Test func aRefreshMadeDuringAnotherJoinsIt() async {
+        serverAnswers()
+
+        async let first: Void = phone.library.refresh()
+        async let second: Void = phone.library.refresh()
+        _ = await (first, second)
+
+        #expect(phone.transport.calls.count(where: { $0.path == "/api/lists/" }) == 1)
+        #expect(phone.library.rows.count == 2)
+    }
+
     @Test func aRowShowsUnsentChangesFromItsList() async {
         serverAnswers { $0.path.hasPrefix("/api/lists/list") ? .unreachable : nil }
         await phone.library.refresh()

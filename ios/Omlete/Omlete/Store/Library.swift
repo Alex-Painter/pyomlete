@@ -16,6 +16,7 @@ import Observation
 
     @ObservationIgnored private let deps: StoreDependencies
     @ObservationIgnored private var stores: [ListID: ListStore] = [:]
+    @ObservationIgnored private var refreshing: Task<Void, Never>?
 
     init(deps: StoreDependencies) {
         self.deps = deps
@@ -71,7 +72,16 @@ import Observation
         return store
     }
 
+    /// Loads the lists, aisles, recipes and units. A call made while one is running joins it.
     func refresh() async {
+        if let refreshing { return await refreshing.value }
+        let task = Task { await load() }
+        refreshing = task
+        await task.value
+        refreshing = nil
+    }
+
+    private func load() async {
         async let lists = result { () async throws(APIError) in try await deps.api.lists() }
         async let aisles = result { () async throws(APIError) in try await deps.api.aisleOrder() }
         async let recipes = result { () async throws(APIError) in try await deps.api.recipes() }
