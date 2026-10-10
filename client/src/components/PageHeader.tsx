@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { UserRound } from 'lucide-react'
+import { Settings } from 'lucide-react'
 
 /**
- * A tab's large title, with its actions and the profile button on the right.
- * The iOS large-title navigation bar; Settings lives behind the profile button.
+ * A tab's large title, with its actions and the settings button on the right.
+ * The iOS large-title navigation bar; Settings lives behind the cog.
  */
 export function PageHeader({
   title,
@@ -27,7 +27,7 @@ export function PageHeader({
         aria-label="Settings"
         className="flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-ink-soft shadow-sm ring-1 ring-line hover:text-ink sm:hidden"
       >
-        <UserRound className="size-5" />
+        <Settings className="size-5" />
       </Link>
     </header>
   )

@@ -12,7 +12,7 @@ import {
   createRootRouteWithContext,
   useRouterState,
 } from '@tanstack/react-router'
-import { BookOpen, Compass, List, Plus, UserRound } from 'lucide-react'
+import { BookOpen, Compass, List, Plus, Settings } from 'lucide-react'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 
@@ -137,7 +137,7 @@ function NavBar() {
             className="ml-1 flex size-10 items-center justify-center rounded-full text-ink-muted hover:bg-sand hover:text-ink"
             activeProps={{ className: 'bg-sand text-ink' }}
           >
-            <UserRound className="size-5" />
+            <Settings className="size-5" />
           </Link>
         </div>
       </nav>
