@@ -13,7 +13,7 @@
 #   omlete-ios-verify type <id> <text>      replace the contents of field <id> with <text>
 #   omlete-ios-verify swipe <id> <dir>      swipe up|down|left|right inside scrollable <id>
 #   omlete-ios-verify relaunch              cold-start the installed build: no rebuild, no reseed
-#   omlete-ios-verify api stop|start        take the local API away and bring it back (offline proofs)
+#   omlete-ios-verify api stop|start|seed   take the local API away, bring it back, or reset its fixtures
 #   omlete-ios-verify down                  stop the app and the local API; shut the simulator down if `up` booted it
 set -euo pipefail
 
@@ -366,7 +366,8 @@ cmd_api() {
   case "${1:-}" in
     stop)  stop_api ;;
     start) mkdir -p "$RUN_DIR"; start_mongo; start_api; say "API answers on $API" ;;
-    *) die "usage: omlete-ios-verify api stop|start" ;;
+    seed)  seed ;;
+    *) die "usage: omlete-ios-verify api stop|start|seed" ;;
   esac
 }
 
