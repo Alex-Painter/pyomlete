@@ -24,7 +24,7 @@ $V doctor    # must print no FAIL lines before you drive anything
 
 - **The app talks to its own local backend.** `up` starts a disposable Mongo (container `omlete-ios-verify-mongo`, port 27019) and the FastAPI server on `http://127.0.0.1:8765`, then launches the app with `-apiBaseURL http://127.0.0.1:8765`. Debug builds read that launch argument; Release builds ignore it and use production. The ports differ from the web `verify-omlete` skill's (8000, 27018), so both can run at once. `OMLETE_IOS_VERIFY_API_PORT` and `OMLETE_IOS_VERIFY_MONGO_PORT` change them.
 - **`server/.venv` must exist.** If `up` says it is missing, run `.claude/skills/verify-omlete/scripts/omlete-verify setup` from the repo root once. Docker must be running.
-- **Every `up` reseeds.** It deletes every list in the disposable database and leaves one, `Verify Fixture List`: the four ingredients of the `Verify Fixture Shakshuka` recipe plus `milk` (2 pint) and `bananas` (6). Item and list ids change on every seed, so read them from `$V snapshot` or from `curl -s http://127.0.0.1:8765/api/lists/`.
+- **Every `up` reseeds.** It deletes every list in the disposable database and leaves one, `Verify Fixture List`, with two meals: `Verify Fixture Shakshuka` (3 steps, serves 2, a 10-minute timer in step 2) and `Verify Fixture Soft Egg` (2 steps, no serving count, a 5-second timer in step 1). Its six items are their ingredients plus `milk` (2 pint) and `bananas` (6). Item and list ids change on every seed, so read them from `$V snapshot` or from `curl -s http://127.0.0.1:8765/api/lists/`.
 - **No API keys are needed.** `/api/categorize` fails without one, and the app keeps its own aisle guess, which is the offline behaviour anyway.
 - The API log is `.verify-run/api.log`. It is the second view of anything the app sends: one line per request.
 
@@ -86,7 +86,7 @@ $V expect "Verify Fixture List"
 
 **The Undo banner lasts five seconds**, and a normal step (find the control, act, capture) takes about that long. To press Undo, use `$V tap <id> then undo.button`. To prove the banner appeared, read the `NN-tap.json` the tap saved: it holds `undo.banner` and `undo.button`. An `expect "Got ..."` as a separate step usually arrives too late.
 
-`expect` and `gone` match a substring of any element's label or value, case-sensitively. An inline navigation title (Plan's list name) is not in the UI tree, so it cannot be expected; check it in the screenshot.
+`expect` and `gone` match a substring of any element's label or value, case-sensitively. An inline navigation title (Plan's list name) and section headers ("Cook from ...", "You'll need") are not in the UI tree, so they cannot be expected; check them in the screenshot.
 
 Two more steps for what the app stores and for working offline:
 

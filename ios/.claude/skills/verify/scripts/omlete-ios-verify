@@ -109,21 +109,39 @@ stop_api() {
   rm -f "$RUN_DIR/api.pid"
 }
 
-# Leaves exactly one list, "$FIXTURE_LIST": the Shakshuka fixture recipe's four
-# ingredients plus milk and bananas. Built through the API so it has the shape
-# the server really produces. Only ever runs against the disposable database.
+# Leaves exactly one list, "$FIXTURE_LIST", with two meals: the Shakshuka
+# fixture recipe and "Verify Fixture Soft Egg", whose first step holds a
+# 5-second timer so a recipe can watch one finish. Plus milk and bananas. The
+# list is built through the API so it has the shape the server really produces.
+# Only ever runs against the disposable database.
 seed() {
-  "$ROOT/server/.venv/bin/python" "$ROOT/.claude/skills/verify-omlete/scripts/seed.py" "$DB_URI_LOCAL" >/dev/null
+  local py="$ROOT/server/.venv/bin/python"
+  "$py" "$ROOT/.claude/skills/verify-omlete/scripts/seed.py" "$DB_URI_LOCAL" >/dev/null
+  "$py" - "$DB_URI_LOCAL" <<'PY'
+import sys
+from datetime import datetime, timezone
+from pymongo import MongoClient
+MongoClient(sys.argv[1], serverSelectionTimeoutMS=5000)["omlete"].recipes.insert_one({
+    "title": "Verify Fixture Soft Egg",
+    "instructions": ["Boil the egg for 5 seconds.", "Peel it and eat with toast."],
+    "ingredients": [{"name": "eggs", "unit": "whole", "amount": 1, "note": None, "group": None,
+                     "category": "Dairy & Eggs", "excluded_from_list": False}],
+    "rating": None,
+    "created_at": datetime.now(timezone.utc),
+})
+PY
   local id
   for id in $(api "$API/api/lists/" | jq -r '.[].id'); do api -X DELETE "$API/api/lists/$id" >/dev/null; done
   id="$(api -X POST "$API/api/lists/" | jq -r .id)"
   api -X PATCH "$API/api/lists/$id" -d "$(jq -n --arg n "$FIXTURE_LIST" '{name: $n}')" >/dev/null
-  local recipe
-  recipe="$(api "$API/api/recipes/" | jq -r '[.[] | select(.title == "Verify Fixture Shakshuka")][0].id')"
-  api -X POST "$API/api/lists/$id/recipes" -d "$(jq -n --arg r "$recipe" '{recipe_id: $r}')" >/dev/null
+  local title recipe
+  for title in "Verify Fixture Shakshuka" "Verify Fixture Soft Egg"; do
+    recipe="$(api "$API/api/recipes/" | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].id')"
+    api -X POST "$API/api/lists/$id/recipes" -d "$(jq -n --arg r "$recipe" '{recipe_id: $r}')" >/dev/null
+  done
   api -X POST "$API/api/lists/$id/items" -d '{"name":"milk","amount":2,"unit":"pint","category":"Dairy & Eggs"}' >/dev/null
   api -X POST "$API/api/lists/$id/items" -d '{"name":"bananas","amount":6,"unit":null,"category":"Fresh Produce"}' >/dev/null
-  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 1 meal"
+  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals"
 }
 
 state_get() { [ -f "$STATE" ] || return 0; sed -n "s/^$1=//p" "$STATE" | head -1; }
