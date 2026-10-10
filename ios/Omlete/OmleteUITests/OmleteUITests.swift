@@ -1,43 +1,18 @@
-//
-//  OmleteUITests.swift
-//  OmleteUITests
-//
-//  Created by Alex Painter on 10/10/2026.
-//
-
 import XCTest
 
 final class OmleteUITests: XCTestCase {
-
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
+    /// Port 9 answers nothing, so this is the app with no signal: Home must
+    /// still come up and offer New list.
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testHomeComesUpWithNoSignal() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-apiBaseURL", "http://127.0.0.1:9"]
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
-    }
-
-    @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+        XCTAssertTrue(app.buttons["home.newListButton"].waitForExistence(timeout: 10))
     }
 }

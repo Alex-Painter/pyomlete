@@ -20,6 +20,7 @@ final class OmleteUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-apiBaseURL", "http://127.0.0.1:9"]
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,
