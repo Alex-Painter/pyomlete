@@ -44,6 +44,7 @@ struct CookStep: View {
             }
             .padding(20)
         }
+        // A new step starts scrolled to its top.
         .id(page.number)
     }
 }

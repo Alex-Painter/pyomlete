@@ -112,8 +112,7 @@ struct RatingView: Equatable {
     func fewer() { move { $0.setServings({ $0.fewer() }, now: $1) } }
 
     func startTimer(_ found: DetectedTimer) {
-        let timerID = deps.newTimerID()
-        move { $0.startTimer(found, id: timerID, now: $1) }
+        move { $0.startTimer(found, id: UUID(), now: $1) }
     }
 
     func dismissTimer(_ id: UUID) {

@@ -8,7 +8,6 @@ struct KitchenDependencies {
     var sleepUntil: (Date) async throws -> Void = { try await Task.sleep(for: .seconds($0.timeIntervalSinceNow)) }
     /// Sound and haptic for a finished timer.
     var chime: () -> Void = { TimerChime.play() }
-    var newTimerID: () -> UUID = { UUID() }
 }
 
 /// App-wide owner of cooking, beside `Library`. Library owns lists; Kitchen
