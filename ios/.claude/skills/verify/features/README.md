@@ -5,8 +5,8 @@ This directory is the maintained source for verifying what a user can do in Omle
 ## Baseline preconditions
 
 - Commands run from `ios/` with `V=.claude/skills/verify/scripts/omlete-ios-verify`.
-- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`. `up` seeds one list, `Verify Fixture List`, with six items and one meal.
-- Ids are new on every seed. Each recipe below uses `<listID>` and `<itemID>`: read them from `$V snapshot`, or with `curl -s http://127.0.0.1:8765/api/lists/ | jq -r '.[0].id'` and `curl -s http://127.0.0.1:8765/api/lists/<listID> | jq -r '.items[] | "\(.id) \(.name)"'`.
+- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`. `up` seeds one list, `Verify Fixture List`, with six items and two meals.
+- Ids are new on every seed. Each recipe below uses `<listID>` and `<itemID>`: read them from `$V snapshot`, or with `curl -s http://127.0.0.1:8765/api/lists/ | jq -r '.[0].id'` and `curl -s http://127.0.0.1:8765/api/lists/<listID> | jq -r '.items[] | "\(.id) \(.name)"'`. Recipe ids: `curl -s http://127.0.0.1:8765/api/recipes/ | jq -r '.[] | "\(.id) \(.title)"'`.
 - Never drive an Omlete instance that `$V up` did not launch.
 
 ## Driving conventions
@@ -31,6 +31,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 - [Home](./home.md): your lists. Open one, start a new one, rename, duplicate, delete with Undo.
 - [Plan](./plan.md): one list. Quick add, check off, edit, delete with Undo, reorder, meals, Start shopping.
 - [Shop](./shop.md): the list full screen in aisle order. Check with Undo, quick add, works with the API stopped.
+- [Cook](./cook.md): one recipe full screen, a step at a time. Scale servings, start timers, rate it at the end. Resumes where you left off.
 
 ## Screens not built yet
 
@@ -38,10 +39,9 @@ Each follows a web route (`client/src/routes`, the spec named in `ios/CLAUDE.md`
 
 | Screen | Web route that specifies it |
 |---|---|
-| Home's other sections (cook from list, Chef's picks) | `/` |
+| Home's Chef's picks | `/` |
 | Discover | `/discover` |
 | Recipe library and recipe detail | `/recipes`, `/recipe/$recipeId` |
 | Add a recipe | `/create` |
 | Meal picker in Plan ("Add meals") | `/list/$listId` (`MealsSheet`) |
-| Cook | `/cook/$recipeId` |
 | Settings | `/settings` |

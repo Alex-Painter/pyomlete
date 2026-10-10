@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+/// The meals Home offers to cook, and the list they are on.
+struct CookShelf: Equatable {
+    let listID: ListID
+    let listName: String
+    /// Never empty: a list with no meals has no shelf.
+    let meals: [RecipeSummary]
+}
+
 /// App-wide: the Home index, the aisle order, the recipe and unit caches, and
 /// the registry of list stores.
 ///
@@ -54,6 +62,23 @@ import Observation
                 }
                 return row
             }
+    }
+
+    /// Home's "Cook from <list>" section: the meals on the list last opened,
+    /// else on the first row. Derived from `rows`, so a list being deleted or
+    /// a meal removed but unsent is already accounted for.
+    var cookShelf: CookShelf? {
+        let rows = rows
+        guard let list = rows.first(where: { $0.id == index.currentList }) ?? rows.first else { return nil }
+        let meals = list.meals.compactMap { meal($0.id) }
+        return meals.isEmpty ? nil : CookShelf(listID: list.id, listName: list.name, meals: meals)
+    }
+
+    /// The only writer of the current list. Plan calls it when a list is opened.
+    func markCurrent(_ id: ListID) {
+        guard index.currentList != id else { return }
+        index.currentList = id
+        if hasLoaded { save() }
     }
 
     /// A meal's title and picture: from the recipe cache, else the title the lists endpoint gave.

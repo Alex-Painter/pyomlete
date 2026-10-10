@@ -43,8 +43,20 @@ nonisolated enum Wire {
 
     static func recipes(_ data: Data) throws -> [RecipeSummary] {
         try JSONDecoder().decode([RecipeDTO].self, from: data).map {
-            RecipeSummary(id: RecipeID($0.id), title: $0.title, imageURL: $0.image_url.flatMap(URL.init(string:)))
+            RecipeSummary(
+                id: RecipeID($0.id), title: $0.title, imageURL: $0.image_url.flatMap(URL.init(string:)),
+                totalMinutes: $0.total_minutes)
         }
+    }
+
+    static func recipe(_ data: Data) throws -> Recipe {
+        let dto = try JSONDecoder().decode(RecipeDetailDTO.self, from: data)
+        return Recipe(
+            id: RecipeID(dto._id), title: dto.title, steps: dto.instructions ?? [],
+            ingredients: (dto.ingredients ?? []).map {
+                Recipe.Ingredient(name: $0.name, amount: $0.amount, unit: $0.unit, note: $0.note)
+            },
+            baseServings: dto.servings.flatMap { $0 > 0 ? $0 : nil }, rating: dto.rating)
     }
 
     /// `checked` is left out on purpose: POST items ignores it.
@@ -116,6 +128,24 @@ nonisolated private struct RecipeDTO: Decodable {
     let id: String
     let title: String
     let image_url: String?
+    let total_minutes: Int?
+}
+
+/// The single-recipe endpoint returns the Mongo document, so its id is `_id`.
+nonisolated private struct RecipeDetailDTO: Decodable {
+    struct Ingredient: Decodable {
+        let name: String
+        let amount: Double?
+        let unit: String?
+        let note: String?
+    }
+
+    let _id: String
+    let title: String
+    let instructions: [String]?
+    let ingredients: [Ingredient]?
+    let servings: Int?
+    let rating: Int?
 }
 
 nonisolated private struct NewItemDTO: Encodable {

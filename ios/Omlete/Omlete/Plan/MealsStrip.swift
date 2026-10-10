@@ -3,12 +3,15 @@ import SwiftUI
 struct MealsStrip: View {
     let meals: [RecipeSummary]
     let onRemove: (RecipeSummary) -> Void
+    let onCook: (RecipeSummary) -> Void
 
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(meals) { meal in
                     Menu {
+                        Button("Cook this", systemImage: "frying.pan") { onCook(meal) }
+                            .accessibilityIdentifier("plan.cookMealAction")
                         Button("Remove from list", systemImage: "trash", role: .destructive) { onRemove(meal) }
                             .accessibilityIdentifier("plan.removeMealAction")
                     } label: {
