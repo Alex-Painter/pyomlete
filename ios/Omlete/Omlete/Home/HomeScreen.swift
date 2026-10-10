@@ -108,7 +108,7 @@ struct HomeScreen: View {
     private func listRow(_ row: ListSummary) -> some View {
         HStack(alignment: .top) {
             Button {
-                navigation.path.append(.plan(row.id))
+                navigation.push(.plan(row.id), on: .home)
             } label: {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(row.name)
@@ -174,7 +174,7 @@ struct HomeScreen: View {
         Task {
             defer { isCreating = false }
             do {
-                navigation.path.append(.plan(try await make()))
+                navigation.push(.plan(try await make()), on: .home)
             } catch {
                 actionFailure = error as? APIError ?? .undecodable
             }

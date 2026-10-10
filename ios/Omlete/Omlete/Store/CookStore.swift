@@ -10,6 +10,15 @@ enum CookPhase: Equatable {
     case gone
 }
 
+/// What the recipe page shows. Unlike `CookPhase` it follows the server: a
+/// recipe deleted there is gone here even if it was once cooked on this phone.
+enum RecipePage: Equatable {
+    case loading
+    case ready(Recipe)
+    case unavailable
+    case gone
+}
+
 /// The rating as shown: the unsent tap if there is one, else the server's.
 struct RatingView: Equatable {
     enum Status: Equatable {
@@ -30,8 +39,12 @@ struct RatingView: Equatable {
     let status: Status
 }
 
-/// One recipe being cooked on this phone. Handed out only by `Kitchen.cook(_:)`,
-/// so there is one instance per recipe and it outlives the Cook screen.
+/// One recipe on this phone, cooked or only looked at. Handed out only by
+/// `Kitchen.cook(_:)`, so there is one instance per recipe, it outlives the
+/// Cook screen, and Cook and the recipe page show the same rating.
+///
+/// Cook reads `phase`, whose recipe stays as it was when the cook began. The
+/// recipe page reads `page`, which prefers this launch's copy from the server.
 ///
 /// The only writer of its record. Every intent is synchronous: change the
 /// record, save it, re-arm the one sleeping task. A view never awaits a tap.
@@ -45,11 +58,16 @@ struct RatingView: Equatable {
     let id: RecipeID
     private var record: CookRecord?
     private var fetchFailure: APIError?
+    /// The server's copy as last fetched this launch. Kept apart from the
+    /// record because `CookSession.adopt` rightly refuses a new copy mid-cook.
+    private var latest: Recipe?
+    private var deletedOnServer = false
     private var delivery: RatingDelivery
 
     @ObservationIgnored private let deps: KitchenDependencies
     @ObservationIgnored private var sleeper: Task<Void, Never>?
     @ObservationIgnored private var isSendingRating = false
+    @ObservationIgnored private var onListSends: Task<Void, Never>?
 
     private enum RatingDelivery {
         case untried
@@ -72,6 +90,12 @@ struct RatingView: Equatable {
         return fetchFailure.isNotFound ? .gone : .unavailable
     }
 
+    var page: RecipePage {
+        if deletedOnServer { return .gone }
+        if let recipe = latest ?? record?.session.recipe { return .ready(recipe) }
+        return fetchFailure == nil ? .loading : .unavailable
+    }
+
     var rating: RatingView {
         let unsent = record?.unsentRating
         let status: RatingView.Status = switch delivery {
@@ -89,8 +113,39 @@ struct RatingView: Equatable {
         let now = deps.now()
         mutate { $0.session.reopen(at: now) }
         if delivery == .confirmed { delivery = .untried }
+        await load()
+    }
+
+    /// Called when the recipe page appears. Fetches without touching the cook:
+    /// looking at a recipe never moves its step or restarts it.
+    func load() async {
         fetchFailure = nil
         await fetch(reportingFailure: true)
+    }
+
+    /// Whether an ingredient goes on shopping lists. Shows at once and flips
+    /// back if the server cannot be told. Sent one at a time, in tap order.
+    func setOnList(_ index: Int, _ onList: Bool) {
+        guard flip(index, to: onList) else { return }
+        onListSends = Task { [earlier = onListSends, api = deps.api, id] in
+            await earlier?.value
+            do {
+                try await api.setOnList(id, ingredient: index, onList)
+            } catch {
+                flip(index, to: !onList)
+            }
+        }
+    }
+
+    @discardableResult
+    private func flip(_ index: Int, to onList: Bool) -> Bool {
+        guard var recipe = latest ?? record?.session.recipe, recipe.ingredients.indices.contains(index),
+              recipe.ingredients[index].isOnList != onList
+        else { return false }
+        recipe.ingredients[index].isOnList = onList
+        latest = recipe
+        mutate { $0.session.adopt(recipe) }
+        return true
     }
 
     /// Fetches a recipe not yet on this phone, without opening it.
@@ -173,6 +228,7 @@ struct RatingView: Equatable {
     private func fetch(reportingFailure: Bool) async {
         do {
             let fresh = try await deps.api.recipe(id)
+            (latest, deletedOnServer) = (fresh, false)
             if record == nil {
                 let created = CookRecord(session: CookSession(recipe: fresh, now: deps.now()))
                 record = created
@@ -181,6 +237,7 @@ struct RatingView: Equatable {
                 mutate { $0.session.adopt(fresh) }
             }
         } catch {
+            if error.isNotFound { deletedOnServer = true }
             if record == nil, reportingFailure { fetchFailure = error }
         }
     }

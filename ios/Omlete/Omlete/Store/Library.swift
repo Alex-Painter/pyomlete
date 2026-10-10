@@ -9,8 +9,9 @@ struct CookShelf: Equatable {
     let meals: [RecipeSummary]
 }
 
-/// App-wide: the Home index, the aisle order, the recipe and unit caches, and
-/// the registry of list stores.
+/// App-wide: the Home index, the aisle order, the recipe library and unit
+/// cache, and the registry of list stores. Every way of putting a meal on a
+/// list ends in `addMeal(_:title:to:)`.
 ///
 /// Invariant: `list(_:)` returns the same `ListStore` for the same id for the
 /// life of the process, so Plan, Shop and the Home row read one object.
@@ -18,6 +19,8 @@ struct CookShelf: Equatable {
     private var index: LibraryIndex
     /// Lists hidden by a delete whose Undo banner is still up.
     private var deleteOffered: Set<ListID> = []
+    /// Recipes hidden by a delete whose Undo banner is still up.
+    private var recipeDeleteOffered: Set<RecipeID> = []
     /// The last attempt to load the lists failed. Home shows it only when it has nothing saved.
     private(set) var loadFailure: APIError?
     private(set) var hasLoaded: Bool
@@ -68,13 +71,24 @@ struct CookShelf: Equatable {
     /// else on the first row. Derived from `rows`, so a list being deleted or
     /// a meal removed but unsent is already accounted for.
     var cookShelf: CookShelf? {
-        let rows = rows
-        guard let list = rows.first(where: { $0.id == index.currentList }) ?? rows.first else { return nil }
+        guard let list = currentList else { return nil }
         let meals = list.meals.compactMap { meal($0.id) }
         return meals.isEmpty ? nil : CookShelf(listID: list.id, listName: list.name, meals: meals)
     }
 
-    /// The only writer of the current list. Plan calls it when a list is opened.
+    /// The list last opened, else the first row: where Home cooks from and
+    /// where "Add to list" adds.
+    var currentList: ListSummary? {
+        let rows = rows
+        return rows.first(where: { $0.id == index.currentList }) ?? rows.first
+    }
+
+    /// The recipe library, newest first, minus recipes being deleted.
+    var recipes: [RecipeSummary] {
+        index.recipes.filter { !recipeDeleteOffered.contains($0.id) && !index.deletingRecipes.contains($0.id) }
+    }
+
+    /// The only writer of the current list. Called when a list is opened or added to.
     func markCurrent(_ id: ListID) {
         guard index.currentList != id else { return }
         index.currentList = id
@@ -119,7 +133,10 @@ struct CookShelf: Equatable {
             loadFailure = failure
         }
         if case .success(let aisles) = await aisles { index.aisleOrder = aisles }
-        if case .success(let recipes) = await recipes { index.recipes = recipes }
+        if case .success(let recipes) = await recipes {
+            index.recipes = recipes
+            index.deletingRecipes.formIntersection(recipes.map(\.id))
+        }
         if case .success(let units) = await units { index.units = units }
         // A saved index is what says the lists were loaded once, so a first load that failed must not write one.
         if hasLoaded { save() }
@@ -160,11 +177,89 @@ struct CookShelf: Equatable {
         })
     }
 
+    /// The list a meal should go on. `.new`, and `.current` with no lists yet, start one, which needs signal.
+    func resolve(_ target: ListTarget) async throws(APIError) -> ListRef {
+        let existing: ListSummary? = switch target {
+        case .current: currentList
+        case .list(let id): rows.first { $0.id == id }
+        case .new: nil
+        }
+        if let existing { return ListRef(id: existing.id, name: existing.name) }
+        if case .list = target { throw .rejected(404) }
+        let id = try await newList()
+        return ListRef(id: id, name: rows.first { $0.id == id }?.name ?? "")
+    }
+
+    /// Puts a recipe on a list and says so in the banner, with Undo. Never
+    /// throws: a recipe already there, or no signal, is a banner too. The list
+    /// it went on becomes the current one.
+    func addMeal(_ recipe: RecipeID, title: String, to target: ListTarget) async {
+        do {
+            let list = try await resolve(target)
+            let store = self.list(list.id)
+            switch try await store.addMeal(recipe) {
+            case .added:
+                markCurrent(list.id)
+                deps.undo.offer("Added \(title) to \(list.name)", undo: { store.takeBackMeal(recipe) })
+            case .alreadyOnList:
+                deps.undo.offer("\(title) is already on \(list.name)")
+            }
+        } catch {
+            deps.undo.offer(
+                error == .unreachable ? "Couldn't reach Omlete. \(title) wasn't added." : "Couldn't add \(title). Try again.")
+        }
+    }
+
+    /// Makes a recipe from a link, a description or photos. A saved one joins the library at once.
+    func createRecipe(_ request: RecipeRequest) async -> RecipeCreation {
+        let outcome = await deps.api.createRecipe(request)
+        if case .saved(let recipe) = outcome {
+            index.recipes.removeAll { $0.id == recipe.id }
+            index.recipes.insert(recipe.summary, at: 0)
+            if hasLoaded { save() }
+        }
+        return outcome
+    }
+
+    /// Hides the recipe at once and offers Undo. The DELETE goes out when the
+    /// banner settles; if it cannot, the id is saved and `syncAll` retries.
+    func deleteRecipe(_ id: RecipeID) {
+        guard let title = recipes.first(where: { $0.id == id })?.title else { return }
+        recipeDeleteOffered.insert(id)
+        deps.undo.offer("Deleted \(title)", undo: { [weak self] in
+            self?.recipeDeleteOffered.remove(id)
+        }, commit: { [weak self] in
+            guard let self else { return }
+            index.deletingRecipes.insert(id)
+            recipeDeleteOffered.remove(id)
+            save()
+            sendRecipeDelete(id)
+        })
+    }
+
     /// Flushes everything unsent. Called when the app comes to the front and
     /// when the network returns.
     func syncAll() {
         for store in stores.values where !store.replica.pending.isEmpty { store.sync() }
         for id in index.deletingLists { sendDelete(id) }
+        for id in index.deletingRecipes { sendRecipeDelete(id) }
+    }
+
+    private func sendRecipeDelete(_ id: RecipeID) {
+        Task { await confirmRecipeDelete(id) }
+    }
+
+    private func confirmRecipeDelete(_ id: RecipeID) async {
+        do {
+            try await deps.api.deleteRecipe(id)
+        } catch where error.isRetryable {
+            return
+        } catch {
+            // Already gone, which is what was asked for.
+        }
+        index.recipes.removeAll { $0.id == id }
+        index.deletingRecipes.remove(id)
+        save()
     }
 
     private func sendDelete(_ id: ListID) {

@@ -3,19 +3,30 @@ import SwiftUI
 struct RootView: View {
     @Environment(Library.self) private var library
     @Environment(Kitchen.self) private var kitchen
+    @Environment(Chef.self) private var chef
     @Environment(AppNavigation.self) private var navigation
     @Environment(UndoCenter.self) private var undo
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var navigation = navigation
-        NavigationStack(path: $navigation.path) {
-            HomeScreen()
-                .navigationDestination(for: Route.self) { route in
-                    switch route {
-                    case .plan(let id): PlanScreen(listID: id)
-                    }
-                }
+        TabView(selection: $navigation.tab) {
+            Tab("Home", systemImage: "house", value: AppTab.home) {
+                stack(.home) { HomeScreen() }
+            }
+            .accessibilityIdentifier("tab.home")
+            Tab("Discover", systemImage: "safari", value: AppTab.discover) {
+                stack(.discover) { DiscoverScreen() }
+            }
+            .accessibilityIdentifier("tab.discover")
+            Tab("Add", systemImage: "plus", value: AppTab.add) {
+                stack(.add) { AddScreen() }
+            }
+            .accessibilityIdentifier("tab.add")
+            Tab("Recipes", systemImage: "book", value: AppTab.recipes) {
+                stack(.recipes) { RecipeLibraryScreen() }
+            }
+            .accessibilityIdentifier("tab.recipes")
         }
         // Read-only: only `leaveImmersive()` ends a mode.
         .fullScreenCover(item: Binding(get: { navigation.immersive }, set: { _ in })) { mode in
@@ -30,10 +41,24 @@ struct RootView: View {
                 kitchen.resume()
                 if let open = navigation.openList { library.list(open).sync(refresh: true) }
                 Task { await library.refresh() }
+                Task { await chef.load() }
             } else {
                 // Leaving the app settles the banner, as closing the page does on the web.
                 undo.commitNow()
             }
+        }
+    }
+
+    /// One stack per tab, each with its own path, and the one place a route becomes a screen.
+    private func stack(_ tab: AppTab, @ViewBuilder root: () -> some View) -> some View {
+        NavigationStack(path: Binding(get: { navigation[tab] }, set: { navigation[tab] = $0 })) {
+            root()
+                .navigationDestination(for: Route.self) { route in
+                    switch route {
+                    case .plan(let id): PlanScreen(listID: id)
+                    case .recipe(let id): RecipeScreen(recipeID: id)
+                    }
+                }
         }
     }
 }

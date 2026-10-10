@@ -4,6 +4,8 @@ import SwiftUI
 struct OmleteApp: App {
     @State private var library: Library
     @State private var kitchen: Kitchen
+    @State private var chef: Chef
+    @State private var intake: RecipeIntake
     @State private var navigation = AppNavigation()
     @State private var undo: UndoCenter
 
@@ -21,6 +23,8 @@ struct OmleteApp: App {
         connectivity.start()
         _library = State(initialValue: library)
         _kitchen = State(initialValue: kitchen)
+        _chef = State(initialValue: Chef(deps: ChefDependencies(api: api, undo: undo, library: library)))
+        _intake = State(initialValue: RecipeIntake(library: library))
         _undo = State(initialValue: undo)
     }
 
@@ -29,6 +33,8 @@ struct OmleteApp: App {
             RootView()
                 .environment(library)
                 .environment(kitchen)
+                .environment(chef)
+                .environment(intake)
                 .environment(navigation)
                 .environment(undo)
         }

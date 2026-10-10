@@ -61,7 +61,7 @@ struct StoreDependencies {
 
     private struct MealRequest {
         let recipe: RecipeID
-        let done: CheckedContinuation<APIError?, Never>
+        let done: CheckedContinuation<Result<MealAdd, APIError>, Never>
     }
 
     init(replica: ListReplica, deps: StoreDependencies, aisleOrder: @escaping () -> [String]) {
@@ -138,15 +138,21 @@ struct StoreDependencies {
         apply(.rename(name))
     }
 
-    /// The seam for the meal picker. The server merges the recipe's ingredients
-    /// into the list, which cannot be predicted here, so this needs signal: it
-    /// runs inside the sync task after the queue has drained, then refetches.
-    func addMeal(_ recipe: RecipeID) async throws(APIError) {
-        let failure = await withCheckedContinuation { done in
+    /// Puts a recipe on the list. The server merges its ingredients into the
+    /// list, which cannot be predicted here, so this needs signal: it runs
+    /// inside the sync task after the queue has drained, then refetches.
+    @discardableResult
+    func addMeal(_ recipe: RecipeID) async throws(APIError) -> MealAdd {
+        let result = await withCheckedContinuation { done in
             mealRequests.append(MealRequest(recipe: recipe, done: done))
             sync(refresh: true)
         }
-        if let failure { throw failure }
+        return try result.get()
+    }
+
+    /// Undo of `addMeal`: queued like any other change, with no banner of its own.
+    func takeBackMeal(_ recipe: RecipeID) {
+        apply(.removeRecipe(recipe))
     }
 
     /// Pulls the server's copy. Safe to call at any time; joins a running sync.
@@ -221,16 +227,15 @@ struct StoreDependencies {
         while !mealRequests.isEmpty {
             let request = mealRequests.removeFirst()
             do {
-                try await deps.api.addRecipe(request.recipe, to: id)
-                request.done.resume(returning: nil)
+                request.done.resume(returning: .success(try await deps.api.addRecipe(request.recipe, to: id)))
             } catch {
-                request.done.resume(returning: error)
+                request.done.resume(returning: .failure(error))
             }
         }
     }
 
     private func failMealRequests(with failure: APIError) {
-        for request in mealRequests { request.done.resume(returning: failure) }
+        for request in mealRequests { request.done.resume(returning: .failure(failure)) }
         mealRequests = []
     }
 
