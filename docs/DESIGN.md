@@ -30,6 +30,11 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | Chef is the name of the suggestions agent | One named character for "the app suggests things" across Home, Discover and future features. |
 | Clear is separate from "Not for me" | Clearing the feed is tidying, not a verdict on the food; mixing them would skew Chef's taste profile. |
 | Detected timers in Cook | Alex liked them in the audit: times in the method become one-tap timers. |
+| On iOS a cook is saved on the phone, recipe included: the step, servings, timers and an unsent rating survive closing Cook or the app being killed | A phone propped by the hob gets locked, switched away from and loses signal. The web keeps this in the page, so closing it loses a running timer. |
+| On iOS, reopening Cook resumes within 8 hours and otherwise starts from the overview; a finished cook always starts over | Coming back mid-meal should find your place, and cooking the same recipe next week should not start on step 6. |
+| iOS timers ring in the app with a sound and a haptic, with no notifications yet | A notification needs a permission prompt, which is a product decision of its own. A timer that ends while the app is in the background rings once when you come back. |
+| On iOS a rating shows at once and is sent when it can be; one the server refuses is dropped without a message | There should never be an error to dismiss with a pan in the other hand. |
+| Closing Cook on iOS returns to where it was opened, Home or the list | Cook covers the screen it was opened from, so leaving it is not a navigation. The web goes to the list. |
 | Settings behind a cog, Add as a plain tab | A profile icon promised more than it did, and a raised plus button looked out of place. |
 
 ## Home plus four modes
