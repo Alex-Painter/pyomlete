@@ -223,8 +223,7 @@ struct CookShelf: Equatable {
 
     /// Hides the recipe at once and offers Undo. The DELETE goes out when the
     /// banner settles; if it cannot, the id is saved and `syncAll` retries.
-    func deleteRecipe(_ id: RecipeID) {
-        guard let title = recipes.first(where: { $0.id == id })?.title else { return }
+    func deleteRecipe(_ id: RecipeID, title: String) {
         recipeDeleteOffered.insert(id)
         deps.undo.offer("Deleted \(title)", undo: { [weak self] in
             self?.recipeDeleteOffered.remove(id)

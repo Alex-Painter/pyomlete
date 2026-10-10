@@ -12,25 +12,7 @@ struct CookFinished: View {
             VStack(spacing: 24) {
                 Text("How was it?")
                     .font(.largeTitle.bold())
-                HStack(spacing: 4) {
-                    ForEach(1...5, id: \.self) { stars in
-                        let isLit = stars <= rating.stars ?? 0
-                        Button {
-                            onRate(stars)
-                        } label: {
-                            Image(systemName: isLit ? "star.fill" : "star")
-                                .font(.system(size: 36))
-                                .foregroundStyle(isLit ? AnyShapeStyle(.yellow) : AnyShapeStyle(.tertiary))
-                                .frame(width: 56, height: 56)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(stars) star\(stars == 1 ? "" : "s")")
-                        .accessibilityAddTraits(rating.stars == stars ? .isSelected : [])
-                        .accessibilityIdentifier("cook.star.\(stars)")
-                    }
-                }
-                .sensoryFeedback(.selection, trigger: rating.stars)
+                StarRating(stars: rating.stars, identifier: "cook.star", onRate: onRate)
                 Text(rating.status.message)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

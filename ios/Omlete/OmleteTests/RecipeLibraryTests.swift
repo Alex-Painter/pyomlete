@@ -122,7 +122,7 @@ import Testing
         await phone.library.refresh()
         let before = phone.transport.calls.count
 
-        phone.library.deleteRecipe("soup")
+        phone.library.deleteRecipe("soup", title: "Soup")
         #expect(phone.library.recipes.map(\.title) == ["Curry"])
         #expect(phone.undo.banner?.message == "Deleted Soup")
 
@@ -136,7 +136,7 @@ import Testing
         serverAnswers()
         await phone.library.refresh()
 
-        phone.library.deleteRecipe("soup")
+        phone.library.deleteRecipe("soup", title: "Soup")
         phone.undo.commitNow()
 
         await eventually { phone.storage.index?.recipes.map(\.title) == ["Curry"] }
@@ -147,7 +147,7 @@ import Testing
     @Test func aRecipeDeleteThatCannotBeSentIsRetriedAfterARelaunch() async {
         serverAnswers { $0.method == "DELETE" ? .unreachable : nil }
         await phone.library.refresh()
-        phone.library.deleteRecipe("soup")
+        phone.library.deleteRecipe("soup", title: "Soup")
         phone.undo.commitNow()
         await eventually { phone.transport.calls.last?.method == "DELETE" }
 

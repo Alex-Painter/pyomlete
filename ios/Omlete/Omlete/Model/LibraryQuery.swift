@@ -3,7 +3,7 @@ import Foundation
 /// The recipe library's search, sort and filter as one value, so the screen
 /// holds a single piece of state and the rules are tested without it.
 nonisolated struct LibraryQuery: Equatable, Sendable {
-    enum Sort: CaseIterable, Sendable {
+    enum Sort: String, CaseIterable, Sendable {
         case newest, topRated, quickest, alphabetical
 
         var title: String {
@@ -16,7 +16,7 @@ nonisolated struct LibraryQuery: Equatable, Sendable {
         }
     }
 
-    enum Filter: CaseIterable, Sendable {
+    enum Filter: String, CaseIterable, Sendable {
         case favourites, quick, fromTheWeb
 
         var title: String {
