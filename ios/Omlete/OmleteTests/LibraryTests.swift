@@ -65,6 +65,9 @@ import Testing
 
         #expect(phone.library.loadFailure == .unreachable)
         #expect(phone.library.rows.isEmpty)
+
+        phone.relaunch()
+        #expect(!phone.library.hasLoaded)
     }
 
     @Test func aNewListAppearsFirstUnderTheServersName() async throws {

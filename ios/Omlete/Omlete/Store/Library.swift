@@ -88,7 +88,8 @@ import Observation
         if case .success(let aisles) = await aisles { index.aisleOrder = aisles }
         if case .success(let recipes) = await recipes { index.recipes = recipes }
         if case .success(let units) = await units { index.units = units }
-        save()
+        // A saved index is what says the lists were loaded once, so a first load that failed must not write one.
+        if hasLoaded { save() }
     }
 
     func newList() async throws(APIError) -> ListID {
