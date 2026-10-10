@@ -151,15 +151,7 @@ function NavBar() {
           {TABS.slice(0, 2).map((t) => (
             <TabLink key={t.to} {...t} className={mobileLink} />
           ))}
-          <Link
-            to="/create"
-            aria-label="Add recipe"
-            className="flex flex-1 items-center justify-center min-h-[52px]"
-          >
-            <span className="flex size-11 items-center justify-center rounded-full bg-primary text-ink shadow-md">
-              <Plus className="size-6" strokeWidth={2.5} />
-            </span>
-          </Link>
+          <TabLink to="/create" label="Add" icon={Plus} exact={false} className={mobileLink} />
           <TabLink {...TABS[2]} className={mobileLink} />
         </div>
       </nav>
