@@ -1,82 +1,93 @@
+import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Copy, Loader2, Plus, ShoppingCart, Trash2 } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ChefHat, ChevronRight, Clock, Sparkles, Copy, Loader2, MoreHorizontal, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { apiFetch } from '@/lib/api'
+import { ActionSheet } from '@/components/BottomSheet'
+import { ErrorState } from '@/components/ErrorState'
+import { PageHeader } from '@/components/PageHeader'
+import { useUndo } from '@/components/UndoToast'
+import { RecipeThumb } from '@/components/RecipeThumb'
+import { RenameListSheet } from '@/components/RenameListSheet'
+import { createList, useCurrentList } from '@/hooks/useAddToList'
+import { apiFetch, apiJson } from '@/lib/api'
+import { useSuggestionActions } from '@/hooks/useSuggestionActions'
+import { useLists, useRecipes, useSuggestions } from '@/lib/queries'
+import type { ListSummary } from '@/lib/types'
 
-type RecipeSummary = {
-  id: string
-  title: string
-}
+export const Route = createFileRoute('/')({ component: HomePage })
 
-type ListSummary = {
-  id: string
-  name: string
-  created_at: string | null
-  item_count: number
-  checked_count: number
-  recipes: RecipeSummary[]
-}
-
-export const Route = createFileRoute('/')({ component: ListsPage })
-
-function ListsPage() {
+/**
+ * Home: where you land, built as a stack of sections so v2 can add more
+ * without a redesign. Today: meals to cook from the current list, your lists
+ * (New list is the most common action, so it stays above the fold), then
+ * Chef's picks (the proactive suggestions agent). Recent activity
+ * and stats slot in as further sections below.
+ */
+function HomePage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const showUndo = useUndo()
+  const { data: lists, isLoading, error, refetch } = useLists()
+  const [actionsFor, setActionsFor] = useState<ListSummary | null>(null)
+  const [renaming, setRenaming] = useState<ListSummary | null>(null)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
 
-  const { data: lists, isLoading } = useQuery({
-    queryKey: ['lists'],
-    queryFn: async (): Promise<ListSummary[]> => {
-      const res = await apiFetch('/api/lists/')
-      return res.json()
-    },
-  })
-
-  const createList = useMutation({
-    mutationFn: async () => {
-      const res = await apiFetch('/api/lists/', { method: 'POST' })
-      return res.json()
-    },
+  const newList = useMutation({
+    mutationFn: createList,
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-      navigate({ to: '/list/$listId', params: { listId: data.id } })
+      void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      void navigate({ to: '/list/$listId', params: { listId: data.id } })
     },
   })
 
   const duplicateList = useMutation({
-    mutationFn: async (listId: string) => {
-      const res = await apiFetch(`/api/lists/${listId}/duplicate`, { method: 'POST' })
-      return res.json()
-    },
+    mutationFn: (listId: string) =>
+      apiJson<{ id: string }>(`/api/lists/${listId}/duplicate`, { method: 'POST' }),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-      navigate({ to: '/list/$listId', params: { listId: data.id } })
+      void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      void navigate({ to: '/list/$listId', params: { listId: data.id } })
     },
   })
 
-  const deleteList = useMutation({
-    mutationFn: async (listId: string) => {
-      await apiFetch(`/api/lists/${listId}`, { method: 'DELETE' })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const deleteList = (list: ListSummary) => {
+    setHidden((h) => new Set(h).add(list.id))
+    showUndo({
+      message: `Deleted ${list.name}`,
+      onUndo: () =>
+        setHidden((h) => {
+          const next = new Set(h)
+          next.delete(list.id)
+          return next
+        }),
+      onCommit: () =>
+        void apiFetch(`/api/lists/${list.id}`, { method: 'DELETE', keepalive: true }).then(() =>
+          queryClient.invalidateQueries({ queryKey: ['lists'] }),
+        ),
+    })
+  }
+
+  const visible = lists?.filter((l) => !hidden.has(l.id))
 
   return (
-    <div className="min-h-screen bg-cream text-ink">
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold">My Lists</h1>
-          <Button onClick={() => createList.mutate()} disabled={createList.isPending}>
-            {createList.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <>
-                <Plus className="size-4" />
-                New List
-              </>
-            )}
+    <main className="min-h-screen bg-cream text-ink">
+      <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
+        <PageHeader
+          title="Home"
+          subtitle="Pick meals, build the list, shop, cook."
+        />
+
+        <CookFromList hidden={hidden} />
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Lists</h2>
+          <Button
+            variant={visible && visible.length === 0 ? 'default' : 'outline'}
+            onClick={() => newList.mutate()}
+            disabled={newList.isPending}
+            className="min-h-[44px] font-semibold"
+          >
+            {newList.isPending ? <Loader2 className="animate-spin" /> : <Plus className="size-4" />}
+            New list
           </Button>
         </div>
 
@@ -86,95 +97,197 @@ function ListsPage() {
           </div>
         )}
 
-        {lists && lists.length === 0 && (
-          <div className="text-center py-16">
-            <ShoppingCart className="size-12 mx-auto text-ink-subtle mb-4" />
-            <p className="text-ink-muted mb-4">No shopping lists yet</p>
-            <Button onClick={() => createList.mutate()} disabled={createList.isPending}>
-              <Plus className="size-4" />
-              Create your first list
-            </Button>
-          </div>
+        {error && <ErrorState error={error} onRetry={() => void refetch()} />}
+
+        {visible && visible.length === 0 && (
+          <p className="flex items-center gap-3 rounded-2xl border border-dashed border-line px-4 py-5 text-sm text-ink-muted">
+            <ShoppingCart className="size-6 shrink-0 text-ink-faint" />
+            No lists yet. Start one, add a few meals, and the ingredients collect themselves.
+          </p>
         )}
 
-        {lists && lists.length > 0 && (
-          <div className="space-y-3">
-            {lists.map((list) => (
-              <div
-                key={list.id}
-                className="w-full text-left bg-white border border-line rounded-lg p-4 shadow-sm hover:shadow-md hover:border-primary transition-all cursor-pointer"
-                onClick={() => navigate({ to: '/list/$listId', params: { listId: list.id } })}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <h2 className="font-medium">{list.name}</h2>
-                  <span className="text-sm text-ink-muted">
-                    {list.checked_count}/{list.item_count} items
-                  </span>
-                </div>
-
-                {/* Progress bar */}
-                {list.item_count > 0 && (
-                  <div className="w-full h-1.5 bg-line rounded-full mb-2">
-                    <div
-                      className="h-full bg-primary rounded-full transition-all"
-                      style={{ width: `${(list.checked_count / list.item_count) * 100}%` }}
-                    />
+        {visible && visible.length > 0 && (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {visible.map((list) => (
+              <li key={list.id} className="relative">
+                <Link
+                  to="/list/$listId"
+                  params={{ listId: list.id }}
+                  className="block rounded-2xl border border-line bg-white p-4 pr-14 shadow-sm transition-all hover:border-primary hover:shadow-md"
+                >
+                  <div className="mb-1 flex items-baseline justify-between gap-3">
+                    <h2 className="truncate text-lg font-semibold">{list.name}</h2>
                   </div>
-                )}
-
-                {list.recipes.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {list.recipes.map((recipe) => (
-                      <Link
-                        key={recipe.id}
-                        to="/recipe/$recipeId"
-                        params={{ recipeId: recipe.id }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-block text-xs px-2.5 py-1 rounded-full bg-cream text-ink-muted hover:bg-sand hover:text-ink transition-colors truncate max-w-[180px]"
-                      >
-                        {recipe.title}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-end mt-3">
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-ink-muted hover:text-ink h-9 gap-1.5"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        duplicateList.mutate(list.id)
-                      }}
-                      disabled={duplicateList.isPending}
-                    >
-                      <Copy className="size-3.5" />
-                      Duplicate
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-slate-500 hover:text-red-400 h-9 gap-1.5"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (confirm('Delete this list?')) {
-                          deleteList.mutate(list.id)
-                        }
-                      }}
-                      disabled={deleteList.isPending}
-                    >
-                      <Trash2 className="size-3.5" />
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              </div>
+                  <p className="text-sm text-ink-muted">
+                    {list.recipes.length} meal{list.recipes.length === 1 ? '' : 's'} ·{' '}
+                    {list.item_count - list.checked_count} to get
+                    {list.checked_count > 0 && ` · ${list.checked_count} got`}
+                  </p>
+                  {list.item_count > 0 && (
+                    <div className="mt-3 h-1.5 w-full rounded-full bg-line">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${(list.checked_count / list.item_count) * 100}%` }}
+                      />
+                    </div>
+                  )}
+                  {list.recipes.length > 0 && (
+                    <p className="mt-3 line-clamp-2 text-sm text-ink-soft">
+                      {list.recipes.map((r) => r.title).join(' · ')}
+                    </p>
+                  )}
+                </Link>
+                <button
+                  type="button"
+                  aria-label={`More for ${list.name}`}
+                  onClick={() => setActionsFor(list)}
+                  className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-full text-ink-muted hover:bg-sand hover:text-ink"
+                >
+                  <MoreHorizontal className="size-5" />
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
+
+        <ChefPicks />
       </div>
-    </div>
+
+      <ActionSheet
+        open={actionsFor != null}
+        onOpenChange={(o) => !o && setActionsFor(null)}
+        title={actionsFor?.name ?? ''}
+        actions={
+          actionsFor
+            ? [
+                {
+                  label: 'Rename',
+                  icon: <Pencil className="size-5 text-ink-muted" />,
+                  onSelect: () => setRenaming(actionsFor),
+                },
+                {
+                  label: 'Duplicate',
+                  icon: <Copy className="size-5 text-ink-muted" />,
+                  onSelect: () => duplicateList.mutate(actionsFor.id),
+                },
+                {
+                  label: 'Delete list',
+                  destructive: true,
+                  icon: <Trash2 className="size-5" />,
+                  onSelect: () => deleteList(actionsFor),
+                },
+              ]
+            : []
+        }
+      />
+
+      <RenameListSheet list={renaming} onClose={() => setRenaming(null)} />
+    </main>
+  )
+}
+
+/**
+ * The meals on the current list, one tap from Cook. Opening the app to cook
+ * shouldn't mean opening the list first (less to think about at 6pm).
+ */
+function CookFromList({ hidden }: { hidden: Set<string> }) {
+  const current = useCurrentList()
+  const { data: recipes } = useRecipes()
+  if (!current || hidden.has(current.id) || current.recipes.length === 0) return null
+  const details = new Map(recipes?.map((r) => [r.id, r]))
+
+  return (
+    <section aria-labelledby="cook-from-list" className="mb-8">
+      <h2 id="cook-from-list" className="mb-3 text-lg font-semibold">
+        Cook from {current.name}
+      </h2>
+      <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:px-0 lg:grid-cols-4">
+        {current.recipes.map((r) => {
+          const d = details.get(r.id)
+          return (
+            <li key={r.id} className="w-40 shrink-0 snap-start sm:w-auto">
+              <Link
+                to="/cook/$recipeId"
+                params={{ recipeId: r.id }}
+                search={{ list: current.id }}
+                aria-label={`Cook ${r.title}`}
+                className="block overflow-hidden rounded-2xl border border-line bg-white shadow-sm transition-all hover:border-primary hover:shadow-md"
+              >
+                <RecipeThumb src={d?.image_url} title={r.title} className="aspect-[4/3] w-full" />
+                <div className="p-3">
+                  <p className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5">{r.title}</p>
+                  <p className="mt-2 flex items-center gap-3 text-sm text-ink-muted">
+                    <span className="flex items-center gap-1 font-medium text-ink">
+                      <ChefHat className="size-4" />
+                      Cook
+                    </span>
+                    {d?.total_minutes != null && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="size-3.5" />
+                        {d.total_minutes} min
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/**
+ * A taste of Discover: Chef's newest picks, so new ideas find you without
+ * going looking. Hidden until Chef has something to show.
+ */
+function ChefPicks() {
+  const { data } = useSuggestions()
+  const { clear } = useSuggestionActions()
+  const picks = data?.filter((s) => s.status === 'new').slice(0, 3) ?? []
+  if (picks.length === 0) return null
+
+  return (
+    <section aria-labelledby="chef-picks" className="mt-8">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="chef-picks" className="flex items-center gap-2 text-lg font-semibold">
+          <Sparkles className="size-4 text-[#7a5a12]" />
+          Chef's picks
+        </h2>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => clear(data?.filter((s) => s.status === 'new') ?? [])}
+            className="min-h-[44px] rounded-full px-3 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
+          >
+            Clear
+          </button>
+          <Link
+            to="/discover"
+            className="flex min-h-[44px] items-center gap-0.5 text-sm font-medium text-ink-soft hover:text-ink"
+          >
+            See all
+            <ChevronRight className="size-4" />
+          </Link>
+        </div>
+      </div>
+      <ul className="grid gap-2 sm:grid-cols-3">
+        {picks.map((s) => (
+          <li key={s.id}>
+            <Link
+              to="/discover"
+              className="flex items-center gap-3 rounded-2xl border border-line bg-white p-2 pr-3 shadow-sm transition-all hover:border-primary hover:shadow-md"
+            >
+              <RecipeThumb src={s.image_url} title={s.title} className="size-16 shrink-0 rounded-xl" />
+              <span className="min-w-0">
+                <span className="line-clamp-1 font-semibold">{s.title}</span>
+                {s.reason && <span className="line-clamp-2 text-sm text-ink-muted">{s.reason}</span>}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }

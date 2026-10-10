@@ -1,217 +1,262 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { ArrowDown, ArrowUp, Check, GripVertical, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
-  ArrowDown,
-  ArrowUp,
-  GripVertical,
-  Loader2,
-  Pencil,
-  Plus,
-  Trash2,
-  X,
-} from 'lucide-react'
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent } from '@dnd-kit/core'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { apiFetch } from '@/lib/api'
-
-type CategoryConfig = {
-  name: string
-  order: number
-}
+import { ActionSheet } from '@/components/BottomSheet'
+import { ErrorState } from '@/components/ErrorState'
+import { apiJson } from '@/lib/api'
+import { useCategories } from '@/lib/queries'
+import type { CategoryConfig } from '@/lib/types'
 
 export const Route = createFileRoute('/settings')({ component: SettingsPage })
 
 function SettingsPage() {
   const queryClient = useQueryClient()
   const [newCategoryName, setNewCategoryName] = useState('')
-  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editingName, setEditingName] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [deleting, setDeleting] = useState<string | null>(null)
 
-  const { data: categories, isLoading } = useQuery({
-    queryKey: ['categories'],
-    queryFn: async (): Promise<CategoryConfig[]> => {
-      const res = await apiFetch('/api/settings/categories')
-      return res.json()
-    },
-  })
+  const { data: sorted = [], isLoading, error, refetch } = useCategories()
 
   const updateCategories = useMutation({
-    mutationFn: async (cats: CategoryConfig[]) => {
-      const res = await apiFetch('/api/settings/categories', {
+    mutationFn: (cats: CategoryConfig[]) =>
+      apiJson('/api/settings/categories', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ categories: cats }),
-      })
-      return res.json()
+      }),
+    onMutate: (cats) => {
+      queryClient.setQueryData(['categories'], cats)
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] })
-    },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['categories'] }),
   })
 
-  const sorted = categories ? [...categories].sort((a, b) => a.order - b.order) : []
+  const save = (names: string[]) => updateCategories.mutate(names.map((name, order) => ({ name, order })))
+  const names = sorted.map((c) => c.name)
 
   const handleAdd = () => {
     const name = newCategoryName.trim()
-    if (!name || !categories) return
-    if (sorted.some((c) => c.name.toLowerCase() === name.toLowerCase())) return
-    const maxOrder = sorted.length > 0 ? Math.max(...sorted.map((c) => c.order)) : -1
-    const updated = [...sorted, { name, order: maxOrder + 1 }]
-    updateCategories.mutate(updated)
+    if (!name || names.some((n) => n.toLowerCase() === name.toLowerCase())) return
+    save([...names, name])
     setNewCategoryName('')
   }
 
-  const handleDelete = (index: number) => {
-    if (!confirm(`Delete "${sorted[index].name}"?`)) return
-    const updated = sorted.filter((_, i) => i !== index).map((c, i) => ({ ...c, order: i }))
-    updateCategories.mutate(updated)
+  const move = (index: number, to: number) => {
+    if (to < 0 || to >= names.length) return
+    save(arrayMove(names, index, to))
   }
 
-  const handleMove = (index: number, direction: 'up' | 'down') => {
-    const swapIndex = direction === 'up' ? index - 1 : index + 1
-    if (swapIndex < 0 || swapIndex >= sorted.length) return
-    const updated = [...sorted]
-    ;[updated[index], updated[swapIndex]] = [updated[swapIndex], updated[index]]
-    updateCategories.mutate(updated.map((c, i) => ({ ...c, order: i })))
-  }
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
-  const handleRename = (index: number) => {
-    const name = editName.trim()
-    if (!name) return
-    const updated = sorted.map((c, i) => (i === index ? { ...c, name } : c))
-    updateCategories.mutate(updated)
-    setEditingIndex(null)
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return
+    move(names.indexOf(String(active.id)), names.indexOf(String(over.id)))
   }
 
   return (
-    <div className="min-h-screen bg-cream text-ink">
-      <div className="max-w-lg mx-auto px-4 py-12">
-        <h1 className="text-2xl font-bold mb-8">Settings</h1>
+    <main className="min-h-screen bg-cream text-ink">
+      <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
+        <h1 className="safe-area-top mb-5 text-3xl font-bold tracking-tight sm:mb-6">Settings</h1>
 
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-semibold mb-1">Categories</h2>
-            <p className="text-sm text-ink-muted mb-4">
-              Manage how items are grouped on your shopping lists. Drag to reorder.
-            </p>
+        <section className="max-w-xl">
+          <h2 className="mb-1 text-lg font-semibold">Aisles</h2>
+          <p className="mb-4 text-sm text-ink-muted">
+            Lists are grouped in this order. Put them in the order you walk your shop. Drag the
+            handle or use the arrows.
+          </p>
 
-            {isLoading && (
-              <div className="flex justify-center py-8">
-                <Loader2 className="size-6 animate-spin text-ink-muted" />
-              </div>
-            )}
+          {isLoading && <Loader2 className="mx-auto size-6 animate-spin text-ink-muted" />}
+          {error && <ErrorState error={error} onRetry={() => void refetch()} />}
 
-            {sorted.length > 0 && (
-              <div className="space-y-1 mb-4">
-                {sorted.map((cat, index) => (
-                  <div
-                    key={cat.name}
-                    className="flex items-center gap-2 bg-white border border-line rounded-md px-3 py-2.5 shadow-sm"
-                  >
-                    <GripVertical className="size-4 text-ink-subtle shrink-0" />
-
-                    {editingIndex === index ? (
-                      <form
-                        className="flex-1 flex gap-2"
-                        onSubmit={(e) => {
-                          e.preventDefault()
-                          handleRename(index)
-                        }}
-                      >
-                        <Input
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          className="h-7 bg-cream border-line-strong text-ink text-sm"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') setEditingIndex(null)
-                          }}
-                        />
-                        <Button type="submit" size="sm" className="h-7">
-                          Save
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-ink-muted"
-                          onClick={() => setEditingIndex(null)}
-                        >
-                          <X className="size-3.5" />
-                        </Button>
-                      </form>
-                    ) : (
-                      <>
-                        <span className="flex-1 text-sm">{cat.name}</span>
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => handleMove(index, 'up')}
-                            disabled={index === 0}
-                            className="text-ink-muted hover:text-ink"
-                          >
-                            <ArrowUp className="size-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => handleMove(index, 'down')}
-                            disabled={index === sorted.length - 1}
-                            className="text-ink-muted hover:text-ink"
-                          >
-                            <ArrowDown className="size-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => {
-                              setEditingIndex(index)
-                              setEditName(cat.name)
-                            }}
-                            className="text-ink-muted hover:text-ink"
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => handleDelete(index)}
-                            className="text-slate-500 hover:text-red-400"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={onDragEnd}
+          >
+            <SortableContext items={names} strategy={verticalListSortingStrategy}>
+              <ul className="mb-4 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+                {names.map((name, index) => (
+                  <CategoryRow
+                    key={name}
+                    name={name}
+                    first={index === 0}
+                    last={index === names.length - 1}
+                    editing={editingName === name}
+                    editName={editName}
+                    setEditName={setEditName}
+                    onStartEdit={() => {
+                      setEditingName(name)
+                      setEditName(name)
+                    }}
+                    onCancelEdit={() => setEditingName(null)}
+                    onRename={() => {
+                      const next = editName.trim()
+                      if (next) save(names.map((n) => (n === name ? next : n)))
+                      setEditingName(null)
+                    }}
+                    onUp={() => move(index, index - 1)}
+                    onDown={() => move(index, index + 1)}
+                    onDelete={() => setDeleting(name)}
+                  />
                 ))}
-              </div>
-            )}
+              </ul>
+            </SortableContext>
+          </DndContext>
 
-            {/* Add new category */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                handleAdd()
-              }}
-              className="flex gap-2"
-            >
-              <Input
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="New category name..."
-                className="flex-1 bg-white border-line text-ink placeholder:text-ink-faint"
-              />
-              <Button type="submit" disabled={!newCategoryName.trim() || updateCategories.isPending}>
-                <Plus className="size-4" />
-                Add
-              </Button>
-            </form>
-          </div>
-        </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              handleAdd()
+            }}
+            className="flex gap-2"
+          >
+            <input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="New aisle, e.g. World foods"
+              aria-label="New aisle name"
+              className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-white px-3 text-base outline-none placeholder:text-ink-muted focus:ring-2 focus:ring-ring"
+            />
+            <Button type="submit" disabled={!newCategoryName.trim()} className="min-h-[44px]">
+              <Plus className="size-4" />
+              Add
+            </Button>
+          </form>
+        </section>
       </div>
-    </div>
+
+      <ActionSheet
+        open={deleting != null}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title={`Delete "${deleting ?? ''}"?`}
+        message="Items already in this aisle keep it until you move them."
+        actions={[
+          {
+            label: 'Delete aisle',
+            destructive: true,
+            icon: <Trash2 className="size-5" />,
+            onSelect: () => save(names.filter((n) => n !== deleting)),
+          },
+        ]}
+      />
+    </main>
+  )
+}
+
+function CategoryRow({
+  name,
+  first,
+  last,
+  editing,
+  editName,
+  setEditName,
+  onStartEdit,
+  onCancelEdit,
+  onRename,
+  onUp,
+  onDown,
+  onDelete,
+}: {
+  name: string
+  first: boolean
+  last: boolean
+  editing: boolean
+  editName: string
+  setEditName: (v: string) => void
+  onStartEdit: () => void
+  onCancelEdit: () => void
+  onRename: () => void
+  onUp: () => void
+  onDown: () => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: name })
+  const icon = 'flex size-10 items-center justify-center rounded-lg text-ink-muted hover:bg-sand hover:text-ink disabled:opacity-30'
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={`flex min-h-[52px] items-center gap-1 bg-white px-2 ${isDragging ? 'relative z-10 shadow-lg' : ''}`}
+    >
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        aria-label={`Reorder ${name}`}
+        className="flex size-10 cursor-grab touch-none items-center justify-center text-ink-muted active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-5" />
+      </button>
+
+      {editing ? (
+        <form
+          className="flex flex-1 gap-1"
+          onSubmit={(e) => {
+            e.preventDefault()
+            onRename()
+          }}
+        >
+          <input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            aria-label="Aisle name"
+            autoFocus
+            onKeyDown={(e) => e.key === 'Escape' && onCancelEdit()}
+            className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-cream px-2 text-base outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button type="submit" aria-label="Save name" className={icon}>
+            <Check className="size-4" />
+          </button>
+          <button type="button" aria-label="Cancel" onClick={onCancelEdit} className={icon}>
+            <X className="size-4" />
+          </button>
+        </form>
+      ) : (
+        <>
+          <span className="flex-1 text-base">{name}</span>
+          <button type="button" aria-label={`Move ${name} up`} disabled={first} onClick={onUp} className={icon}>
+            <ArrowUp className="size-4" />
+          </button>
+          <button type="button" aria-label={`Move ${name} down`} disabled={last} onClick={onDown} className={icon}>
+            <ArrowDown className="size-4" />
+          </button>
+          <button type="button" aria-label={`Rename ${name}`} onClick={onStartEdit} className={icon}>
+            <Pencil className="size-4" />
+          </button>
+          <button type="button" aria-label={`Delete ${name}`} onClick={onDelete} className={`${icon} hover:text-danger`}>
+            <Trash2 className="size-4" />
+          </button>
+        </>
+      )}
+    </li>
   )
 }

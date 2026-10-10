@@ -1,68 +1,39 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft,
   ArrowDown,
+  ArrowLeft,
   ArrowUp,
   Check,
-  EyeOff,
-  Eye,
+  ChefHat,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Plus,
   Trash2,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { apiFetch } from '@/lib/api'
+import { ActionSheet } from '@/components/BottomSheet'
+import { AddToListButton } from '@/components/AddToListButton'
+import { ErrorState } from '@/components/ErrorState'
 import { StarRating } from '@/components/StarRating'
 import { RecipeHeroImage, RecipeMetaRow } from '@/components/RecipeMetaRow'
+import { useUndo } from '@/components/UndoToast'
+import { useAddRecipeToList } from '@/hooks/useAddToList'
+import { apiFetch, apiJson } from '@/lib/api'
 import { groupIngredients } from '@/lib/groupIngredients'
-import type { Recipe } from '@/components/RecipeCard'
-import { useWakeLock } from '@/hooks/useWakeLock'
+import { highlightAmounts } from '@/lib/highlightAmounts'
+import { formatQuantity } from '@/lib/parseItems'
+import { useCategories, useRecipe, useUnits } from '@/lib/queries'
+import type { RecipeIngredient, RecipeSummary } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import '@/index.css'
-
-type IngredientRecipe = {
-  name: string
-  unit: string
-  // null when the recipe never gave a quantity — "salt and pepper to taste".
-  amount: number | null
-  // Both set only by a URL import: preparation stripped off the name, and the
-  // heading the line sat under on the source page.
-  note?: string | null
-  group?: string | null
-  category: string
-  excluded_from_list: boolean
-}
 
 // While editing, amount is kept as a raw string so the field can be cleared
 // (otherwise an empty input snaps back to 0 and can't be deleted).
-type EditIngredient = Omit<IngredientRecipe, 'amount'> & { amount: string }
-
-type RecipeDetail = Omit<Recipe, 'ingredients'> & {
-  _id: string
-  rating: number | null
-  created_at: string
-  ingredients: IngredientRecipe[]
-}
-// `Recipe` already carries the import metadata (image_url, times, servings,
-// source), so RecipeDetail inherits it.
-
-type CategoryConfig = {
-  name: string
-  order: number
-}
-
-import { highlightAmounts } from '@/lib/highlightAmounts'
+type EditIngredient = Omit<RecipeIngredient, 'amount'> & { amount: string }
 
 export const Route = createFileRoute('/recipe/$recipeId')({
   component: RecipeDetailPage,
@@ -72,471 +43,434 @@ function RecipeDetailPage() {
   const { recipeId } = Route.useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const showUndo = useUndo()
+  const addRecipeToList = useAddRecipeToList()
   const [editing, setEditing] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editInstructions, setEditInstructions] = useState<string[]>([])
   const [editIngredients, setEditIngredients] = useState<EditIngredient[]>([])
 
-  useWakeLock()
-
-  const { data: recipe, isLoading } = useQuery({
-    queryKey: ['recipe', recipeId],
-    queryFn: async (): Promise<RecipeDetail> => {
-      const res = await apiFetch(`/api/recipes/${recipeId}`)
-      if (!res.ok) throw new Error('Recipe not found')
-      return res.json()
-    },
-  })
-
-  const { data: categories } = useQuery({
-    queryKey: ['categories'],
-    queryFn: async (): Promise<CategoryConfig[]> => {
-      const res = await apiFetch('/api/settings/categories')
-      return res.json()
-    },
-  })
-
-  const { data: units } = useQuery({
-    queryKey: ['units'],
-    queryFn: async (): Promise<string[]> => {
-      const res = await apiFetch('/api/units')
-      return res.json()
-    },
-  })
+  const { data: recipe, isLoading, error, refetch } = useRecipe(recipeId)
+  const { data: categories } = useCategories()
+  const { data: units } = useUnits()
 
   const ratingMutation = useMutation({
-    mutationFn: async (rating: number) => {
-      const res = await apiFetch(`/api/recipes/${recipeId}/rating`, {
+    mutationFn: (rating: number) =>
+      apiJson(`/api/recipes/${recipeId}/rating`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rating }),
-      })
-      return res.json()
-    },
+      }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
-      queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      void queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
   })
 
   const saveRecipe = useMutation({
-    mutationFn: async () => {
-      const res = await apiFetch(`/api/recipes/${recipeId}`, {
+    mutationFn: () =>
+      apiJson(`/api/recipes/${recipeId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: editTitle,
-          instructions: editInstructions,
-          ingredients: editIngredients.map((ing) => ({
-            ...ing,
-            // An empty field means the ingredient has no quantity ("salt, to
-            // taste"), which the API stores as null. Coercing it to 0 here
-            // would overwrite that with a number nobody typed.
-            amount: ing.amount.trim() === '' ? null : parseFloat(ing.amount) || 0,
-          })),
+          instructions: editInstructions.filter((s) => s.trim()),
+          ingredients: editIngredients
+            .filter((ing) => ing.name.trim())
+            .map((ing) => ({
+              ...ing,
+              // An empty field means the ingredient has no quantity ("salt, to
+              // taste"), which the API stores as null. Coercing it to 0 here
+              // would overwrite that with a number nobody typed.
+              amount: ing.amount.trim() === '' ? null : parseFloat(ing.amount) || 0,
+            })),
         }),
-      })
-      return res.json()
-    },
+      }),
     onSuccess: () => {
       setEditing(false)
-      queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
-      queryClient.invalidateQueries({ queryKey: ['recipes'] })
-    },
-  })
-
-  const deleteRecipe = useMutation({
-    mutationFn: async () => {
-      await apiFetch(`/api/recipes/${recipeId}`, { method: 'DELETE' })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['recipes'] })
-      navigate({ to: '/recipes' })
+      void queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
   })
 
   const toggleExclude = useMutation({
-    mutationFn: async ({ index, excluded }: { index: number; excluded: boolean }) => {
-      const res = await apiFetch(
-        `/api/recipes/${recipeId}/ingredients/${index}/exclude`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ excluded }),
-        }
-      )
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
-    },
+    mutationFn: ({ index, excluded }: { index: number; excluded: boolean }) =>
+      apiJson(`/api/recipes/${recipeId}/ingredients/${index}/exclude`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ excluded }),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] }),
   })
+
+  const deleteRecipe = () => {
+    if (!recipe) return
+    queryClient.setQueryData<RecipeSummary[]>(['recipes'], (old) =>
+      old?.filter((r) => r.id !== recipeId),
+    )
+    void navigate({ to: '/recipes' })
+    showUndo({
+      message: `Deleted ${recipe.title}`,
+      onUndo: () => void queryClient.invalidateQueries({ queryKey: ['recipes'] }),
+      onCommit: () =>
+        void apiFetch(`/api/recipes/${recipeId}`, { method: 'DELETE', keepalive: true }).then(() =>
+          queryClient.invalidateQueries({ queryKey: ['recipes'] }),
+        ),
+    })
+  }
 
   const startEditing = () => {
     if (!recipe) return
     setEditTitle(recipe.title)
     setEditInstructions([...recipe.instructions])
     setEditIngredients(
-      recipe.ingredients.map((i) => ({
-        ...i,
-        amount: i.amount == null ? '' : String(i.amount),
-      }))
+      recipe.ingredients.map((i) => ({ ...i, amount: i.amount == null ? '' : String(i.amount) })),
     )
     setEditing(true)
   }
 
-  const cancelEditing = () => {
-    setEditing(false)
-  }
-
-  const sortedCategories = categories
-    ? [...categories].sort((a, b) => a.order - b.order)
-    : []
+  const updateIngredient = (i: number, patch: Partial<EditIngredient>) =>
+    setEditIngredients((prev) => prev.map((ing, idx) => (idx === i ? { ...ing, ...patch } : ing)))
 
   return (
-    <div className="min-h-screen bg-cream text-ink">
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <div className="flex items-center justify-between mb-6">
+    <main className="min-h-screen bg-cream pb-24 text-ink">
+      <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6 sm:py-8">
+        <div className="mb-4 flex items-center justify-between">
           <Link
             to="/recipes"
-            className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink transition-colors"
+            className="-ml-2 flex min-h-[44px] items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
           >
             <ArrowLeft className="size-4" />
-            Back to recipes
+            Recipes
           </Link>
           {recipe && !editing && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={startEditing} className="gap-1.5 border-line text-ink-muted">
-                <Pencil className="size-3.5" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (confirm('Delete this recipe? This cannot be undone.')) {
-                    deleteRecipe.mutate()
-                  }
-                }}
-                disabled={deleteRecipe.isPending}
-                className="gap-1.5 border-slate-700 text-red-400 hover:text-red-300 hover:border-red-400"
-              >
-                <Trash2 className="size-3.5" />
-                Delete
-              </Button>
-            </div>
-          )}
-          {editing && (
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={cancelEditing} className="text-ink-muted">
-                Cancel
-              </Button>
-              <Button size="sm" onClick={() => saveRecipe.mutate()} disabled={saveRecipe.isPending} className="gap-1.5">
-                {saveRecipe.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
-                Save
-              </Button>
-            </div>
+            <button
+              type="button"
+              aria-label="More actions"
+              onClick={() => setMenuOpen(true)}
+              className="flex size-11 items-center justify-center rounded-full text-ink-soft hover:bg-sand hover:text-ink"
+            >
+              <MoreHorizontal className="size-5" />
+            </button>
           )}
         </div>
 
         {isLoading && (
           <div className="flex items-center gap-2 text-ink-muted">
             <Loader2 className="size-5 animate-spin" />
-            Loading recipe...
+            Loading recipe…
           </div>
         )}
 
+        {error && (
+          <ErrorState
+            error={error}
+            onRetry={() => void refetch()}
+            notFoundMessage="This recipe doesn't exist any more. It may have been deleted."
+          />
+        )}
+
         {recipe && (
-          <div className="bg-white border border-line rounded-xl p-6 space-y-5 shadow-sm">
+          <article className="space-y-6">
             {recipe.image_url && !editing && (
               <RecipeHeroImage
                 src={recipe.image_url}
                 alt={recipe.title}
-                className="h-56 sm:h-72 rounded-lg"
+                className="h-56 rounded-2xl sm:h-80"
               />
             )}
 
-            {/* Title */}
-            {editing ? (
-              <Input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                className="text-xl font-semibold bg-cream border-line-strong text-ink h-auto py-2"
-              />
-            ) : (
-              <h2 className="text-xl font-semibold text-ink">{recipe.title}</h2>
-            )}
-
-            {/* Times, servings and attribution — imported recipes only */}
-            {!editing && <RecipeMetaRow recipe={recipe} />}
-
-            {/* Date + Rating */}
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-ink-muted">
-                {recipe.created_at
-                  ? new Date(recipe.created_at).toLocaleDateString()
-                  : ''}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-ink-muted">Rate</span>
-                <StarRating
-                  value={recipe.rating}
-                  onChange={(rating) => ratingMutation.mutate(rating)}
+            <div className="space-y-3">
+              {editing ? (
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  aria-label="Title"
+                  className="h-12 w-full rounded-xl border border-line bg-white px-3 text-xl font-semibold outline-none focus:ring-2 focus:ring-ring"
                 />
-              </div>
+              ) : (
+                <h1 className="text-3xl font-bold tracking-tight">{recipe.title}</h1>
+              )}
+              {!editing && <RecipeMetaRow recipe={recipe} />}
+              {!editing && recipe.created_at && (
+                <p className="text-sm text-ink-muted">
+                  Added{' '}
+                  {new Date(recipe.created_at).toLocaleDateString(undefined, {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </p>
+              )}
             </div>
 
+            {!editing && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  to="/cook/$recipeId"
+                  params={{ recipeId }}
+                  className="flex min-h-[48px] items-center gap-2 rounded-xl bg-ink px-5 text-base font-semibold text-white shadow-sm hover:bg-ink/90"
+                >
+                  <ChefHat className="size-5" />
+                  Cook
+                </Link>
+                <AddToListButton
+                  className="min-h-[48px]"
+                  onAdd={(list) => addRecipeToList(recipeId, recipe.title, list)}
+                />
+                <div className="flex items-center gap-1 sm:ml-auto">
+                  <span className="text-sm text-ink-muted">Your rating</span>
+                  <StarRating
+                    value={recipe.rating}
+                    label="Your rating"
+                    onChange={(rating) => ratingMutation.mutate(rating)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-start">
               {/* Ingredients */}
-              <div>
-                <h3 className="text-xs font-semibold text-ink-muted uppercase tracking-wider mb-3">
-                  Ingredients
-                </h3>
+              <section className="rounded-2xl border border-line bg-white p-4 shadow-sm sm:p-5">
+                <h2 className="text-lg font-semibold">Ingredients</h2>
                 {editing ? (
-                  <div className="space-y-3">
+                  <div className="mt-3 space-y-3">
+                    <datalist id="unit-options">
+                      {(units ?? []).concat(['to taste', 'whole', 'pinch']).map((u) => (
+                        <option key={u} value={u} />
+                      ))}
+                    </datalist>
                     {editIngredients.map((ing, i) => (
-                      <div
-                        key={i}
-                        className="rounded-lg border border-line-strong bg-cream p-3 space-y-2"
-                      >
-                        {/* Row 1: name + delete */}
+                      <div key={i} className="space-y-2 rounded-xl bg-cream p-3">
                         <div className="flex items-center gap-2">
-                          <Input
+                          <input
                             value={ing.name}
-                            onChange={(e) => {
-                              const updated = [...editIngredients]
-                              updated[i] = { ...updated[i], name: e.target.value }
-                              setEditIngredients(updated)
-                            }}
-                            placeholder="Ingredient name"
-                            className="flex-1 h-10 bg-white border-line-strong text-ink text-sm"
+                            onChange={(e) => updateIngredient(i, { name: e.target.value })}
+                            placeholder="Ingredient"
+                            aria-label="Ingredient name"
+                            className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                           />
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() =>
-                              setEditIngredients(editIngredients.filter((_, idx) => idx !== i))
-                            }
-                            aria-label="Remove ingredient"
-                            className="shrink-0 size-10 text-slate-500 hover:text-red-400"
+                          <button
+                            type="button"
+                            onClick={() => setEditIngredients(editIngredients.filter((_, idx) => idx !== i))}
+                            aria-label={`Remove ${ing.name || 'ingredient'}`}
+                            className="flex size-11 shrink-0 items-center justify-center rounded-lg text-ink-muted hover:bg-white hover:text-danger"
                           >
-                            <Trash2 className="size-4" />
-                          </Button>
+                            <X className="size-4" />
+                          </button>
                         </div>
-                        {/* Row 2: amount + unit + category (wraps on narrow screens) */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Input
-                            type="text"
+                        <div className="flex flex-wrap gap-2">
+                          <input
                             inputMode="decimal"
                             value={ing.amount}
                             onChange={(e) => {
                               const v = e.target.value
-                              // Allow an empty field and partial decimals while typing.
-                              if (v !== '' && !/^\d*\.?\d*$/.test(v)) return
-                              const updated = [...editIngredients]
-                              updated[i] = { ...updated[i], amount: v }
-                              setEditIngredients(updated)
+                              if (v === '' || /^\d*\.?\d*$/.test(v)) updateIngredient(i, { amount: v })
                             }}
                             placeholder="Qty"
-                            className="w-20 h-10 bg-white border-line-strong text-ink text-sm"
+                            aria-label="Quantity"
+                            className="h-11 w-20 rounded-lg border border-line bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                           />
-                          <Select
+                          <input
+                            list="unit-options"
                             value={ing.unit}
-                            onValueChange={(val) => {
-                              const updated = [...editIngredients]
-                              updated[i] = { ...updated[i], unit: val }
-                              setEditIngredients(updated)
-                            }}
-                          >
-                            <SelectTrigger className="flex-1 min-w-[7rem] h-10 bg-white border-line-strong text-ink text-sm">
-                              <SelectValue placeholder="Unit" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {units?.map((u) => (
-                                <SelectItem key={u} value={u}>{u}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Select
+                            onChange={(e) => updateIngredient(i, { unit: e.target.value })}
+                            placeholder="Unit"
+                            aria-label="Unit"
+                            className="h-11 w-28 rounded-lg border border-line bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                          />
+                          <select
                             value={ing.category}
-                            onValueChange={(val) => {
-                              const updated = [...editIngredients]
-                              updated[i] = { ...updated[i], category: val }
-                              setEditIngredients(updated)
-                            }}
+                            onChange={(e) => updateIngredient(i, { category: e.target.value })}
+                            aria-label="Aisle"
+                            className="h-11 min-w-0 flex-1 rounded-lg border border-line bg-white px-2 text-sm"
                           >
-                            <SelectTrigger className="flex-1 min-w-[8rem] h-10 bg-white border-line-strong text-ink text-sm">
-                              <SelectValue placeholder="Category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {sortedCategories.map((c) => (
-                                <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            {(categories ?? []).map((c) => (
+                              <option key={c.name} value={c.name}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                     ))}
                     <Button
                       variant="ghost"
-                      size="sm"
                       onClick={() =>
                         setEditIngredients([
                           ...editIngredients,
                           { name: '', unit: '', amount: '', category: 'Other', excluded_from_list: false },
                         ])
                       }
-                      className="gap-1.5 text-ink-muted hover:text-ink"
+                      className="min-h-[44px] text-ink-soft"
                     >
-                      <Plus className="size-3.5" />
+                      <Plus className="size-4" />
                       Add ingredient
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {groupIngredients(recipe.ingredients).map((group) => (
-                      <div key={group.heading || 'ungrouped'}>
-                        {group.heading && (
-                          <h4 className="text-xs font-medium text-ink-soft mb-2">
-                            {group.heading}
-                          </h4>
-                        )}
-                        <ul className="space-y-1.5">
-                          {group.items.map(({ ingredient: ing, index }) => (
-                            <li
-                              key={index}
-                              className={`text-sm flex items-center gap-2 ${
-                                ing.excluded_from_list ? 'opacity-40' : 'text-ink-soft'
-                              }`}
-                            >
-                              <span className="flex-1">
-                                {ing.name}
-                                {ing.note && (
-                                  <span className="text-ink-faint">, {ing.note}</span>
-                                )}
-                              </span>
-                              <span className="text-ink font-medium shrink-0">
-                                {ing.amount == null
-                                  ? ing.unit
-                                  : `${ing.amount} ${ing.unit}`}
-                              </span>
-                              <button
-                                onClick={() =>
-                                  toggleExclude.mutate({
-                                    index,
-                                    excluded: !ing.excluded_from_list,
-                                  })
-                                }
-                                className="shrink-0 text-ink-faint hover:text-ink-muted transition-colors cursor-pointer"
-                                title={ing.excluded_from_list ? 'Include in shopping list' : 'Exclude from shopping list'}
-                              >
-                                {ing.excluded_from_list ? (
-                                  <EyeOff className="size-3.5" />
-                                ) : (
-                                  <Eye className="size-3.5" />
-                                )}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Instructions */}
-              <div>
-                <h3 className="text-xs font-semibold text-ink-muted uppercase tracking-wider mb-3">
-                  Instructions
-                </h3>
-                {editing ? (
-                  <div className="space-y-2">
-                    {editInstructions.map((step, i) => (
-                      <div
-                        key={i}
-                        className="rounded-lg border border-line-strong bg-cream p-3 space-y-2"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span className="text-ink-faint font-mono text-sm pt-2.5 shrink-0">{i + 1}.</span>
-                          <textarea
-                            value={step}
-                            onChange={(e) => {
-                              const updated = [...editInstructions]
-                              updated[i] = e.target.value
-                              setEditInstructions(updated)
-                            }}
-                            rows={3}
-                            className="flex-1 min-w-0 bg-white border border-line-strong rounded-md px-3 py-2 text-sm text-ink resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-                          />
+                  <>
+                    <p className="mb-3 mt-1 text-sm text-ink-muted">
+                      Turn off anything you always have, like salt. It won't go on shopping lists.
+                    </p>
+                    <div className="space-y-4">
+                      {groupIngredients(recipe.ingredients).map((group) => (
+                        <div key={group.heading || 'ungrouped'}>
+                          {group.heading && (
+                            <h3 className="mb-1 text-sm font-semibold text-ink-soft">{group.heading}</h3>
+                          )}
+                          <ul className="divide-y divide-line">
+                            {group.items.map(({ ingredient: ing, index }) => (
+                              <li key={index} className="flex items-center gap-3 py-2">
+                                <span className={cn('min-w-0 flex-1', ing.excluded_from_list && 'text-ink-muted')}>
+                                  {ing.name}
+                                  {ing.note && <span className="text-ink-muted">, {ing.note}</span>}
+                                </span>
+                                <span className="shrink-0 text-sm font-medium tabular-nums">
+                                  {formatQuantity(ing.amount, ing.unit || null)}
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-pressed={!ing.excluded_from_list}
+                                  aria-label={`${ing.name}: ${ing.excluded_from_list ? 'not on shopping lists' : 'on shopping lists'}`}
+                                  onClick={() =>
+                                    toggleExclude.mutate({ index, excluded: !ing.excluded_from_list })
+                                  }
+                                  className={cn(
+                                    'min-h-[36px] shrink-0 rounded-full border px-2.5 text-xs font-medium',
+                                    ing.excluded_from_list
+                                      ? 'border-line text-ink-muted'
+                                      : 'border-transparent bg-[#fdf6e3] text-[#7a5a12]',
+                                  )}
+                                >
+                                  {ing.excluded_from_list ? 'Not on list' : 'On list'}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                        {/* Reorder / remove controls */}
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => {
-                              if (i === 0) return
-                              const updated = [...editInstructions]
-                              ;[updated[i - 1], updated[i]] = [updated[i], updated[i - 1]]
-                              setEditInstructions(updated)
-                            }}
+                      ))}
+                    </div>
+                  </>
+                )}
+              </section>
+
+              {/* Method */}
+              <section className="rounded-2xl border border-line bg-white p-4 shadow-sm sm:p-5">
+                <h2 className="mb-3 text-lg font-semibold">Method</h2>
+                {editing ? (
+                  <div className="space-y-3">
+                    {editInstructions.map((step, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="pt-2.5 text-sm font-semibold text-ink-muted">{i + 1}</span>
+                        <textarea
+                          value={step}
+                          onChange={(e) =>
+                            setEditInstructions(editInstructions.map((s, idx) => (idx === i ? e.target.value : s)))
+                          }
+                          rows={3}
+                          aria-label={`Step ${i + 1}`}
+                          className="min-w-0 flex-1 resize-y rounded-lg border border-line bg-cream px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        />
+                        <div className="flex flex-col">
+                          <button
+                            type="button"
+                            aria-label={`Move step ${i + 1} up`}
                             disabled={i === 0}
-                            aria-label="Move step up"
-                            className="size-9 text-ink-faint hover:text-ink"
+                            onClick={() => {
+                              const u = [...editInstructions]
+                              ;[u[i - 1], u[i]] = [u[i], u[i - 1]]
+                              setEditInstructions(u)
+                            }}
+                            className="flex size-9 items-center justify-center rounded-lg text-ink-muted hover:bg-sand disabled:opacity-30"
                           >
                             <ArrowUp className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => {
-                              if (i === editInstructions.length - 1) return
-                              const updated = [...editInstructions]
-                              ;[updated[i], updated[i + 1]] = [updated[i + 1], updated[i]]
-                              setEditInstructions(updated)
-                            }}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Move step ${i + 1} down`}
                             disabled={i === editInstructions.length - 1}
-                            aria-label="Move step down"
-                            className="size-9 text-ink-faint hover:text-ink"
+                            onClick={() => {
+                              const u = [...editInstructions]
+                              ;[u[i], u[i + 1]] = [u[i + 1], u[i]]
+                              setEditInstructions(u)
+                            }}
+                            className="flex size-9 items-center justify-center rounded-lg text-ink-muted hover:bg-sand disabled:opacity-30"
                           >
                             <ArrowDown className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Remove step ${i + 1}`}
                             onClick={() => setEditInstructions(editInstructions.filter((_, idx) => idx !== i))}
-                            aria-label="Remove step"
-                            className="size-9 text-slate-500 hover:text-red-400"
+                            className="flex size-9 items-center justify-center rounded-lg text-ink-muted hover:bg-sand hover:text-danger"
                           >
                             <X className="size-4" />
-                          </Button>
+                          </button>
                         </div>
                       </div>
                     ))}
                     <Button
                       variant="ghost"
-                      size="sm"
                       onClick={() => setEditInstructions([...editInstructions, ''])}
-                      className="gap-1.5 text-ink-muted hover:text-ink"
+                      className="min-h-[44px] text-ink-soft"
                     >
-                      <Plus className="size-3.5" />
+                      <Plus className="size-4" />
                       Add step
                     </Button>
                   </div>
                 ) : (
-                  <ol className="space-y-2.5">
+                  <ol className="space-y-4">
                     {recipe.instructions.map((step, i) => (
-                      <li key={i} className="text-sm text-ink-soft flex gap-3">
-                        <span className="text-ink-faint font-mono shrink-0 pt-px">{i + 1}.</span>
-                        <span>{highlightAmounts(step)}</span>
+                      <li key={i} className="flex gap-3">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-cream text-sm font-semibold text-ink-soft">
+                          {i + 1}
+                        </span>
+                        <span className="pt-0.5 leading-relaxed text-ink-soft">{highlightAmounts(step)}</span>
                       </li>
                     ))}
                   </ol>
                 )}
-              </div>
-          </div>
+              </section>
+            </div>
+          </article>
         )}
       </div>
-    </div>
+
+      {/* Save / Cancel stay in reach however far down the edit goes. */}
+      {editing && (
+        <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:bottom-0">
+          <div className="mx-auto flex max-w-5xl justify-end gap-2">
+            <Button variant="ghost" onClick={() => setEditing(false)} className="min-h-[44px] text-ink-soft">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => saveRecipe.mutate()}
+              disabled={saveRecipe.isPending}
+              className="min-h-[44px] px-6 font-semibold"
+            >
+              {saveRecipe.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+              Save
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <ActionSheet
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        title={recipe?.title ?? ''}
+        actions={[
+          { label: 'Edit recipe', icon: <Pencil className="size-5 text-ink-muted" />, onSelect: startEditing },
+          {
+            label: 'Delete recipe',
+            destructive: true,
+            icon: <Trash2 className="size-5" />,
+            onSelect: deleteRecipe,
+          },
+        ]}
+      />
+    </main>
   )
 }

@@ -11,7 +11,7 @@ This directory is the maintained source for verifying Omlete's user-facing behav
 
 ## Driving conventions
 
-- Every UI action goes through `$V browse <path> [steps]`. Start from a nav path (`/`, `/recipes`, `/create`, `/settings`) and click through, rather than deep-linking an id, unless the recipe says otherwise.
+- Every UI action goes through `$V browse <path> [steps]`. Start from a nav path (`/`, `/discover`, `/recipes`, `/create`, `/settings`) and click through, rather than deep-linking an id, unless the recipe says otherwise.
 - Prefer `--click-link` / `--click-button` / `--fill` (ARIA role and accessible name, or placeholder). Use `--click-sel` / `--fill-sel` only where a control has no accessible name; each feature file says where.
 - For mutations, follow the UI run with a read-only API check (`curl -s http://127.0.0.1:8000/api/...`).
 
@@ -28,7 +28,10 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 
 ## Features
 
-- [Recipe library](./recipes.md): list, open, rate, edit and delete saved recipes. No API key needed.
-- [Shopping lists](./shopping-lists.md): create a list, quick-add items (auto-categorised), view by category. No key is needed for seeded item names.
-- [Settings: categories](./settings-categories.md): add, rename, reorder and delete shopping categories. No API key needed.
-- [AI recipe creation](./ai-recipe-creation.md): generate from ingredients, extract from photos, import from a URL. **Needs real keys.**
+The app is organised by the four modes in `docs/PRINCIPLES.md` (Explore, Plan, Shop, Cook), plus Home and Settings.
+
+- [Shopping lists](./shopping-lists.md): Home (`/`: Cook from your list, Lists, Chef's picks) plus Plan and Shop. Create a list, quick-add and paste items, edit in a sheet, delete with Undo, shop offline. No key needed.
+- [Discover and Cook](./discover-cook.md): Chef's suggestion cards (save, add to list, dismiss) and step-by-step cooking with timers and a rating. Refresh needs real keys.
+- [Recipe library](./recipes.md): search, open, rate, add to a list, edit and delete recipes. No API key needed.
+- [Settings: aisles](./settings-categories.md): add, rename, reorder and delete aisles. No API key needed.
+- [Add a recipe](./ai-recipe-creation.md): one field for a link or a description, or photos. **Needs real keys.**

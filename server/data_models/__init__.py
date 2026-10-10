@@ -82,3 +82,32 @@ class UserSettingsDocument(Document):
 
     class Settings:
         name = "user_settings"
+
+
+class SuggestionDocument(Document):
+    """A Discover card: an idea that is not a recipe yet.
+
+    Kept apart from RecipeDocument so the feed can be filled by anything that
+    produces a title and a reason (the suggest endpoint now, an agent doing
+    web searches later) without the UI changing. Saving one turns it into a
+    recipe in the background and records the result in `recipe_id`.
+    """
+
+    title: str
+    description: Optional[str] = None
+    reason: Optional[str] = None
+    image_url: Optional[str] = None
+    source_url: Optional[str] = None
+    source_name: Optional[str] = None
+    total_minutes: Optional[int] = None
+    section: Optional[str] = None
+    # new -> saving -> saved, or failed; dismissed is "Not for me" (a taste
+    # signal); cleared is hidden by Clear and says nothing about taste.
+    status: str = "new"
+    origin: str = "suggest"
+    recipe_id: Optional[str] = None
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "suggestions"

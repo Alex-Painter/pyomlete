@@ -12,7 +12,13 @@ from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, TypeAdapter
 
-from data_models import IngredientDocument, ListDocument, RecipeDocument, UserSettingsDocument
+from data_models import (
+    IngredientDocument,
+    ListDocument,
+    RecipeDocument,
+    SuggestionDocument,
+    UserSettingsDocument,
+)
 from lib.db import get_motor_client, vo
 from beanie.operators import In
 from data_models import CategoryConfig, ItemSource, ListItem
@@ -34,6 +40,12 @@ from lib.types import (
     RecipePrompt,
     RecipeUpdateRequest,
     SuggestMealsRequest,
+    SuggestedMeals,
+    SuggestionRefreshRequest,
+    SuggestionSaveRequest,
+    SuggestionStatusUpdate,
+    SuggestionsClearRequest,
+    SuggestionsCreateRequest,
 )
 from ingredient_structurer import structure_ingredients
 from recipe_import import BlockedURL, FetchFailed, ScrapedRecipe, fetch_page, scrape
@@ -49,13 +61,22 @@ recipeSchema = transform_schema(recipeSchema)
 suggestionsSchema = TypeAdapter(MealSuggestions).json_schema()
 suggestionsSchema = transform_schema(suggestionsSchema)
 
+suggestedMealsSchema = TypeAdapter(SuggestedMeals).json_schema()
+suggestedMealsSchema = transform_schema(suggestedMealsSchema)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     client = get_motor_client()
     await init_beanie(
         database=client["omlete"],
-        document_models=[IngredientDocument, RecipeDocument, ListDocument, UserSettingsDocument],
+        document_models=[
+            IngredientDocument,
+            RecipeDocument,
+            ListDocument,
+            UserSettingsDocument,
+            SuggestionDocument,
+        ],
     )
     yield
     client.close()
@@ -690,13 +711,25 @@ async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
     if body.recipe_id in lst.recipes:
         raise HTTPException(status_code=400, detail="Recipe already on this list")
 
-    lst.recipes.append(body.recipe_id)
+    await _add_recipe(lst, recipe)
+    return {
+        "id": str(lst.id),
+        "name": lst.name,
+        "recipes": lst.recipes,
+        "items": [item.model_dump() for item in lst.items],
+    }
+
+
+async def _add_recipe(lst: ListDocument, recipe: RecipeDocument) -> None:
+    """Put a recipe's ingredients on a list and save it."""
+    recipe_id = str(recipe.id)
+    lst.recipes.append(recipe_id)
 
     # Merge recipe ingredients into list items (skip excluded)
     for ing in recipe.ingredients:
         if ing.excluded_from_list:
             continue
-        source = ItemSource(recipe_id=body.recipe_id, amount=ing.amount)
+        source = ItemSource(recipe_id=recipe_id, amount=ing.amount)
         # Find existing item with same name + unit (case-insensitive name, exact unit)
         matched = None
         for item in lst.items:
@@ -717,12 +750,6 @@ async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
             ))
 
     await lst.save()
-    return {
-        "id": str(lst.id),
-        "name": lst.name,
-        "recipes": lst.recipes,
-        "items": [item.model_dump() for item in lst.items],
-    }
 
 
 @router.delete("/lists/{list_id}/recipes/{recipe_id}")
@@ -763,12 +790,18 @@ async def add_item(list_id: PydanticObjectId, body: ItemCreateRequest):
     lst = await ListDocument.get(list_id)
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
+    if body.id:
+        existing = next((i for i in lst.items if i.id == body.id), None)
+        if existing:
+            # A retried offline add. It already landed; don't add it twice.
+            return existing.model_dump()
     item = ListItem(
         name=body.name,
         amount=body.amount,
         unit=body.unit,
         category=body.category,
         sources=[ItemSource(recipe_id=None, amount=body.amount)],
+        **({"id": body.id} if body.id else {}),
     )
     lst.items.append(item)
     await lst.save()
@@ -808,9 +841,10 @@ async def update_item(list_id: PydanticObjectId, item_id: str, body: ItemUpdateR
         if item.id == item_id:
             if body.name is not None:
                 item.name = body.name
-            if body.amount is not None:
+            # amount and unit can be cleared, so an explicit null counts.
+            if "amount" in body.model_fields_set:
                 item.amount = body.amount
-            if body.unit is not None:
+            if "unit" in body.model_fields_set:
                 item.unit = body.unit
             if body.category is not None:
                 item.category = body.category
@@ -832,6 +866,245 @@ async def delete_item(list_id: PydanticObjectId, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     await lst.save()
     return {"ok": True}
+
+
+
+# --- Discover suggestions ---
+# Omlete's driving principle is "eat better and reduce cognitive load"
+# (docs/PRINCIPLES.md). Suggestions are the "variety comes to you" half: an
+# agent (or /refresh) drops cards here from the user's taste, so finding
+# something new to cook takes no searching.
+#
+# A suggestion is a card, not a recipe: a title, a reason it suits you, and
+# optionally a photo and a source link. Anything can produce them. Today
+# POST /suggestions/refresh asks Claude using your ratings and lists; later a
+# web-searching agent can POST /suggestions/ with the same shape and the
+# Discover screen won't need to change.
+
+# Strong references so background saves aren't garbage-collected mid-flight.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _suggestion_out(s: SuggestionDocument) -> dict:
+    return {
+        "id": str(s.id),
+        "title": s.title,
+        "description": s.description,
+        "reason": s.reason,
+        "image_url": s.image_url,
+        "source_url": s.source_url,
+        "source_name": s.source_name,
+        "total_minutes": s.total_minutes,
+        "section": s.section,
+        "status": s.status,
+        "origin": s.origin,
+        "recipe_id": s.recipe_id,
+        "error": s.error,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+    }
+
+
+async def _get_suggestion(suggestion_id: PydanticObjectId) -> SuggestionDocument:
+    s = await SuggestionDocument.get(suggestion_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    return s
+
+
+# "dismissed" is "Not for me", a taste signal Chef learns from. "cleared" is
+# just tidying the feed: hidden, but it says nothing about what you like.
+HIDDEN_SUGGESTION_STATUSES = ("dismissed", "cleared")
+
+
+@router.get("/suggestions/")
+async def list_suggestions():
+    suggestions = (
+        await SuggestionDocument.find({"status": {"$nin": list(HIDDEN_SUGGESTION_STATUSES)}})
+        .sort("-created_at")
+        .limit(60)
+        .to_list()
+    )
+    return [_suggestion_out(s) for s in suggestions]
+
+
+@router.post("/suggestions/")
+async def create_suggestions(body: SuggestionsCreateRequest):
+    """Ingest suggestion records from any producer, such as an agent."""
+    docs = [SuggestionDocument(**s.model_dump()) for s in body.suggestions]
+    # One at a time so each document gets its id back for the response.
+    for d in docs:
+        await d.insert()
+    return [_suggestion_out(d) for d in docs]
+
+
+async def _taste_profile() -> str:
+    """What we know about this household's taste, as prompt text.
+
+    Every signal the UI collects ends up here: star ratings (including the
+    "How was it?" at the end of Cook), "Not for me" on Discover cards, and
+    what's on the latest shopping list.
+    """
+    lines: list[str] = []
+    rated = await RecipeDocument.find(RecipeDocument.rating != None).to_list()  # noqa: E711
+    liked = [f"{r.title} ({r.rating} stars)" for r in rated if (r.rating or 0) >= 4]
+    disliked = [f"{r.title} ({r.rating} stars)" for r in rated if (r.rating or 0) <= 2]
+    if liked:
+        lines.append("They loved: " + "; ".join(liked[:15]) + ".")
+    if disliked:
+        lines.append("They didn't enjoy: " + "; ".join(disliked[:10]) + ".")
+
+    dismissed = (
+        await SuggestionDocument.find(SuggestionDocument.status == "dismissed")
+        .sort("-created_at")
+        .limit(20)
+        .to_list()
+    )
+    if dismissed:
+        lines.append(
+            "They said 'not for me' to: " + "; ".join(d.title for d in dismissed) + "."
+        )
+
+    latest = await ListDocument.find_all().sort("-created_at").limit(1).to_list()
+    if latest:
+        on_list = [i.name for i in latest[0].items if not i.checked][:30]
+        if on_list:
+            lines.append("On their current shopping list: " + ", ".join(on_list) + ".")
+
+    return " ".join(lines) or "No taste signals yet."
+
+
+@router.post("/suggestions/refresh")
+async def refresh_suggestions(req: SuggestionRefreshRequest):
+    constraints: list[str] = []
+    if req.diet and req.diet.lower() != "any":
+        constraints.append(f"Dietary preference: {req.diet}.")
+    if req.ease and req.ease.lower() != "any":
+        constraints.append(f"Effort level: {req.ease} to cook.")
+    if req.notes and req.notes.strip():
+        constraints.append(f"Additional notes from the user: {req.notes.strip()}")
+
+    library = await RecipeDocument.find_all().to_list()
+    shown = (
+        await SuggestionDocument.find_all().sort("-created_at").limit(60).to_list()
+    )
+    avoid = [r.title for r in library] + [s.title for s in shown]
+
+    prompt = (
+        "You are a professional chef helping a home cook discover new things to make. "
+        "Suggest 6 distinct dinner ideas: two 'For this week', two 'Under 30 minutes' "
+        "and two 'Something new' that stretch their usual cooking. For each, give a "
+        "short title, one appetising sentence, a rough total time in minutes, and a "
+        "reason it suits them that a person would find specific and true, grounded in "
+        f"the signals below.\n\nTaste signals: {await _taste_profile()}\n"
+        f"Constraints: {' '.join(constraints) or 'None.'}\n"
+        + (f"Do NOT suggest any of these, they already have or saw them: {'; '.join(avoid[:80])}.\n" if avoid else "")
+        + "Output the ideas in the given JSON format."
+    )
+
+    message = await async_claude.beta.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+        output_config={"format": {"type": "json_schema", "schema": suggestedMealsSchema}},
+    )
+    ideas = SuggestedMeals.model_validate_json(message.content[0].text)
+    docs = [
+        SuggestionDocument(
+            title=i.title,
+            description=i.description,
+            reason=i.reason,
+            total_minutes=i.total_minutes,
+            section=i.section,
+            origin="suggest",
+        )
+        for i in ideas.suggestions
+    ]
+    # One at a time so each document gets its id back for the response.
+    for d in docs:
+        await d.insert()
+    return [_suggestion_out(d) for d in docs]
+
+
+@router.post("/suggestions/clear")
+async def clear_suggestions(body: SuggestionsClearRequest):
+    """Hide these cards (or every visible card) without counting it against them."""
+    query: dict = {"status": {"$in": ["new", "saved", "failed"]}}
+    if body.ids is not None:
+        query["_id"] = {"$in": [PydanticObjectId(i) for i in body.ids]}
+    result = await SuggestionDocument.find(query).update({"$set": {"status": "cleared"}})
+    return {"cleared": getattr(result, "modified_count", 0)}
+
+
+@router.patch("/suggestions/{suggestion_id}")
+async def update_suggestion(suggestion_id: PydanticObjectId, body: SuggestionStatusUpdate):
+    s = await _get_suggestion(suggestion_id)
+    s.status = body.status
+    await s.save()
+    return _suggestion_out(s)
+
+
+async def _add_recipe_to_list_id(list_id: str, recipe: RecipeDocument) -> None:
+    lst = await ListDocument.get(PydanticObjectId(list_id))
+    if lst and str(recipe.id) not in lst.recipes:
+        await _add_recipe(lst, recipe)
+
+
+async def _realise_suggestion(suggestion_id: PydanticObjectId, list_id: str | None) -> None:
+    """Turn a suggestion into a saved recipe, off the request path."""
+    s = await SuggestionDocument.get(suggestion_id)
+    if not s:
+        return
+    try:
+        recipe: RecipeDocument | None = None
+        if s.source_url:
+            try:
+                recipe = await import_recipe_from_url(ImportFromUrlRequest(url=s.source_url))
+            except HTTPException as exc:
+                if exc.status_code != 409:
+                    raise
+                recipe = await RecipeDocument.get(PydanticObjectId(exc.detail["recipe_id"]))
+        else:
+            prompt = f"Create a recipe for: {s.title}. {s.description or ''}".strip()
+            recipe = await create_recipe(RecipePrompt(prompt=prompt))
+        if recipe is None:
+            raise RuntimeError("No recipe came back")
+
+        s.recipe_id = str(recipe.id)
+        s.status = "saved"
+        s.error = None
+        await s.save()
+        if list_id:
+            await _add_recipe_to_list_id(list_id, recipe)
+    except Exception as exc:  # surfaced on the card, so the user can retry
+        s.status = "failed"
+        s.error = (exc.detail if isinstance(exc, HTTPException) else str(exc))
+        s.error = str(s.error)[:200]
+        await s.save()
+
+
+@router.post("/suggestions/{suggestion_id}/save")
+async def save_suggestion(suggestion_id: PydanticObjectId, body: SuggestionSaveRequest):
+    """Save a card as a recipe. Returns at once; the recipe fills in after.
+
+    With `list_id`, the recipe also goes on that list once it exists.
+    """
+    s = await _get_suggestion(suggestion_id)
+
+    if s.status == "saved" and s.recipe_id:
+        if body.list_id:
+            recipe = await RecipeDocument.get(PydanticObjectId(s.recipe_id))
+            if recipe:
+                await _add_recipe_to_list_id(body.list_id, recipe)
+        return _suggestion_out(s)
+
+    if s.status != "saving":
+        s.status = "saving"
+        s.error = None
+        await s.save()
+        task = asyncio.create_task(_realise_suggestion(s.id, body.list_id))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    return _suggestion_out(s)
 
 
 app.include_router(router)

@@ -130,6 +130,10 @@ class ExcludeUpdateRequest(BaseModel):
 
 
 class ItemCreateRequest(BaseModel):
+    # Optional client-chosen id. The list screen shows a new item before the
+    # server answers, and a phone in a shop with no signal queues the add; a
+    # stable id lets the retry land once instead of twice.
+    id: Optional[str] = None
     name: str
     amount: Optional[float] = None
     unit: Optional[str] = None
@@ -168,3 +172,66 @@ class CategorizeRequest(BaseModel):
 
 class CategorizeResponse(BaseModel):
     category: str
+
+
+# --- Discover suggestions ---
+
+
+class SuggestedMeal(BaseModel):
+    """One idea as the model returns it for the Discover feed."""
+
+    title: str
+    description: str = Field(
+        description="One short, appetising sentence describing the meal."
+    )
+    reason: str = Field(
+        description="Why this suits this household, in under 12 words, e.g. 'Because you rated Shakshuka 4 stars' or 'Uses the spinach on your list'."
+    )
+    total_minutes: int = Field(description="Rough total cooking time in minutes.")
+    section: str = Field(
+        description="One of: 'For this week', 'Under 30 minutes', 'Something new'."
+    )
+
+
+class SuggestedMeals(BaseModel):
+    suggestions: list[SuggestedMeal]
+
+
+class SuggestionCreate(BaseModel):
+    """A suggestion record from any producer: the suggest endpoint today, a
+    web-searching agent later. Only title is required."""
+
+    title: str
+    description: Optional[str] = None
+    reason: Optional[str] = None
+    image_url: Optional[str] = None
+    source_url: Optional[str] = None
+    source_name: Optional[str] = None
+    total_minutes: Optional[int] = None
+    section: Optional[str] = None
+    origin: str = "agent"
+
+
+class SuggestionsCreateRequest(BaseModel):
+    suggestions: list[SuggestionCreate]
+
+
+class SuggestionRefreshRequest(BaseModel):
+    diet: Optional[str] = None
+    ease: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SuggestionStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(new|dismissed|cleared)$")
+
+
+class SuggestionsClearRequest(BaseModel):
+    # None clears every visible card; a list clears just those (what the
+    # person saw when they tapped Clear, so newer cards survive).
+    ids: Optional[list[str]] = None
+
+
+class SuggestionSaveRequest(BaseModel):
+    # Also put the recipe on this list once it exists.
+    list_id: Optional[str] = None

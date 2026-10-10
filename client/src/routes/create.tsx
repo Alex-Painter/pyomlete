@@ -1,464 +1,264 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  AlertCircle,
-  ImageIcon,
-  Link2,
-  Loader2,
-  Plus,
-  Trash2,
-  UploadCloud,
-  X,
-} from 'lucide-react'
+import { AlertCircle, Camera, ImagePlus, Loader2, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { AddToListButton } from '@/components/AddToListButton'
+import { PageHeader } from '@/components/PageHeader'
 import { RecipeCard } from '@/components/RecipeCard'
 import type { Recipe } from '@/components/RecipeCard'
-import { ApiError, apiFetch, apiJson } from '@/lib/api'
+import { useAddRecipeToList } from '@/hooks/useAddToList'
+import { ApiError, apiJson } from '@/lib/api'
 import '@/index.css'
 
 export const Route = createFileRoute('/create')({ component: CreatePage })
 
-type Tab = 'link' | 'generate' | 'extract'
+type Saved = Recipe & { _id?: string; id?: string }
 
-const TAB_LABELS: Record<Tab, string> = {
-  link: 'From link',
-  generate: 'Generate',
-  extract: 'Extract from Images',
-}
+type Kind = 'link' | 'describe' | 'photos'
 
-function CreatePage() {
-  // Pasting a link is the most common way people acquire a recipe, so it leads.
-  const [tab, setTab] = useState<Tab>('link')
+const LOOKS_LIKE_URL = /^https?:\/\/\S+\.\S+$/
 
-  return (
-    <div className="min-h-screen bg-cream text-ink">
-      <div className="max-w-2xl mx-auto px-4 py-12">
-        <h1 className="text-2xl font-bold mb-2">Create Recipe</h1>
-        <p className="text-ink-muted mb-8">
-          Import a recipe from a link, or make one with AI
-        </p>
-
-        <div className="flex flex-wrap gap-1 p-1 bg-mist rounded-lg mb-8 w-fit">
-          {(['link', 'generate', 'extract'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${tab === t
-                  ? 'bg-white text-ink shadow-sm'
-                  : 'text-ink-muted hover:text-ink-soft'
-                }`}
-            >
-              {TAB_LABELS[t]}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'link' && <LinkTab />}
-        {tab === 'generate' && <GenerateTab />}
-        {tab === 'extract' && <ExtractTab />}
-      </div>
-    </div>
-  )
-}
-
-type ImportedRecipe = Recipe & { _id: string }
-
-// The two stages the server runs, in order. We can't observe the handover — the
-// request is a single round trip — so the copy advances on a timer sized to a
-// typical scrape. It tells the user what is happening, not when it happened.
-const SORTING_COPY_DELAY_MS = 2500
-
-type ImportPhase = 'reading' | 'sorting'
-
-function importErrorMessage(error: Error): string {
-  if (!(error instanceof ApiError)) {
-    return 'Could not reach Omlete. Check your connection and try again.'
+function errorMessage(kind: Kind, error: Error): string {
+  if (!(error instanceof ApiError)) return "Couldn't reach Omlete. Check your connection and try again."
+  if (kind === 'link') {
+    switch (error.status) {
+      case 400:
+        return "That link can't be fetched. Check it's a full, public recipe URL."
+      case 404:
+        return "Couldn't find a recipe on that page. Try the recipe's own page rather than a listing or a video."
+      case 502:
+        return "That site didn't respond. It may be down or blocking us. Try again in a minute."
+    }
   }
-
-  switch (error.status) {
-    case 400:
-      return "That link can't be fetched. Check it's a full, public recipe URL."
-    case 404:
-      return "Couldn't find a recipe on that page. Try the recipe's own page rather than a listing or a video."
-    case 502:
-      return "That site didn't respond. It may be down or blocking us — try again in a minute."
-    default:
-      return 'Something went wrong importing that link. Try again.'
-  }
+  return 'Something went wrong making that recipe. Try again.'
 }
 
 /** A 409 carries the id of the recipe imported from this URL the first time. */
 function alreadyImportedId(error: Error | null): string | null {
   if (!(error instanceof ApiError) || error.status !== 409) return null
-  const detail = error.detail as { recipe_id?: string } | null
-  return detail?.recipe_id ?? null
+  return (error.detail as { recipe_id?: string } | null)?.recipe_id ?? null
 }
 
-function LinkTab() {
-  const queryClient = useQueryClient()
-  const [url, setUrl] = useState('')
-  const [phase, setPhase] = useState<ImportPhase>('reading')
+const PROGRESS: Record<Kind, string[]> = {
+  link: ['Reading the page…', 'Sorting the ingredients…'],
+  describe: ['Writing the recipe…', 'Matching ingredients…'],
+  photos: ['Reading your photos…', 'Writing it up…'],
+}
 
-  const { mutate, data, isPending, error, reset } = useMutation<
-    ImportedRecipe,
-    Error,
-    string
-  >({
-    mutationFn: async (target) => {
-      setPhase('reading')
-      const advance = setTimeout(() => setPhase('sorting'), SORTING_COPY_DELAY_MS)
+/**
+ * Add a recipe from one field: paste a link, describe a dish or what's in
+ * the fridge, or add photos of a recipe. It ends on the saved recipe with
+ * "Add to list" and "Open", so the next step is one tap.
+ */
+function CreatePage() {
+  const queryClient = useQueryClient()
+  const addRecipeToList = useAddRecipeToList()
+  const [text, setText] = useState('')
+  const [photos, setPhotos] = useState<File[]>([])
+  const [previews, setPreviews] = useState<string[]>([])
+  const [phase, setPhase] = useState(0)
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const libraryRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const urls = photos.map((f) => URL.createObjectURL(f))
+    setPreviews(urls)
+    return () => urls.forEach((u) => URL.revokeObjectURL(u))
+  }, [photos])
+
+  const trimmed = text.trim()
+  const kind: Kind = photos.length > 0 ? 'photos' : LOOKS_LIKE_URL.test(trimmed) ? 'link' : 'describe'
+
+  const create = useMutation<Saved, Error, Kind>({
+    mutationFn: async (k) => {
+      setPhase(0)
+      const advance = setTimeout(() => setPhase(1), 2500)
       try {
-        return await apiJson<ImportedRecipe>('/api/recipes/import-from-url/', {
+        if (k === 'link') {
+          return await apiJson<Saved>('/api/recipes/import-from-url/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: trimmed }),
+          })
+        }
+        if (k === 'describe') {
+          return await apiJson<Saved>('/api/recipes/generate/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: trimmed }),
+          })
+        }
+        const form = new FormData()
+        photos.forEach((f) => form.append('files', f))
+        form.append('group_sizes', String(photos.length))
+        const recipes = await apiJson<Saved[]>('/api/recipes/extract-from-images/', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: target }),
+          body: form,
         })
+        if (recipes.length === 0) throw new Error('No recipe found in those photos')
+        return recipes[0]
       } finally {
         clearTimeout(advance)
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes'] })
+      setText('')
+      setPhotos([])
     },
   })
 
-  const trimmed = url.trim()
-  const looksLikeUrl = /^https?:\/\/\S+\.\S+/.test(trimmed)
-  const duplicateId = alreadyImportedId(error)
+  const canSubmit = !create.isPending && (photos.length > 0 || trimmed.length > 2)
+  const duplicateId = alreadyImportedId(create.error)
+  const saved = create.data
+  const savedId = saved?._id ?? saved?.id
 
-  const submit = () => {
-    if (!looksLikeUrl || isPending) return
-    mutate(trimmed)
-  }
+  const label =
+    kind === 'photos'
+      ? `Read ${photos.length} photo${photos.length === 1 ? '' : 's'}`
+      : kind === 'link'
+        ? 'Import recipe'
+        : 'Create recipe'
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <label htmlFor="import-url" className="text-sm font-medium text-ink-soft">
-          Paste a recipe link
-        </label>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Link2 className="size-4 text-ink-faint absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+    <main className="min-h-screen bg-cream text-ink">
+      <div className="mx-auto max-w-2xl px-4 pt-3 pb-6 sm:py-10">
+        <PageHeader title="Add a recipe" subtitle="Paste a link, describe a dish, or snap a recipe." />
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (canSubmit) create.mutate(kind)
+          }}
+          className="space-y-3"
+        >
+          <textarea
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value)
+              if (create.error || create.data) create.reset()
+            }}
+            rows={3}
+            disabled={create.isPending || photos.length > 0}
+            aria-label="Recipe link or description"
+            placeholder={'https://www.bbcgoodfood.com/recipes/…\nor: something warming with the leeks and potatoes I have'}
+            className="w-full resize-none rounded-2xl border border-line bg-white px-4 py-3 text-base shadow-sm outline-none placeholder:text-ink-muted focus:ring-2 focus:ring-ring disabled:opacity-60"
+          />
+
+          {previews.length > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {previews.map((src, i) => (
+                <li key={src} className="relative">
+                  <img src={src} alt={`Photo ${i + 1}`} className="size-20 rounded-xl object-cover" />
+                  <button
+                    type="button"
+                    aria-label={`Remove photo ${i + 1}`}
+                    onClick={() => setPhotos(photos.filter((_, idx) => idx !== i))}
+                    className="absolute -right-2 -top-2 flex size-7 items-center justify-center rounded-full bg-ink text-white shadow"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
             <input
-              id="import-url"
-              type="url"
-              inputMode="url"
-              value={url}
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
               onChange={(e) => {
-                setUrl(e.target.value)
-                if (error || data) reset()
+                setPhotos((p) => [...p, ...Array.from(e.target.files ?? [])])
+                e.target.value = ''
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit()
-              }}
-              placeholder="https://www.bbcgoodfood.com/recipes/..."
-              disabled={isPending}
-              className="w-full bg-white border border-line rounded-lg pl-9 pr-4 py-3 text-sm text-ink placeholder-ink-faint focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
             />
+            <input
+              ref={libraryRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                setPhotos((p) => [...p, ...Array.from(e.target.files ?? [])])
+                e.target.value = ''
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              disabled={create.isPending}
+              className="flex min-h-[44px] items-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-medium text-ink-soft hover:bg-sand"
+            >
+              <Camera className="size-4" />
+              Take photo
+            </button>
+            <button
+              type="button"
+              onClick={() => libraryRef.current?.click()}
+              disabled={create.isPending}
+              className="flex min-h-[44px] items-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-medium text-ink-soft hover:bg-sand"
+            >
+              <ImagePlus className="size-4" />
+              Choose photos
+            </button>
+            <div className="flex-1" />
+            <Button type="submit" disabled={!canSubmit} className="min-h-[44px] px-5 font-semibold">
+              {create.isPending ? <Loader2 className="animate-spin" /> : <Sparkles className="size-4" />}
+              {label}
+            </Button>
           </div>
-          <Button onClick={submit} disabled={isPending || !looksLikeUrl}>
-            {isPending ? <Loader2 className="animate-spin" /> : 'Import'}
-          </Button>
-        </div>
-        {trimmed !== '' && !looksLikeUrl && (
-          <p className="text-xs text-ink-muted">
-            That doesn't look like a link — it should start with https://
+          {photos.length > 1 && (
+            <p className="text-sm text-ink-muted">Several photos are read as one recipe, e.g. two pages of a cookbook.</p>
+          )}
+        </form>
+
+        {create.isPending && (
+          <p role="status" className="mt-6 flex items-center gap-2.5 text-ink-muted">
+            <Loader2 className="size-4 animate-spin" />
+            {PROGRESS[kind][phase]}
           </p>
         )}
-      </div>
 
-      {isPending && (
-        <div className="flex items-center gap-2.5 text-sm text-ink-muted">
-          <Loader2 className="size-4 animate-spin shrink-0" />
-          {phase === 'reading'
-            ? 'Reading the page…'
-            : 'Sorting the ingredients…'}
-        </div>
-      )}
-
-      {duplicateId && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-line bg-white p-4 text-sm">
-          <AlertCircle className="size-4 text-ink-muted shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="text-ink-soft">You've already imported that link.</p>
-            <Link
-              to="/recipe/$recipeId"
-              params={{ recipeId: duplicateId }}
-              className="text-ink font-medium underline underline-offset-4 hover:text-ink-soft"
-            >
-              Open the recipe
-            </Link>
+        {duplicateId && (
+          <div className="mt-6 flex items-start gap-2.5 rounded-xl border border-line bg-white p-4">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-ink-muted" />
+            <p>
+              You've already saved that one.{' '}
+              <Link to="/recipe/$recipeId" params={{ recipeId: duplicateId }} className="font-semibold underline underline-offset-4">
+                Open it
+              </Link>
+            </p>
           </div>
-        </div>
-      )}
-
-      {error && !duplicateId && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-line bg-white p-4 text-sm">
-          <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-ink-soft">{importErrorMessage(error)}</p>
-        </div>
-      )}
-
-      {data && (
-        <div className="space-y-3">
-          <RecipeCard recipe={data} />
-          <Link
-            to="/recipe/$recipeId"
-            params={{ recipeId: data._id }}
-            className="inline-block text-sm text-ink-soft hover:text-ink underline underline-offset-4"
-          >
-            Open in your recipes
-          </Link>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function GenerateTab() {
-  const [prompt, setPrompt] = useState('')
-
-  const { mutate, data, isPending } = useMutation({
-    mutationFn: async (p: string): Promise<Recipe> => {
-      const res = await apiFetch('/api/recipes/generate/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: p }),
-      })
-      return res.json()
-    },
-  })
-
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-ink-soft">
-          What ingredients do you have?
-        </label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. eggs, crème fraîche, salt, pepper, chives..."
-          rows={3}
-          className="w-full bg-white border border-line rounded-lg px-4 py-3 text-sm text-ink placeholder-ink-faint focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-        />
-      </div>
-
-      <Button onClick={() => mutate(prompt)} disabled={isPending || !prompt.trim()}>
-        {isPending ? (
-          <>
-            <Loader2 className="animate-spin" />
-            Generating...
-          </>
-        ) : (
-          'Generate Recipe'
         )}
-      </Button>
 
-      {data && <RecipeCard recipe={data} />}
-    </div>
-  )
-}
+        {create.error && !duplicateId && (
+          <div role="alert" className="mt-6 flex items-start gap-2.5 rounded-xl border border-line bg-white p-4">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-danger" />
+            <p className="text-ink-soft">{errorMessage(create.variables, create.error)}</p>
+          </div>
+        )}
 
-type RecipeGroup = {
-  id: string
-  files: File[]
-}
-
-function ExtractTab() {
-  const [groups, setGroups] = useState<RecipeGroup[]>([])
-  const [results, setResults] = useState<Recipe[]>([])
-  const [isExtracting, setIsExtracting] = useState(false)
-  const [progress, setProgress] = useState<number>(0)
-
-  const addGroup = () => {
-    setGroups((prev) => [...prev, { id: crypto.randomUUID(), files: [] }])
-  }
-
-  const removeGroup = (groupId: string) => {
-    setGroups((prev) => prev.filter((g) => g.id !== groupId))
-  }
-
-  const addFilesToGroup = (groupId: string, newFiles: File[]) => {
-    setGroups((prev) =>
-      prev.map((g) => (g.id === groupId ? { ...g, files: [...g.files, ...newFiles] } : g))
-    )
-  }
-
-  const removeFileFromGroup = (groupId: string, fileIndex: number) => {
-    setGroups((prev) =>
-      prev.map((g) =>
-        g.id === groupId ? { ...g, files: g.files.filter((_, i) => i !== fileIndex) } : g
-      )
-    )
-  }
-
-  const totalFiles = groups.reduce((sum, g) => sum + g.files.length, 0)
-
-  const handleExtract = async () => {
-    if (groups.length === 0 || totalFiles === 0) return
-    setIsExtracting(true)
-    setResults([])
-    setProgress(0)
-
-    for (let i = 0; i < groups.length; i++) {
-      const group = groups[i]
-      if (group.files.length === 0) continue
-      setProgress(i + 1)
-
-      const form = new FormData()
-      group.files.forEach((f) => form.append('files', f))
-      form.append('group_sizes', String(group.files.length))
-
-      try {
-        const res = await apiFetch('/api/recipes/extract-from-images/', {
-          method: 'POST',
-          body: form,
-        })
-        const recipes: Recipe[] = await res.json()
-        setResults((prev) => [...prev, ...recipes])
-      } catch {
-        // Continue with next group on error
-      }
-    }
-
-    setIsExtracting(false)
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Recipe groups */}
-      {groups.map((group, groupIndex) => (
-        <RecipeGroupRow
-          key={group.id}
-          index={groupIndex}
-          group={group}
-          onAddFiles={(files) => addFilesToGroup(group.id, files)}
-          onRemoveFile={(fileIndex) => removeFileFromGroup(group.id, fileIndex)}
-          onRemoveGroup={() => removeGroup(group.id)}
-          disabled={isExtracting}
-        />
-      ))}
-
-      {/* Add recipe button */}
-      <button
-        onClick={addGroup}
-        disabled={isExtracting}
-        className="w-full border-2 border-dashed border-line rounded-xl p-6 flex items-center justify-center gap-2 text-ink-muted hover:border-primary hover:text-ink-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <Plus className="size-5" />
-        <span className="text-sm font-medium">Add Recipe</span>
-      </button>
-
-      {/* Extract button */}
-      {groups.length > 0 && (
-        <Button
-          onClick={handleExtract}
-          disabled={isExtracting || totalFiles === 0}
-          className="w-full"
-        >
-          {isExtracting ? (
-            <>
-              <Loader2 className="animate-spin" />
-              Extracting recipe {progress} of {groups.length}...
-            </>
-          ) : (
-            `Create ${groups.length} Recipe${groups.length !== 1 ? 's' : ''}`
-          )}
-        </Button>
-      )}
-
-      {/* Results */}
-      {results.length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-ink-muted">
-            Extracted {results.length} recipe{results.length !== 1 ? 's' : ''}
-          </h3>
-          {results.map((recipe, i) => (
-            <RecipeCard key={i} recipe={recipe} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RecipeGroupRow({
-  index,
-  group,
-  onAddFiles,
-  onRemoveFile,
-  onRemoveGroup,
-  disabled,
-}: {
-  index: number
-  group: RecipeGroup
-  onAddFiles: (files: File[]) => void
-  onRemoveFile: (fileIndex: number) => void
-  onRemoveGroup: () => void
-  disabled: boolean
-}) {
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  return (
-    <div className="bg-white border border-line rounded-lg p-4 space-y-3 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Recipe {index + 1}</h3>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={onRemoveGroup}
-          disabled={disabled}
-          className="text-slate-500 hover:text-red-400"
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
-
-      {/* Photo thumbnails */}
-      {group.files.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {group.files.map((f, i) => (
-            <div
-              key={i}
-              className="relative group bg-cream rounded-md px-3 py-2 flex items-center gap-2"
-            >
-              <ImageIcon className="size-4 text-ink-muted shrink-0" />
-              <span className="text-xs text-ink-soft truncate max-w-[120px]">{f.name}</span>
-              <button
-                onClick={() => onRemoveFile(i)}
-                disabled={disabled}
-                className="text-ink-faint hover:text-ink-muted cursor-pointer"
+        {saved && savedId && (
+          <div className="mt-8 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="mr-auto font-semibold text-success">Saved to your recipes</p>
+              <AddToListButton onAdd={(list) => addRecipeToList(savedId, saved.title, list)} />
+              <Link
+                to="/recipe/$recipeId"
+                params={{ recipeId: savedId }}
+                className="flex min-h-[44px] items-center rounded-lg border border-line bg-white px-4 font-medium hover:bg-sand"
               >
-                <X className="size-3.5" />
-              </button>
+                Open
+              </Link>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Add photos button */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          onAddFiles(Array.from(e.target.files ?? []))
-          e.target.value = ''
-        }}
-      />
-      <button
-        onClick={() => inputRef.current?.click()}
-        disabled={disabled}
-        className="flex items-center gap-2 text-sm text-ink-muted hover:text-ink-soft transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <UploadCloud className="size-4" />
-        Add photos
-      </button>
-    </div>
+            <RecipeCard recipe={saved} />
+          </div>
+        )}
+      </div>
+    </main>
   )
 }
