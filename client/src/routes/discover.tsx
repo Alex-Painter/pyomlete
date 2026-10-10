@@ -93,12 +93,12 @@ function DiscoverPage() {
           title="Discover"
           subtitle="New things to cook, picked for you by Chef."
           actions={
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center">
               {visible.length > 0 && (
                 <button
                   type="button"
                   onClick={() => clear(visible)}
-                  className="min-h-[44px] rounded-full px-3 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
+                  className="min-h-[44px] rounded-full px-2 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
                 >
                   Clear all
                 </button>
