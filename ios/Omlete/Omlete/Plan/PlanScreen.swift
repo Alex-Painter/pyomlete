@@ -34,8 +34,11 @@ struct PlanScreen: View {
                 items(of: list, in: store)
             }
         }
-        .undoBanner(isCovered: navigation.shopping != nil)
-        .task { await store.refresh() }
+        .undoBanner(isCovered: navigation.immersive != nil)
+        .task {
+            library.markCurrent(listID)
+            await store.refresh()
+        }
     }
 
     private func items(of list: ListDetail, in store: ListStore) -> some View {
@@ -51,7 +54,11 @@ struct PlanScreen: View {
 
             if !meals.isEmpty {
                 Section("Meals (\(meals.count))") {
-                    MealsStrip(meals: meals) { store.removeMeal($0.id, title: $0.title) }
+                    MealsStrip(meals: meals) {
+                        store.removeMeal($0.id, title: $0.title)
+                    } onCook: {
+                        navigation.startCooking($0.id)
+                    }
                         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                 }
             }

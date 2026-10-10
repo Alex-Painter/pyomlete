@@ -35,7 +35,7 @@ struct ShopScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Leave shopping mode", systemImage: "xmark") { navigation.leaveShopping() }
+                    Button("Leave shopping mode", systemImage: "xmark") { navigation.leaveImmersive() }
                         .accessibilityIdentifier("shop.closeButton")
                 }
                 if let pill = store.syncStatus.pillText {
