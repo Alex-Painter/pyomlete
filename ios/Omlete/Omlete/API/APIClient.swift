@@ -149,19 +149,30 @@ nonisolated struct APIClient: Sendable {
     /// Sends a job's start, which the server answers at once and is safe to
     /// send again: the key in the path is the job. Never throws.
     func startRecipe(_ request: RecipeRequest, as job: RecipeJob) async -> RecipeStart {
-        do throws(APIError) {
+        do {
             let upload = try Wire.jobStart(request, key: job.key)
-            let answer = try await exchange("PUT", upload.path, body: upload.body, contentType: upload.contentType)
+            let answer = try await transmit("PUT", upload.path, body: upload.body, contentType: upload.contentType)
             switch answer.status {
             case 200..<300: return .taken
             case 429: return .refused(.busy)
             case 408, 500...: return .unanswered(.serverTrouble)
             default: return .refused(.other)
             }
+        } catch is APIError {
+            return .refused(.other)
+        } catch let error as URLError where Self.neverLeft.contains(error.code) {
+            return .notSent
         } catch {
-            return error == .unreachable ? .unanswered(.noConnection) : .refused(.other)
+            return .unanswered(.noConnection)
         }
     }
+
+    /// Failures that happen before a request can reach a server, so it cannot
+    /// have been acted on. A timeout or a dropped connection is not one of them.
+    private static let neverLeft: Set<URLError.Code> = [
+        .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .dataNotAllowed,
+        .internationalRoamingOff,
+    ]
 
     /// Asks how a job stands. Never throws, and only a clear answer is a
     /// verdict: a fault or a body this build cannot read is `.unanswered`. A
@@ -232,7 +243,22 @@ nonisolated struct APIClient: Sendable {
         _ method: String, _ path: String, body: Data? = nil, contentType: String = Wire.json,
         patience: Patience = .quick
     ) async throws(APIError) -> (status: Int, data: Data) {
-        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw .rejected(400) }
+        do {
+            return try await transmit(method, path, body: body, contentType: contentType, patience: patience)
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw .unreachable
+        }
+    }
+
+    /// `exchange` with the transport's own error left as it is, for the one
+    /// caller that tells a request that never left from one never answered.
+    private func transmit(
+        _ method: String, _ path: String, body: Data? = nil, contentType: String = Wire.json,
+        patience: Patience = .quick
+    ) async throws -> (status: Int, data: Data) {
+        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw APIError.rejected(400) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         if patience == .slow { request.timeoutInterval = Self.slowTimeout }
@@ -240,12 +266,8 @@ nonisolated struct APIClient: Sendable {
             request.httpBody = body
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        do {
-            let (data, response) = try await transport.send(request)
-            return (response.statusCode, data)
-        } catch {
-            throw .unreachable
-        }
+        let (data, response) = try await transport.send(request)
+        return (response.statusCode, data)
     }
 
     private func decode<Value>(_ parse: (Data) throws -> Value, from data: Data) throws(APIError) -> Value {

@@ -95,6 +95,10 @@ struct IntakeDependencies {
     @ObservationIgnored private var polling: Task<Void, Never>?
     /// Tries unanswered in a row.
     @ObservationIgnored private var misses = 0
+    /// A start for the outstanding job may have reached the server. False only
+    /// from a tap until a start goes unanswered: a job restored at launch may
+    /// have been sent by the app that was killed.
+    @ObservationIgnored private var startMayHaveArrived = false
 
     /// Restores an outstanding job and sends nothing: `resume()` does that,
     /// when the scene becomes active.
@@ -106,6 +110,7 @@ struct IntakeDependencies {
         else { return }
         text = outstanding.text
         phase = .working(outstanding.job, .inTouch)
+        startMayHaveArrived = true
     }
 
     var isWorking: Bool {
@@ -161,6 +166,7 @@ struct IntakeDependencies {
         let outstanding = Outstanding(job: job, text: text, server: deps.api.baseURL)
         deps.defaults.set(try? JSONEncoder().encode(outstanding), forKey: Self.jobKey)
         phase = .working(job, .inTouch)
+        startMayHaveArrived = false
         follow(job, first: .send)
     }
 
@@ -214,13 +220,21 @@ struct IntakeDependencies {
         let canStillStart = abs(deps.now().timeIntervalSince(job.startedAt)) <= Self.startWindow
         switch reply {
         case .start(.taken):
+            startMayHaveArrived = true
             inTouch(about: job)
             return (.ask, nil)
         case .start(.refused(let failure)):
             end(.failed(failure))
             return nil
+        case .start(.notSent) where !startMayHaveArrived:
+            // Nothing has left the phone for this job, so there is nothing to wait for: say so at once.
+            end(.failed(.unreachable))
+            return nil
+        case .start(.notSent):
+            return missed(.noConnection, about: job, next: canStillStart ? .send : .ask)
         case .start(.unanswered(let silence)):
             // It may have arrived, so past the window the job is asked after, not written off.
+            startMayHaveArrived = true
             return missed(silence, about: job, next: canStillStart ? .send : .ask)
         case .check(.working):
             inTouch(about: job)

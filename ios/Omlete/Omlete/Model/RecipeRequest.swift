@@ -102,6 +102,8 @@ nonisolated enum RecipeStart: Equatable, Sendable {
     case refused(RecipeCreation.Failure)
     /// It may or may not have arrived. Sending it again is safe.
     case unanswered(Silence)
+    /// It never left the phone: there is no network, or no server at that address.
+    case notSent
 }
 
 /// One look at a job.

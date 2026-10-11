@@ -397,6 +397,24 @@ class TestStartingAJob:
         assert jobs == {}
         claude.beta.messages.tool_runner.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "files",
+        [
+            [("files", ("page.jpg", b"", "image/jpeg"))],
+            [("files", ("notes.txt", b"not a photo", "text/plain"))],
+        ],
+        ids=["empty", "not an image"],
+    )
+    async def test_a_photo_that_is_empty_or_not_an_image_starts_nothing(self, api, jobs, files):
+        claude = model_answering(SOUP)
+
+        with a_model(async_claude=claude):
+            response = await api.put(f"/api/recipe-jobs/{KEY}/photos", files=files)
+
+        assert response.status_code == 422
+        assert jobs == {}
+        claude.beta.messages.tool_runner.assert_not_called()
+
     async def test_photos_at_the_bounds_are_taken(self, api):
         with a_model():
             job = await finished(api, await api.put(

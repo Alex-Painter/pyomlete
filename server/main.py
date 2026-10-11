@@ -1268,6 +1268,10 @@ async def _run_recipe_job(
     except asyncio.CancelledError:
         # The server is shutting down, and waits for this job to be written off.
         end = _JOB_FAILED
+    except TimeoutError:
+        # The time limit, which is an expected ending and not a crash.
+        logger.warning("Recipe job %s ran past its time limit", job.id)
+        end = _JOB_FAILED
     except Exception:
         # Nobody is waiting on this request, so the log is the only trace.
         logger.exception("Recipe job %s failed", job.id)
@@ -1357,11 +1361,17 @@ async def start_photos_job(key: UUID, files: list[UploadFile], response: Respons
     )
     if len(files) > MAX_JOB_PHOTOS:
         raise too_much
+    not_photos = HTTPException(status_code=422, detail="Send at least one photo, each an image.")
+    if not files:
+        raise not_photos
     images = []
     for file in files:
         data = await file.read(MAX_JOB_PHOTO_BYTES + 1)
         if len(data) > MAX_JOB_PHOTO_BYTES:
             raise too_much
+        # Checked here, before a job exists: a model asked to read nothing invents a recipe.
+        if not data or not (file.content_type or "").startswith("image/"):
+            raise not_photos
         images.append(RecipeImage(file.content_type, data))
 
     async def make() -> RecipeDocument:

@@ -158,9 +158,15 @@ import UniformTypeIdentifiers
         (404, .refused(.other)),
     ])
     func onlyAnAnswerThatRefusesTheJobIsARefusal(status: Int?, expected: RecipeStart) async {
-        transport.reply = { _ in status.map { .status($0) } ?? .unreachable }
+        transport.reply = { _ in status.map { .status($0) } ?? .lost }
 
         #expect(await api.startRecipe(.describe("leek and potato soup"), as: job(.describe)) == expected)
+    }
+
+    @Test func aStartThatNeverLeftThePhoneIsToldApartFromOneThatWasNotAnswered() async {
+        transport.reply = { _ in .unreachable }
+
+        #expect(await api.startRecipe(.describe("leek and potato soup"), as: job(.describe)) == .notSent)
     }
 
     @Test(arguments: [

@@ -212,6 +212,8 @@ import Testing
             /// The job is made and the phone never hears.
             case takenButTheAnswerIsLost
             case neverArrives
+            /// The phone has no network, so the start never leaves it.
+            case noSignal
             case answers(Int)
         }
 
@@ -228,12 +230,13 @@ import Testing
             let key = path[2]
             switch (call.method, start) {
             case ("GET", _): return made.contains(key) ? job : .status(404, #"{"detail":"Recipe job not found"}"#)
-            case (_, .neverArrives): return .unreachable
+            case (_, .neverArrives): return .lost
+            case (_, .noSignal): return .unreachable
             case (_, .answers(let status)): return .status(status)
             case (_, .taken), (_, .takenButTheAnswerIsLost):
                 let isNew = !made.contains(key)
                 if isNew { made.append(key) }
-                if case .takenButTheAnswerIsLost = start { return .unreachable }
+                if case .takenButTheAnswerIsLost = start { return .lost }
                 return .status(isNew ? 202 : 200, RecipeIntakeTests.working)
             }
         }
@@ -408,6 +411,31 @@ import Testing
         intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page 3".utf8)))
         #expect(intake.canSubmit)
         #expect(intake.submitLabel == "Read 2 photos")
+    }
+
+    @Test func aTapWithNoSignalSaysSoAtOnceAndKeepsWhatWasTyped() async {
+        server.start = .noSignal
+        intake.edit("https://example.com/traybake")
+        intake.submit()
+
+        await eventually { !intake.isWorking }
+
+        #expect(intake.phase == .finished(.failed(.unreachable)))
+        #expect(intake.text == "https://example.com/traybake")
+        #expect(intake.canSubmit)
+        #expect(phone.transport.calls == [startLink])
+        #expect(server.made.isEmpty)
+    }
+
+    @Test func losingSignalAfterAStartMayHaveArrivedKeepsWaitingForThatJob() async {
+        server.start = .neverArrives
+        await startALinkJob()
+
+        server.start = .noSignal
+        await nextTry()
+
+        #expect(intake.isWorking)
+        #expect(intake.phase == .working(job, .lost(.noConnection)))
     }
 
     @Test func aStartThatIsNotAnsweredIsSentAgainUnderTheSameKeyUntilItIs() async {
