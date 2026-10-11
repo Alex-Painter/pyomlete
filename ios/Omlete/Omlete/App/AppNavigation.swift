@@ -50,8 +50,10 @@ enum Immersive: Hashable, Identifiable {
     /// The list on screen, or under Cook, if any.
     var openList: ListID? {
         if let shopping { return shopping }
-        if case .plan(let id) = self[tab].last { return id }
-        return nil
+        // Whichever tab is showing: a Plan left open under another tab still wants refreshing.
+        return paths.values.lazy.compactMap { path -> ListID? in
+            if case .plan(let id) = path.last { id } else { nil }
+        }.first
     }
 
     func startShopping(_ id: ListID) {

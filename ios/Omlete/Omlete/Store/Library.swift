@@ -92,7 +92,7 @@ struct CookShelf: Equatable {
     func markCurrent(_ id: ListID) {
         guard index.currentList != id else { return }
         index.currentList = id
-        if hasLoaded { save() }
+        save()
     }
 
     /// A meal's title and picture: from the recipe cache, else the title the lists endpoint gave.
@@ -138,8 +138,7 @@ struct CookShelf: Equatable {
             index.deletingRecipes.formIntersection(recipes.map(\.id))
         }
         if case .success(let units) = await units { index.units = units }
-        // A saved index is what says the lists were loaded once, so a first load that failed must not write one.
-        if hasLoaded { save() }
+        save()
     }
 
     func newList() async throws(APIError) -> ListID {
@@ -190,6 +189,8 @@ struct CookShelf: Equatable {
         }
         if let existing { return ListRef(id: existing.id, name: existing.name) }
         if case .list = target { throw .rejected(404) }
+        // Not knowing the lists is not the same as having none.
+        if target == .current, !hasLoaded { throw .unreachable }
         let created = try await startList()
         return ListRef(id: created.id, name: created.name)
     }
@@ -220,8 +221,9 @@ struct CookShelf: Equatable {
         if case .saved(let recipe) = outcome {
             index.recipes.removeAll { $0.id == recipe.id }
             index.recipes.insert(recipe.summary, at: 0)
-            if hasLoaded { save() }
+            save()
         }
+        if outcome == .failed(.noAnswer) { await refresh() }
         return outcome
     }
 
@@ -288,7 +290,9 @@ struct CookShelf: Equatable {
         ListStore(replica: replica, deps: deps, aisleOrder: { [weak self] in self?.index.aisleOrder ?? [] })
     }
 
+    /// A saved index is what says the lists were loaded once, so nothing is written until they have been.
     private func save() {
+        guard hasLoaded else { return }
         deps.disk.save(index)
     }
 

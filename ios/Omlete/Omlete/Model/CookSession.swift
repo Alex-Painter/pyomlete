@@ -109,6 +109,12 @@ nonisolated struct CookSession: Codable, Equatable, Sendable {
         if servings.base != fresh.baseServings { servings = Servings(base: fresh.baseServings) }
     }
 
+    /// Safe mid-cook: the flag is about shopping lists and changes nothing being cooked.
+    mutating func setOnList(_ index: Int, _ onList: Bool) {
+        guard recipe.ingredients.indices.contains(index) else { return }
+        recipe.ingredients[index].isOnList = onList
+    }
+
     /// Called when Cook is opened. Resumes the step, servings and timers, unless
     /// the last cook was finished or went quiet more than `resumeWindow` ago;
     /// then it starts over from the overview and drops ended timers.

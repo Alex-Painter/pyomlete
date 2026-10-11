@@ -58,7 +58,7 @@ struct DiscoverScreen: View {
         .refreshable { chef.findIdeas() }
         .task { await chef.load() }
         .sheet(isPresented: $isTuning) {
-            TuneSheet(settings: chef.tune) { chef.findIdeas(tuned: $0) }
+            TuneSheet(settings: chef.tune, isBusy: chef.isFindingIdeas) { chef.findIdeas(tuned: $0) }
         }
     }
 

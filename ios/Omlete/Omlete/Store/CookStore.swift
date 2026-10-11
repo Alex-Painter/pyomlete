@@ -139,12 +139,12 @@ struct RatingView: Equatable {
 
     @discardableResult
     private func flip(_ index: Int, to onList: Bool) -> Bool {
-        guard var recipe = latest ?? record?.session.recipe, recipe.ingredients.indices.contains(index),
-              recipe.ingredients[index].isOnList != onList
+        guard let shown = latest ?? record?.session.recipe, shown.ingredients.indices.contains(index),
+              shown.ingredients[index].isOnList != onList
         else { return false }
-        recipe.ingredients[index].isOnList = onList
-        latest = recipe
-        mutate { $0.session.adopt(recipe) }
+        // Only the flag, on each copy: adopting a whole recipe here would take its rating too.
+        if latest?.ingredients.indices.contains(index) == true { latest?.ingredients[index].isOnList = onList }
+        mutate { $0.session.setOnList(index, onList) }
         return true
     }
 

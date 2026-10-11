@@ -139,7 +139,8 @@ nonisolated enum Wire {
     static let json = "application/json"
 
     fileprivate static func source(_ name: String?, _ url: String?) -> RecipeSource? {
-        let url = url.flatMap(URL.init(string:))
+        // Cards come from any producer, so only a web page is ever made tappable.
+        let url = url.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased()) ? $0 : nil }
         guard name != nil || url != nil else { return nil }
         return RecipeSource(name: name ?? "Source", url: url)
     }

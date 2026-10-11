@@ -50,6 +50,8 @@ nonisolated enum RecipeCreation: Equatable, Sendable {
 
     enum Failure: Equatable, Sendable {
         case unreachable
+        /// The request went out and no answer came back. The server may still make the recipe.
+        case noAnswer
         case linkBlocked
         case noRecipeOnPage
         case siteDidNotRespond
@@ -58,6 +60,7 @@ nonisolated enum RecipeCreation: Equatable, Sendable {
         var message: String {
             switch self {
             case .unreachable: "Couldn't reach Omlete. Check your connection and try again."
+            case .noAnswer: "Omlete didn't answer in time. The recipe may still be on its way, so check Recipes before trying again."
             case .linkBlocked: "That link can't be fetched. Check it's a full, public recipe URL."
             case .noRecipeOnPage:
                 "Couldn't find a recipe on that page. Try the recipe's own page rather than a listing or a video."

@@ -3,13 +3,16 @@ import SwiftUI
 /// Steers the next batch of ideas. Taste itself is learned from ratings and
 /// lists, so this is the only thing here to set, and it is remembered.
 struct TuneSheet: View {
+    /// A batch is already being found, and a second would be ignored.
+    let isBusy: Bool
     let onApply: (TuneSettings) -> Void
 
     @State private var draft: TuneSettings
     @Environment(\.dismiss) private var dismiss
 
-    init(settings: TuneSettings, onApply: @escaping (TuneSettings) -> Void) {
+    init(settings: TuneSettings, isBusy: Bool, onApply: @escaping (TuneSettings) -> Void) {
         _draft = State(initialValue: settings)
+        self.isBusy = isBusy
         self.onApply = onApply
     }
 
@@ -42,6 +45,7 @@ struct TuneSheet: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .disabled(isBusy)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .accessibilityIdentifier("tune.applyButton")

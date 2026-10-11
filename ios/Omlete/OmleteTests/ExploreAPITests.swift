@@ -110,6 +110,18 @@ import UniformTypeIdentifiers
         #expect(await api.createRecipe(.describe("leek and potato soup")) == .failed(.other))
     }
 
+    @Test func aCreateThatWasSentAndNeverAnsweredIsNotCalledUnreachable() async {
+        transport.reply = { _ in .timedOut }
+
+        #expect(await api.createRecipe(.describe("leek and potato soup")) == .failed(.noAnswer))
+    }
+
+    @Test func aSourceThatIsNotAWebPageKeepsItsNameAndLosesItsLink() async throws {
+        serverAnswers(200, #"[{"id":"1","title":"Odd","status":"new","source_url":"tel:0123456789","source_name":"Somewhere"}]"#)
+
+        #expect(try await api.suggestions().first?.source == RecipeSource(name: "Somewhere", url: nil))
+    }
+
     @Test func creatingWithNoSignalSaysSo() async {
         transport.reply = { _ in .unreachable }
 

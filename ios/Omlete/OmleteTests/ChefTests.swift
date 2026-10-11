@@ -124,6 +124,46 @@ import Testing
         #expect(calls(getFeed) == fetches)
     }
 
+    @Test func aSaveAnsweredWhileAnOlderFeedIsOnItsWayStillEndsUpSaving() async {
+        server.cards = [card("a")]
+        await chef.load()
+        let stale = server.json
+        var feedsAsked = 0
+        serverAnswers { [getFeed] call in
+            guard call == getFeed else { return nil }
+            feedsAsked += 1
+            return feedsAsked == 1 ? .status(200, stale) : nil
+        }
+        phone.transport.holding = true
+        Task { await chef.load() }
+        await eventually { feedsAsked == 0 && calls(getFeed) == 2 }
+
+        chef.save("a")
+        server.cards = [card("a", "saving")]
+        phone.transport.release()
+
+        await eventually { phone.ticker.isWaiting }
+        #expect(stage("a") == .saving)
+        #expect(calls(getFeed) == 3)
+    }
+
+    @Test func aSaveTheServerNeverFinishesIsGivenUpOnSoTheCardCanBeDismissed() async {
+        server.cards = [card("a", "saving")]
+        await chef.load()
+
+        for _ in 0..<Chef.mostPolls {
+            await eventually { phone.ticker.isWaiting }
+            phone.ticker.tick()
+        }
+        await eventually { stage("a") == .failed }
+        #expect(!phone.ticker.isWaiting)
+
+        await chef.load()
+        #expect(stage("a") == .failed)
+        chef.dismiss("a")
+        #expect(shown.isEmpty)
+    }
+
     @Test func aFeedLoadedWithACardAlreadySavingIsPolledToo() async {
         server.cards = [card("a", "saving")]
 

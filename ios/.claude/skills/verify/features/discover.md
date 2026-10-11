@@ -20,7 +20,7 @@ Chef's suggestions as shelves of cards that scroll sideways: For this week, Unde
 
 Preconditions:
 
-- `$V up` just ran with no model keys (see Gotchas), `$V doctor` prints no `FAIL`, and `$V tap tab.discover` has run.
+- `$V up` just ran, `$V doctor` prints no `FAIL`, and `$V tap tab.discover` has run.
 - `<card>` is a suggestion id: `curl -s http://127.0.0.1:8765/api/suggestions/ | jq -r '.[] | "\(.id) \(.title)"'`. The seed leaves five cards: `Verify Card Bean Chilli` and `Verify Card Miso Aubergine` (For this week), `Verify Card Quick Noodles` (Under 30 minutes), `Verify Card Imported Traybake` (Something new) and `Verify Card Loose Idea` (More ideas).
 
 - **See the shelves.** `$V begin discover-feed`, `$V expect "Verify Card Bean Chilli"`, `$V expect "You rated the shakshuka highly."`, then `$V swipe discover.feed up` and `$V expect "Verify Card Loose Idea"`. The shelf titles show in the screenshot. `$V swipe discover.shelf.thisWeek left` brings the second card of a shelf into view.
@@ -35,7 +35,7 @@ Preconditions:
 
 ## Gotchas
 
-- These recipes need the API to have no model key. `up` passes through a real `ANTHROPIC_API_KEY` from `server/.env` when there is one, and then Save and Get new ideas succeed, cost money and never show their failure. Start keyless: `$V api stop`, then `ANTHROPIC_API_KEY=omlete-verify-no-key VOYAGE_API_KEY=omlete-verify-no-key $V up`. Use the same prefix on any later `$V api start`.
+- These recipes rely on the API having no model key, which is how `up` starts it whatever `server/.env` holds. With `OMLETE_IOS_VERIFY_REAL_KEYS=1` the model calls succeed, cost money and never show their failure.
 - With no key, only `Verify Card Imported Traybake` can be saved. Its link is the source of the `Verify Fixture Traybake` recipe, so the server finds that recipe without asking a model. Every other card fails to save, and Get new ideas always fails. Their success is covered by `ChefTests`.
 - Saving the Traybake card takes under a second, so "Saving." is rarely on screen for a capture. `Verify Card Bean Chilli` shows it for a moment before it fails.
 - Shelf titles and the "Finding new ideas…" row are plain text in a scroll view and are in the UI tree, but only for shelves on screen. Scroll with `discover.feed` first.

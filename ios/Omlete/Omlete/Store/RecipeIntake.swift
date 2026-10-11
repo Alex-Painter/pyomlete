@@ -16,6 +16,8 @@ import Observation
 
     private(set) var text = ""
     private(set) var photos: [RecipePhoto] = []
+    /// Photos picked and still being read off the photo library.
+    private(set) var photosArriving = 0
     private(set) var phase = Phase.editing
 
     @ObservationIgnored private let library: Library
@@ -28,7 +30,8 @@ import Observation
         if case .working = phase { true } else { false }
     }
 
-    var canSubmit: Bool { !isWorking && request != nil }
+    /// Not while photos are arriving: sending now would read the recipe from some of its pages.
+    var canSubmit: Bool { !isWorking && photosArriving == 0 && request != nil }
 
     var submitLabel: String {
         switch request {
@@ -48,10 +51,18 @@ import Observation
         phase = .editing
     }
 
-    func attach(_ photo: RecipePhoto) {
+    /// `count` photos were picked. Each is settled by one `attach(_:)`.
+    func expectPhotos(_ count: Int) {
         guard !isWorking else { return }
-        photos.append(photo)
+        photosArriving += count
         phase = .editing
+    }
+
+    /// One picked photo, read and encoded, or nil if it could not be.
+    func attach(_ photo: RecipePhoto?) {
+        guard photosArriving > 0 else { return }
+        photosArriving -= 1
+        if let photo { photos.append(photo) }
     }
 
     func removePhoto(_ id: UUID) {
@@ -63,7 +74,7 @@ import Observation
     /// A saved recipe clears the field for the next one. Anything else keeps
     /// what was typed, to fix or to try again.
     func submit() {
-        guard !isWorking, let request else { return }
+        guard canSubmit, let request else { return }
         phase = .working(request.kind)
         Task {
             let outcome = await library.createRecipe(request)

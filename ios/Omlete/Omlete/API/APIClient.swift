@@ -139,10 +139,15 @@ nonisolated struct APIClient: Sendable {
         let answer: (status: Int, data: Data)
         do {
             let upload = try Wire.creation(request)
-            answer = try await exchange(
+            answer = try await transmit(
                 "POST", upload.path, body: upload.body, contentType: upload.contentType, patience: .slow)
+        } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
+            // It was sent, and the server may well finish it.
+            return .failed(.noAnswer)
+        } catch is APIError {
+            return .failed(.other)
         } catch {
-            return .failed(error == .unreachable ? .unreachable : .other)
+            return .failed(.unreachable)
         }
         switch (answer.status, request.kind) {
         case (200..<300, _): return (try? Wire.createdRecipe(answer.data)).map { .saved($0) } ?? .failed(.other)
@@ -200,7 +205,21 @@ nonisolated struct APIClient: Sendable {
         _ method: String, _ path: String, body: Data? = nil, contentType: String = Wire.json,
         patience: Patience = .quick
     ) async throws(APIError) -> (status: Int, data: Data) {
-        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw .rejected(400) }
+        do {
+            return try await transmit(method, path, body: body, contentType: contentType, patience: patience)
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw .unreachable
+        }
+    }
+
+    /// `exchange` with the transport's own error left as it is, for the one
+    /// caller that tells a request never sent from one never answered.
+    private func transmit(
+        _ method: String, _ path: String, body: Data?, contentType: String, patience: Patience
+    ) async throws -> (status: Int, data: Data) {
+        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw APIError.rejected(400) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         if patience == .slow { request.timeoutInterval = Self.slowTimeout }
@@ -208,12 +227,8 @@ nonisolated struct APIClient: Sendable {
             request.httpBody = body
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        do {
-            let (data, response) = try await transport.send(request)
-            return (response.statusCode, data)
-        } catch {
-            throw .unreachable
-        }
+        let (data, response) = try await transport.send(request)
+        return (response.statusCode, data)
     }
 
     private func decode<Value>(_ parse: (Data) throws -> Value, from data: Data) throws(APIError) -> Value {

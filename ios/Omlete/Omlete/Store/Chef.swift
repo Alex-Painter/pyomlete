@@ -19,10 +19,13 @@ struct ChefDependencies {
 /// slow work (a model finding ideas, a card becoming a recipe) runs in tasks
 /// Chef owns, so leaving Discover cannot cancel it.
 ///
-/// Invariant: while any card is saving, exactly one task is polling the feed,
-/// and it stops when none is.
+/// Invariant: while any card is saving, exactly one task is polling the feed.
+/// It stops when none is, or after `mostPolls`, when the cards still saving
+/// are shown as failed so they can be tried again, dismissed or cleared.
 @Observable final class Chef {
     static let pollEvery: Duration = .seconds(3)
+    /// About five minutes. A save still unfinished by then was lost by the server.
+    static let mostPolls = 100
     private static let tuneKey = "discover.tune"
 
     /// The feed as the server last gave it, newest first.
@@ -41,6 +44,8 @@ struct ChefDependencies {
     @ObservationIgnored private var posting: Set<SuggestionID> = []
     /// The list each saving card was sent to, so it can be refreshed when the recipe lands.
     @ObservationIgnored private var destinations: [SuggestionID: ListID] = [:]
+    /// Cards the poll gave up on: the server still says saving, and the phone no longer believes it.
+    @ObservationIgnored private var abandoned: Set<SuggestionID> = []
 
     init(deps: ChefDependencies) {
         self.deps = deps
@@ -62,10 +67,13 @@ struct ChefDependencies {
     /// Fetches the feed. A call made while one is running joins it.
     func load() async {
         if let loading { return await loading.value }
-        let task = Task { await fetch() }
+        let task = Task {
+            await fetch()
+            // Cleared here, not by the caller: a waiter that resumes first must not join a fetch that is over.
+            loading = nil
+        }
         loading = task
         await task.value
-        loading = nil
     }
 
     /// Asks for a new batch of cards, which takes a model a while. `tuned`
@@ -80,10 +88,11 @@ struct ChefDependencies {
         Task {
             do {
                 try await deps.api.findIdeas(tune)
-                await reload()
             } catch {
                 deps.undo.offer("Couldn't get new ideas right now. Try again in a bit.")
             }
+            // Either way: a request that timed out here may still have finished on the server.
+            await reload()
             isFindingIdeas = false
         }
     }
@@ -155,6 +164,7 @@ struct ChefDependencies {
     private func send(_ id: SuggestionID, onto list: ListID?) async -> Bool {
         guard !posting.contains(id) else { return false }
         posting.insert(id)
+        abandoned.remove(id)
         destinations[id] = list
         setStage(of: id, to: .saving)
         do {
@@ -191,6 +201,8 @@ struct ChefDependencies {
         cards = fresh.map { card in
             var card = card
             if posting.contains(card.id) { card.stage = .saving }
+            if card.stage != .saving { abandoned.remove(card.id) }
+            if abandoned.contains(card.id) { card.stage = .failed }
             return card
         }
         let landed = cards.filter { card in
@@ -207,11 +219,28 @@ struct ChefDependencies {
     private func poll() {
         guard polling == nil, cards.contains(where: { $0.stage == .saving }) else { return }
         polling = Task { [weak self, pause = deps.pause] in
+            var polls = 0
             while (try? await pause(Self.pollEvery)) != nil, let self {
                 await load()
+                polls += 1
                 if !cards.contains(where: { $0.stage == .saving }) { break }
+                if polls == Self.mostPolls {
+                    giveUpOnSaves()
+                    break
+                }
             }
             self?.polling = nil
+        }
+    }
+
+    /// The server makes the recipe in a task that a restart loses, leaving the
+    /// card saving for ever. Held until the next launch, like `hidden`.
+    private func giveUpOnSaves() {
+        let stalled = cards.filter { $0.stage == .saving }.map(\.id)
+        abandoned.formUnion(stalled)
+        for id in stalled {
+            destinations[id] = nil
+            setStage(of: id, to: .failed)
         }
     }
 

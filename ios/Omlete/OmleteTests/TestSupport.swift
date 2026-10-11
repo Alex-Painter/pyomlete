@@ -13,6 +13,8 @@ import Testing
     enum Reply {
         case status(Int, String = "{}")
         case unreachable
+        /// The request went out and nothing came back.
+        case timedOut
     }
 
     /// Requests in arrival order, without the `/categorize` lookups that adds fire on the side.
@@ -55,6 +57,8 @@ import Testing
         switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
+        case .timedOut:
+            throw URLError(.timedOut)
         case .status(let status, let body):
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
             return (Data(body.utf8), response)

@@ -39,12 +39,14 @@ struct AddScreen: View {
             let items = picked
             guard !items.isEmpty else { return }
             picked = []
+            guard !intake.isWorking else { return }
+            intake.expectPhotos(items.count)
             Task {
                 for item in items {
-                    guard let data = try? await item.loadTransferable(type: Data.self),
-                          let jpeg = PhotoEncoder.jpeg(from: data)
-                    else { continue }
-                    intake.attach(RecipePhoto(id: UUID(), jpeg: jpeg))
+                    let data = try? await item.loadTransferable(type: Data.self)
+                    // Detached: decoding and re-encoding a full-size photo would stall the main actor.
+                    let jpeg = await Task.detached { data.flatMap { PhotoEncoder.jpeg(from: $0) } }.value
+                    intake.attach(jpeg.map { RecipePhoto(id: UUID(), jpeg: $0) })
                 }
             }
         }

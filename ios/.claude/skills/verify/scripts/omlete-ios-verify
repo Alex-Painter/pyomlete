@@ -85,8 +85,11 @@ start_api() {
       # Exported vars win over server/.env, so a production DB_URI there is never used.
       export DB_URI="$DB_URI_LOCAL"
       # Both SDK clients are built at import time; a placeholder lets CRUD work without keys.
-      grep -Eqs '^[[:space:]]*ANTHROPIC_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env || export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-omlete-verify-no-key}"
-      grep -Eqs '^[[:space:]]*VOYAGE_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env || export VOYAGE_API_KEY="${VOYAGE_API_KEY:-omlete-verify-no-key}"
+      # Placeholders by default, even with real keys in server/.env: the Discover and Add
+      # recipes prove failures, and a real key would spend money on every run.
+      if [ "${OMLETE_IOS_VERIFY_REAL_KEYS:-0}" != 1 ]; then
+        export ANTHROPIC_API_KEY=omlete-verify-no-key VOYAGE_API_KEY=omlete-verify-no-key
+      fi
       nohup .venv/bin/uvicorn main:app --host 127.0.0.1 --port "$API_PORT" > "$RUN_DIR/api.log" 2>&1 &
       echo $! > "$RUN_DIR/api.pid"
     )
@@ -117,7 +120,7 @@ stop_api() {
 #
 # Also leaves "Verify Fixture Traybake", a recipe in the shape a link import
 # saves (source, time, rating, ingredient groups, no picture), and five
-# Discover cards across three shelves. The last card's link is the Traybake's
+# Discover cards across four shelves. The last card's link is the Traybake's
 # source, so saving it finds that recipe without asking a model.
 # Only ever runs against the disposable database.
 seed() {

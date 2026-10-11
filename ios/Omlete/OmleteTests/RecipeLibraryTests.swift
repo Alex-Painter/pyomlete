@@ -106,6 +106,17 @@ import Testing
         #expect(phone.library.rows.map(\.name) == ["10th October"])
     }
 
+    @Test func beforeTheListsHaveLoadedAddingNeverStartsANewList() async {
+        let phone = Phone(fetched: false)
+        phone.serverAnswers { $0.description == "GET /api/lists/" ? .status(500) : nil }
+        await phone.library.refresh()
+
+        await phone.library.addMeal("soup", title: "Soup", to: .current)
+
+        #expect(phone.undo.banner?.message == "Couldn't reach Omlete. Soup wasn't added.")
+        #expect(!phone.transport.calls.contains(Call(method: "POST", path: "/api/lists/")))
+    }
+
     @Test func aNewListIsStartedWhenAskedForEvenWithListsToHand() async {
         serverAnswers()
         await phone.library.refresh()
@@ -208,6 +219,7 @@ import Testing
         #expect(intake.submitLabel == "Import recipe")
 
         let photo = RecipePhoto(id: UUID(), jpeg: Data())
+        intake.expectPhotos(2)
         intake.attach(photo)
         #expect(intake.submitLabel == "Read 1 photo")
         intake.attach(RecipePhoto(id: UUID(), jpeg: Data()))
@@ -268,9 +280,35 @@ import Testing
         #expect(phone.transport.calls == [importLink, importLink])
     }
 
+    @Test func nothingIsSentWhilePickedPhotosAreStillArriving() {
+        intake.expectPhotos(3)
+        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page 1".utf8)))
+        #expect(!intake.canSubmit)
+
+        intake.submit()
+        #expect(phone.transport.calls.isEmpty)
+
+        intake.attach(nil)
+        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page 3".utf8)))
+        #expect(intake.canSubmit)
+        #expect(intake.submitLabel == "Read 2 photos")
+    }
+
+    @Test func aRequestNeverAnsweredSaysTheRecipeMayStillComeAndLooksForIt() async {
+        serverAnswers(.timedOut)
+        intake.edit("leek and potato soup")
+
+        intake.submit()
+        await eventually { !intake.isWorking }
+
+        #expect(intake.phase == .finished(.failed(.noAnswer)))
+        #expect(phone.transport.calls.contains(Call(method: "GET", path: "/api/recipes/")))
+    }
+
     @Test func photosAreSentInsteadOfTheTextAndClearedOnceSaved() async {
         serverAnswers(.status(200, "[\(ExploreAPITests.traybakeJSON)]"))
         intake.edit("ignored")
+        intake.expectPhotos(1)
         intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page".utf8)))
 
         intake.submit()
@@ -375,6 +413,17 @@ import Testing
         store.setOnList(1, false)
         store.setOnList(7, false)
         #expect(stove.transport.calls.count(where: { $0.method == "PATCH" }) == 1)
+    }
+
+    @Test func changingAFlagLeavesARatingJustGivenAlone() async {
+        await store.load()
+        store.rate(4)
+        await eventually { store.rating.status == .sent }
+
+        store.setOnList(1, false)
+
+        #expect(store.rating.stars == 4)
+        #expect(stove.storage.records[Stove.recipeID]?.session.recipe.rating == 4)
     }
 
     @Test func aFlagTheServerCannotBeToldAboutFlipsBack() async {

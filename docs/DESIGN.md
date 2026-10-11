@@ -40,6 +40,8 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | On iOS a Discover card that is saving cannot be dismissed or cleared | The server marks the card saved when the recipe is ready, which would bring a dismissed card back. The web allows the tap and has that bug. |
 | On iOS a card whose save could not be sent reads "Couldn't save this one" with Try again | The web puts the card back as if nothing was tapped, which reads as the tap being ignored. |
 | On iOS, Add to list that fails says so in the banner | The web ends the spinner and shows nothing. |
+| On iOS, adding a recipe that was sent and never answered says the recipe may still be on its way, and refreshes Recipes | The server usually finishes it, so "couldn't reach Omlete" would invite a second paid request and a duplicate. Only a link is deduplicated by the server. |
+| On iOS a card still saving after about five minutes is shown as failed | The server loses a save when it restarts and never clears the card, which would leave it undismissable. |
 | On iOS, Add a recipe takes photos from the library only | The camera needs a usage string in Info.plist, which is Alex's to add. |
 | Settings behind a cog, Add as a plain tab | A profile icon promised more than it did, and a raised plus button looked out of place. |
 

@@ -19,17 +19,17 @@ One field that takes a link or a description, plus Choose photos for pictures of
 
 Preconditions:
 
-- `$V up` just ran with no model keys (see Gotchas), `$V doctor` prints no `FAIL`, and `$V tap tab.add` has run.
+- `$V up` just ran, `$V doctor` prints no `FAIL`, and `$V tap tab.add` has run.
 
 - **The button follows the input.** `$V begin add`, `$V expect "Create recipe"`, `$V type add.textField "https://example.com/some-recipe"`, `$V expect "Import recipe"`, `$V type add.textField "leek and potato soup"`, `$V expect "Create recipe"`.
 - **Already saved.** `$V type add.textField "https://example.com/verify-fixture-traybake"`, `$V tap add.submitButton`, `$V expect "You've already saved that one."`, `$V tap add.openExistingLink`, `$V expect-id recipe.cookButton`. `.verify-run/api.log` has `POST /api/recipes/import-from-url/` answered 409.
 - **A link that cannot be fetched.** `$V type add.textField "http://127.0.0.1:9/x"`, `$V tap add.submitButton`, `$V expect "That link can't be fetched. Check it's a full, public recipe URL."`. The log has the same request answered 400.
 - **A description that fails.** `$V type add.textField "leek and potato soup"`, `$V tap add.submitButton`, `$V expect "Something went wrong making that recipe. Try again."`. The log has `POST /api/recipes/generate/` answered 500.
-- **No connection.** `$V api stop`, `$V tap add.submitButton`, `$V expect "Couldn't reach Omlete. Check your connection and try again."`, then start the API again with the keyless prefix.
+- **No connection.** `$V api stop`, `$V tap add.submitButton`, `$V expect "Couldn't reach Omlete. Check your connection and try again."`, then `$V api start`.
 
 ## Gotchas
 
-- These recipes need the API to have no model key. `up` passes through a real `ANTHROPIC_API_KEY` from `server/.env` when there is one, and then a description makes a real recipe and costs money. Start keyless: `$V api stop`, then `ANTHROPIC_API_KEY=omlete-verify-no-key VOYAGE_API_KEY=omlete-verify-no-key $V up`. Use the same prefix on any later `$V api start`.
+- These recipes rely on the API having no model key, which is how `up` starts it whatever `server/.env` holds. With `OMLETE_IOS_VERIFY_REAL_KEYS=1` the model calls succeed, cost money and never show their failure.
 - With no key, nothing here can end on a saved recipe, so `add-result` (`add.addToList`, `add.openButton`) cannot be driven. `RecipeIntakeTests` and `ExploreAPITests` cover a saved link, description and photos against a scripted server.
 - Choose photos (`add.choosePhotosButton`) opens the system photo picker, which runs outside the app and has no identifiers to drive. `PhotoEncoderTests` covers the re-encoding and `ExploreAPITests` the upload.
 - The 404 and 502 messages for a link ("Couldn't find a recipe on that page", "That site didn't respond") need a page that answers but holds no recipe, or a host that times out. Neither is in the fixtures; `ExploreAPITests` covers both.
