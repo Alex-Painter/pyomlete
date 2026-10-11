@@ -16,6 +16,8 @@ import Testing
         case unreachable
         /// The request left and nothing came back.
         case lost
+        /// 200 with a body made from the request's own.
+        case answering(([String: Any]) -> String)
     }
 
     /// Requests in arrival order, without the `/categorize` lookups that adds fire on the side.
@@ -56,8 +58,9 @@ import Testing
         allCalls.append(call)
         requests.append(request)
         let isListRequest = call.path != "/api/categorize"
+        let sent = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         if isListRequest {
-            bodies.append(request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            bodies.append(sent)
             inFlight += 1
             peakInFlight = max(peakInFlight, inFlight)
         }
@@ -66,7 +69,11 @@ import Testing
             answered.append(call)
         }
         if holding { await withCheckedContinuation { held.append((call, $0)) } }
-        switch reply(call) {
+        var reply = reply(call)
+        if case .answering(let body) = reply { reply = .status(200, body(sent)) }
+        switch reply {
+        case .answering:
+            fatalError("replaced above")
         case .unreachable:
             throw URLError(.notConnectedToInternet)
         case .lost:
@@ -81,12 +88,15 @@ import Testing
 @MainActor final class MemoryStorage: ReplicaStorage {
     var replicas: [ListID: ListReplica] = [:]
     var index: LibraryIndex?
+    var aisles: AisleRecord?
 
     func loadAll() -> [ListReplica] { Array(replicas.values) }
     func save(_ replica: ListReplica) { replicas[replica.id] = replica }
     func discard(_ id: ListID) { replicas[id] = nil }
     func loadIndex() -> LibraryIndex? { index }
     func save(_ index: LibraryIndex) { self.index = index }
+    func loadAisles() -> AisleRecord? { aisles }
+    func save(_ aisles: AisleRecord) { self.aisles = aisles }
 }
 
 /// A phone with a scripted server and an in-memory disk. `relaunch()` builds a
@@ -174,6 +184,11 @@ import Testing
 
     func serverIsUnreachable() {
         transport.reply = { _ in .unreachable }
+    }
+
+    /// `refresh()` returns before the aisles have answered, so a test that reads them waits for their requests to end.
+    func aislesSettle() async {
+        while let turn = library.aisles.working { await turn.value }
     }
 }
 

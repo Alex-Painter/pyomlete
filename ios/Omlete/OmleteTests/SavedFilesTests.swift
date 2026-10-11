@@ -60,7 +60,6 @@ struct SavedFilesTests {
         #expect(index.deletingLists == ["6acab1afc5726b9df81a350c"])
         #expect(index.summaries.map(\.name) == ["Verify Fixture List"])
         #expect(index.recipes.map(\.totalMinutes) == [nil, 25])
-        #expect(index.aisleOrder == ["Fresh Produce", "Other"])
         #expect(index.units == ["grams", "whole"])
         #expect(index.deletingRecipes.isEmpty)
     }
@@ -76,6 +75,29 @@ struct SavedFilesTests {
         ])
         #expect(index.currentList == "6ae9a8b03b1d1a5f0c2e7711")
         #expect(index.deletingRecipes == ["6ae9a8af3b1d1a5f0c2e7703"])
+    }
+
+    /// The aisles were in the index before they had a file of their own.
+    @MainActor @Test func aislesSavedInAnIndexAreStillReadAndOutliveTheNextIndexWritten() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "saved-files-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let disk = ReplicaDisk(root: root)
+        let index = #"{"aisleOrder":["Bakery","Dairy"],"unsentAisles":["Dairy","Bakery"],"units":["g"]}"#
+        try Data(index.utf8).write(to: root.appending(path: "index.json"))
+
+        #expect(disk.loadAisles() == AisleRecord(saved: ["Bakery", "Dairy"], owed: ["Dairy", "Bakery"]))
+
+        disk.save(try #require(disk.loadIndex()))
+        #expect(disk.loadAisles() == AisleRecord(saved: ["Bakery", "Dairy"], owed: ["Dairy", "Bakery"]))
+        disk.save(AisleRecord(saved: ["Dairy"]))
+        #expect(disk.loadAisles() == AisleRecord(saved: ["Dairy"]))
+    }
+
+    @MainActor @Test func aPhoneWithNothingSavedHasNoAisles() {
+        let root = FileManager.default.temporaryDirectory.appending(path: "saved-files-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(ReplicaDisk(root: root).loadAisles() == nil)
     }
 
     @Test func anIndexWithNoFieldsAtAllLoadsEmpty() throws {
@@ -96,8 +118,7 @@ struct SavedFilesTests {
             createdAt: Date(timeIntervalSinceReferenceDate: 800_000_000))
         let index = LibraryIndex(
             summaries: [ListSummary(id: "list", name: "Week", itemCount: 2, checkedCount: 1, meals: [])],
-            aisleOrder: ["Dairy"], recipes: [recipe.summary], units: ["g"], deletingLists: ["gone"], currentList: "list",
-            deletingRecipes: ["old"], unsentAisles: ["Bakery", "Dairy"])
+            recipes: [recipe.summary], units: ["g"], deletingLists: ["gone"], currentList: "list", deletingRecipes: ["old"])
 
         #expect(try roundTrip(recipe) == recipe)
         #expect(try roundTrip(index) == index)

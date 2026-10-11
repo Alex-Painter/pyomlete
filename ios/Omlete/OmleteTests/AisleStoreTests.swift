@@ -5,6 +5,11 @@ import Testing
 @MainActor struct AisleStoreTests {
     private typealias Call = ScriptedTransport.Call
     private static let put = Call(method: "PUT", path: "/api/settings/categories")
+    /// What the server answers a save with: the aisles it was sent, as it stored them.
+    private static let stored = ScriptedTransport.Reply.answering { body in
+        let aisles = try? JSONSerialization.data(withJSONObject: body["categories"] ?? [])
+        return String(decoding: aisles ?? Data(), as: UTF8.self)
+    }
     private let phone = Phone()
 
     /// A phone that has loaded Bakery, Dairy, Frozen, with the server answering as `override` says.
@@ -15,11 +20,17 @@ import Testing
             case "GET /api/lists/": return .status(200, Phone.listsJSON)
             case "GET /api/settings/categories":
                 return .status(200, #"[{"name":"Dairy","order":1},{"name":"Frozen","order":2},{"name":"Bakery","order":0}]"#)
+            case "PUT /api/settings/categories": return Self.stored
             case "GET /api/recipes/", "GET /api/units": return .status(200, "[]")
             default: return nil
             }
         }
+        await refresh()
+    }
+
+    private func refresh() async {
         await phone.library.refresh()
+        await phone.aislesSettle()
     }
 
     /// The aisle names of each save, in the order the server received them.
@@ -32,7 +43,7 @@ import Testing
     private var store: AisleStore { phone.library.aisles }
     private var aisles: AisleOrder { store.order }
     private var shown: [String] { aisles.names }
-    private var disk: LibraryIndex? { phone.storage.index }
+    private var disk: AisleRecord? { phone.storage.aisles }
 
     private var aisleCalls: [String] {
         phone.transport.calls.filter { $0.path == "/api/settings/categories" }.map(\.method)
@@ -44,7 +55,7 @@ import Testing
         store.set(aisles.moving(IndexSet(integer: 2), to: 0))
 
         #expect(shown == ["Frozen", "Bakery", "Dairy"])
-        await eventually { disk?.aisleOrder == ["Frozen", "Bakery", "Dairy"] }
+        await eventually { disk?.saved == ["Frozen", "Bakery", "Dairy"] }
         let body = try #require(zip(phone.transport.calls, phone.transport.bodies).first { $0.0 == Self.put }?.1)
         let sent = try JSONSerialization.data(withJSONObject: body, options: .sortedKeys)
         #expect(String(decoding: sent, as: UTF8.self)
@@ -61,14 +72,14 @@ import Testing
 
         #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
         #expect(phone.undo.banner == nil)
-        #expect(disk?.aisleOrder == ["Bakery", "Dairy", "Frozen"])
-        #expect(disk?.unsentAisles == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        #expect(disk?.saved == ["Bakery", "Dairy", "Frozen"])
+        #expect(disk?.owed == ["Bakery", "Dairy", "Frozen", "Drinks"])
 
         reachable = true
         phone.library.syncAll()
 
-        await eventually { disk?.aisleOrder == ["Bakery", "Dairy", "Frozen", "Drinks"] }
-        #expect(disk?.unsentAisles == nil)
+        await eventually { disk?.saved == ["Bakery", "Dairy", "Frozen", "Drinks"] }
+        #expect(disk?.owed == nil)
         #expect(saves.count == 2)
     }
 
@@ -95,8 +106,8 @@ import Testing
         #expect(phone.undo.banner?.message == "Couldn't save your aisles. They're as the server has them.")
         #expect(phone.undo.banner?.canUndo == false)
         #expect(store.refused == renamed)
-        #expect(disk?.aisleOrder == ["Bakery", "Dairy", "Frozen"])
-        #expect(disk?.unsentAisles == nil)
+        #expect(disk?.saved == ["Bakery", "Dairy", "Frozen"])
+        #expect(disk?.owed == nil)
     }
 
     @Test func aRefusedSaveIsForgottenAtTheNextChange() async throws {
@@ -109,7 +120,7 @@ import Testing
         store.set(try aisles.adding("Snacks"))
 
         #expect(store.refused == nil)
-        await eventually { disk?.aisleOrder == ["Bakery", "Dairy", "Frozen", "Snacks"] }
+        await eventually { disk?.saved == ["Bakery", "Dairy", "Frozen", "Snacks"] }
     }
 
     @Test func twoQuickChangesArriveOneAtATimeInOrder() async throws {
@@ -126,7 +137,7 @@ import Testing
 
         await eventually { saves.count == 2 }
         #expect(saves.last == ["Drinks", "Bakery", "Dairy", "Frozen"])
-        await eventually { disk?.aisleOrder == ["Drinks", "Bakery", "Dairy", "Frozen"] }
+        await eventually { disk?.saved == ["Drinks", "Bakery", "Dairy", "Frozen"] }
         #expect(shown == ["Drinks", "Bakery", "Dairy", "Frozen"])
     }
 
@@ -136,7 +147,7 @@ import Testing
         store.set(try aisles.adding("Drinks"))
         store.set(aisles.moving(IndexSet(integer: 3), to: 0))
 
-        await eventually { disk?.aisleOrder == ["Drinks", "Bakery", "Dairy", "Frozen"] }
+        await eventually { disk?.saved == ["Drinks", "Bakery", "Dairy", "Frozen"] }
         #expect(saves == [["Drinks", "Bakery", "Dairy", "Frozen"]])
     }
 
@@ -175,7 +186,7 @@ import Testing
         #expect(saves.isEmpty)
         phone.undo.commitNow()
 
-        await eventually { disk?.aisleOrder == ["Bakery", "Frozen"] }
+        await eventually { disk?.saved == ["Bakery", "Frozen"] }
         #expect(saves == [["Bakery", "Frozen"]])
     }
 
@@ -187,7 +198,7 @@ import Testing
 
         store.delete("Dairy")
         phone.transport.release()
-        await eventually { disk?.aisleOrder == ["Bakery", "Dairy", "Frozen", "Drinks"] }
+        await eventually { disk?.saved == ["Bakery", "Dairy", "Frozen", "Drinks"] }
         for _ in 0..<20 { await Task.yield() }
         #expect(saves.count == 1)
 
@@ -322,14 +333,14 @@ import Testing
         phone.undo.appLeftFront()
         await eventually { saves.count == 1 }
         for _ in 0..<20 { await Task.yield() }
-        #expect(disk?.unsentAisles == ["Bakery", "Frozen"])
+        #expect(disk?.owed == ["Bakery", "Frozen"])
 
         reachable = true
         phone.undo.appCameToFront()
         phone.library.syncAll()
 
-        await eventually { disk?.aisleOrder == ["Bakery", "Frozen"] }
-        #expect(disk?.unsentAisles == nil)
+        await eventually { disk?.saved == ["Bakery", "Frozen"] }
+        #expect(disk?.owed == nil)
         #expect(phone.undo.banner == nil)
     }
 
@@ -342,11 +353,11 @@ import Testing
         phone.serverIsUnreachable()
         phone.relaunch()
         phone.transport.release()
-        await phone.library.refresh()
+        await refresh()
 
         #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
         #expect(!store.isLoaded)
-        #expect(disk?.unsentAisles == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        #expect(disk?.owed == ["Bakery", "Dairy", "Frozen", "Drinks"])
 
         // Another device has changed the order meanwhile. The order owed replaces it: the last one sent wins.
         var held = #"[{"name":"Fish","order":0}]"#
@@ -359,7 +370,7 @@ import Testing
         #expect(aisleCalls.suffix(2) == ["PUT", "GET"])
         #expect(shown == ["Bakery", "Drinks"])
         #expect(store.isLoaded)
-        #expect(disk?.unsentAisles == nil)
+        #expect(disk?.owed == nil)
     }
 
     @Test func aDeleteStillBehindItsBannerIsForgottenByAKill() async {
@@ -369,14 +380,14 @@ import Testing
         phone.relaunch()
 
         #expect(shown == ["Bakery", "Dairy", "Frozen"])
-        #expect(disk?.unsentAisles == nil)
+        #expect(disk?.owed == nil)
     }
 
     @Test func aislesAreNotChangedUntilTheServerHasAnsweredThisLaunch() async throws {
         await loaded()
         phone.serverIsUnreachable()
         phone.relaunch()
-        await phone.library.refresh()
+        await refresh()
         #expect(shown == ["Bakery", "Dairy", "Frozen"])
         #expect(!store.isLoaded)
 
@@ -399,7 +410,7 @@ import Testing
         phone.transport.release()
         await refresh
 
-        await eventually { disk?.aisleOrder == ["Bakery", "Dairy", "Frozen", "Drinks"] }
+        await eventually { disk?.saved == ["Bakery", "Dairy", "Frozen", "Drinks"] }
         #expect(aisleCalls == ["GET", "GET", "PUT"])
         #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
     }
@@ -423,7 +434,7 @@ import Testing
 
         #expect(aisleCalls == ["GET", "PUT", "GET"])
         #expect(shown == ["Fish", "Drinks"])
-        #expect(disk?.aisleOrder == ["Fish", "Drinks"])
+        #expect(disk?.saved == ["Fish", "Drinks"])
     }
 
     @Test func aLoadAskedForWhileOneIsOutJoinsIt() async {
@@ -451,7 +462,7 @@ import Testing
         await store.load()
 
         #expect(aisleCalls == ["GET", "PUT", "PUT", "GET"])
-        #expect(disk?.unsentAisles == nil)
+        #expect(disk?.owed == nil)
     }
 
     @Test func aLoadThatCannotGetThroughLeavesAnOwedOrderOwed() async throws {
@@ -462,8 +473,167 @@ import Testing
         await store.load()
 
         #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
-        #expect(disk?.unsentAisles == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        #expect(disk?.owed == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        // One try of each, and no more until something asks again.
+        #expect(aisleCalls == ["GET", "PUT", "GET"])
+    }
+
+    @Test func anOrderPutBackAfterASaveThatMayHaveLandedIsSent() async throws {
+        var answering = false
+        await loaded { $0 == Self.put && !answering ? .lost : nil }
+        store.set(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+        await phone.aislesSettle()
+        answering = true
+
+        store.set(aisles.deleting("Drinks"))
+
+        await eventually { saves.count == 2 }
+        #expect(saves.last == ["Bakery", "Dairy", "Frozen"])
+        await eventually { disk == AisleRecord(saved: ["Bakery", "Dairy", "Frozen"]) }
+    }
+
+    @Test func anOrderPutBackWhileASaveIsOutIsSentWhenThatSaveIsLost() async throws {
+        var puts = 0
+        await loaded { call in
+            guard call == Self.put else { return nil }
+            puts += 1
+            return puts == 1 ? .lost : nil
+        }
+        phone.transport.holding = true
+        store.set(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+
+        store.set(aisles.deleting("Drinks"))
+        phone.transport.release()
+
+        await eventually { saves.count == 2 }
+        #expect(saves.last == ["Bakery", "Dairy", "Frozen"])
+    }
+
+    @Test func anOrderPutBackAfterARelaunchIsSentThoughItIsTheOneLastAnswered() async throws {
+        var answering = false
+        await loaded { $0 == Self.put && !answering ? .lost : nil }
+        store.set(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+        await phone.aislesSettle()
+
+        // The save is lost again, and the load answers before the server has stored it.
+        phone.relaunch()
+        await refresh()
+        #expect(store.isLoaded)
+        #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        answering = true
+
+        store.set(aisles.deleting("Drinks"))
+
+        await eventually { saves.count == 3 }
+        #expect(saves.last == ["Bakery", "Dairy", "Frozen"])
+    }
+
+    @Test func aislesLoadAndCanBeChangedWhileAnOwedOrderCannotBeSaved() async throws {
+        var answering = false
+        await loaded { $0 == Self.put ? .status(503) : nil }
+        store.set(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+        await phone.aislesSettle()
+
+        phone.relaunch()
+        await loaded { call in
+            if call == Self.put, !answering { return .status(503) }
+            // Another device has changed the order meanwhile.
+            return call.description == "GET /api/settings/categories" ? .status(200, #"[{"name":"Fish","order":0}]"#) : nil
+        }
+
+        #expect(store.isLoaded)
+        #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        #expect(disk == AisleRecord(saved: ["Fish"], owed: ["Bakery", "Dairy", "Frozen", "Drinks"]))
+        #expect(aisleCalls == ["GET", "PUT", "PUT", "GET"])
+        #expect(phone.undo.banner == nil)
+
+        answering = true
+        store.set(try aisles.adding("Snacks"))
+
+        await eventually { disk?.owed == nil }
+        #expect(saves.last == ["Bakery", "Dairy", "Frozen", "Drinks", "Snacks"])
+    }
+
+    @Test func aLoadAskedForDuringASaveThatIsLostStillRuns() async throws {
+        await loaded { $0 == Self.put ? .lost : nil }
+        phone.transport.holding = true
+        store.set(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+
+        async let load: Void = store.load()
+        for _ in 0..<20 { await Task.yield() }
+        phone.transport.release()
+        await load
+
+        #expect(aisleCalls == ["GET", "PUT", "GET"])
+        #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
+    }
+
+    @Test func anAisleTheServerDroppedFromASaveIsDroppedHereAtOnce() async {
+        await loaded { call in
+            switch call.description {
+            case "GET /api/settings/categories":
+                return .status(200, #"[{"name":"Bakery","order":0},{"name":"bakery","order":1},{"name":"Dairy","order":2}]"#)
+            case "PUT /api/settings/categories":
+                return .status(200, #"[{"name":"Dairy","order":0},{"name":"Bakery","order":1}]"#)
+            default: return nil
+            }
+        }
+        #expect(shown == ["Bakery", "bakery", "Dairy"])
+
+        store.set(aisles.moving(IndexSet(integer: 2), to: 0))
+
+        await eventually { disk?.saved == ["Dairy", "Bakery"] }
+        #expect(shown == ["Dairy", "Bakery"])
         #expect(aisleCalls == ["GET", "PUT"])
+    }
+
+    @Test func anOwedOrderIsWrittenThoughTheListsHaveNeverLoaded() async throws {
+        await loaded { call in
+            switch call.description {
+            case "GET /api/lists/": return .status(500)
+            case "PUT /api/settings/categories": return .unreachable
+            default: return nil
+            }
+        }
+        #expect(phone.storage.index == nil)
+
+        store.set(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+
+        #expect(disk?.owed == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        phone.relaunch()
+        #expect(shown == ["Bakery", "Dairy", "Frozen", "Drinks"])
+    }
+
+    @Test func homeRefreshesAndSavesItsListsWhileAnAisleSaveHangs() async throws {
+        var lists = Phone.listsJSON
+        await loaded { $0.description == "GET /api/lists/" ? .status(200, lists) : nil }
+        phone.transport.holding = true
+        store.set(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+        lists = "[]"
+
+        var returned = false
+        let refresh = Task {
+            await phone.library.refresh()
+            returned = true
+        }
+        let loads = ["/api/lists/", "/api/recipes/", "/api/units"]
+        await eventually { Set(phone.transport.calls.suffix(3).map(\.path)) == Set(loads) }
+        for path in loads { phone.transport.release(only: Call(method: "GET", path: path)) }
+
+        await eventually { returned }
+        #expect(phone.library.rows.isEmpty)
+        #expect(phone.storage.index?.summaries == [])
+        #expect(saves.count == 1)
+
+        phone.transport.release()
+        await refresh.value
     }
 
     @Test func anotherDevicesOrderShowsOnTheNextLoad() async {

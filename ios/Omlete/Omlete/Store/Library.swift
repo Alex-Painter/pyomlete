@@ -40,14 +40,12 @@ struct CookShelf: Equatable {
         hasLoaded = saved != nil
         recipesLoaded = saved != nil
         aisles = AisleStore(
-            saved: AisleOrder(saved?.aisleOrder ?? []), owed: saved?.unsentAisles.map { AisleOrder($0) },
-            api: deps.api, undo: deps.undo)
+            deps.disk.loadAisles() ?? AisleRecord(), api: deps.api, undo: deps.undo, save: { [disk = deps.disk] in disk.save($0) })
         for var replica in deps.disk.loadAll() {
             replica.releaseAll()
             deps.disk.save(replica)
             stores[replica.id] = makeStore(replica)
         }
-        aisles.onChange = { [weak self] in self?.save() }
     }
 
     var units: [String] { index.units }
@@ -117,7 +115,8 @@ struct CookShelf: Equatable {
         return store
     }
 
-    /// Loads the lists, aisles, recipes and units. A call made while one is running joins it.
+    /// Loads the lists, recipes and units, and asks for the aisles without waiting
+    /// for them. A call made while one is running joins it.
     func refresh() async {
         if let refreshing { return await refreshing.value }
         let task = Task { await load() }
@@ -144,7 +143,9 @@ struct CookShelf: Equatable {
 
     private func load() async {
         async let lists = result { () async throws(APIError) in try await deps.api.lists() }
-        async let aisleLoad: Void = aisles.load()
+        // Not waited for: the aisles queue behind a save of their own, which may
+        // be slow, and the lists are not kept from Home or the disk by that.
+        aisles.startLoad()
         async let recipes = result { () async throws(APIError) in try await deps.api.recipes() }
         async let units = result { () async throws(APIError) in try await deps.api.units() }
 
@@ -158,7 +159,6 @@ struct CookShelf: Equatable {
         }
         if case .success(let recipes) = await recipes { take(recipes) }
         if case .success(let units) = await units { index.units = units }
-        await aisleLoad
         save()
     }
 
@@ -325,10 +325,6 @@ struct CookShelf: Equatable {
     /// A saved index is what says the lists were loaded once, so nothing is written until they have been.
     private func save() {
         guard hasLoaded else { return }
-        // The aisles are the aisle store's. The index only carries them to disk.
-        var index = index
-        index.aisleOrder = aisles.saved.names
-        index.unsentAisles = aisles.owed?.names
         deps.disk.save(index)
     }
 

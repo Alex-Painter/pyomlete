@@ -4,8 +4,6 @@ import OSLog
 /// What Home needs before any list is opened, and what has to outlive a kill.
 nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var summaries: [ListSummary] = []
-    /// The order the server holds. `AisleStore` reads it at launch and `Library` writes it.
-    var aisleOrder: [String] = []
     var recipes: [RecipeSummary] = []
     var units: [String] = []
     /// Lists whose delete is committed but not yet confirmed by the server.
@@ -14,8 +12,16 @@ nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var currentList: ListID?
     /// Recipes whose delete is committed but not yet confirmed by the server.
     var deletingRecipes: Set<RecipeID> = []
-    /// The aisle order the user made and the server has not answered for.
-    var unsentAisles: [String]?
+}
+
+/// The aisles as they outlive a kill. A file of their own and not part of the
+/// index, which is written only once the lists have loaded: an order that is
+/// owed has to reach the disk whether they have or not.
+nonisolated struct AisleRecord: Codable, Equatable, Sendable {
+    /// The order the server last answered with.
+    var saved: [String] = []
+    /// The order the user made and the server has not answered for.
+    var owed: [String]?
 }
 
 nonisolated extension LibraryIndex {
@@ -25,13 +31,11 @@ nonisolated extension LibraryIndex {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init()
         summaries = try container.decodeIfPresent([ListSummary].self, forKey: .summaries) ?? []
-        aisleOrder = try container.decodeIfPresent([String].self, forKey: .aisleOrder) ?? []
         recipes = try container.decodeIfPresent([RecipeSummary].self, forKey: .recipes) ?? []
         units = try container.decodeIfPresent([String].self, forKey: .units) ?? []
         deletingLists = try container.decodeIfPresent(Set<ListID>.self, forKey: .deletingLists) ?? []
         currentList = try container.decodeIfPresent(ListID.self, forKey: .currentList)
         deletingRecipes = try container.decodeIfPresent(Set<RecipeID>.self, forKey: .deletingRecipes) ?? []
-        unsentAisles = try container.decodeIfPresent([String].self, forKey: .unsentAisles)
     }
 }
 
@@ -41,6 +45,8 @@ protocol ReplicaStorage {
     func discard(_ id: ListID)
     func loadIndex() -> LibraryIndex?
     func save(_ index: LibraryIndex)
+    func loadAisles() -> AisleRecord?
+    func save(_ aisles: AisleRecord)
 }
 
 /// One JSON file per list under Application Support, each written atomically,
@@ -57,6 +63,7 @@ struct ReplicaDisk: ReplicaStorage {
 
     private var lists: URL { root.appending(path: "lists", directoryHint: .isDirectory) }
     private var indexFile: URL { root.appending(path: "index.json") }
+    private var aislesFile: URL { root.appending(path: "aisles.json") }
 
     private func file(for id: ListID) -> URL {
         let name = id.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "list"
@@ -96,6 +103,21 @@ struct ReplicaDisk: ReplicaStorage {
         write(index, to: indexFile)
     }
 
+    func loadAisles() -> AisleRecord? {
+        if let data = try? Data(contentsOf: aislesFile) { return try? JSONDecoder().decode(AisleRecord.self, from: data) }
+        // An index written before the aisles had a file of their own carried
+        // them. Moved here, because the index is next written without them.
+        guard let data = try? Data(contentsOf: indexFile), let old = try? JSONDecoder().decode(AislesInIndex.self, from: data)
+        else { return nil }
+        let record = AisleRecord(saved: old.aisleOrder ?? [], owed: old.unsentAisles)
+        save(record)
+        return record
+    }
+
+    func save(_ aisles: AisleRecord) {
+        write(aisles, to: aislesFile)
+    }
+
     private func write(_ value: some Encodable, to file: URL) {
         do {
             try JSONEncoder().encode(value).write(to: file, options: .atomic)
@@ -103,4 +125,10 @@ struct ReplicaDisk: ReplicaStorage {
             log.error("Could not save \(file.lastPathComponent): \(String(describing: error))")
         }
     }
+}
+
+/// The aisle fields of an index written before `AisleRecord`.
+nonisolated private struct AislesInIndex: Decodable {
+    let aisleOrder: [String]?
+    let unsentAisles: [String]?
 }

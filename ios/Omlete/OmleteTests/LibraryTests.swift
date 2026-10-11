@@ -38,6 +38,7 @@ import Testing
         serverAnswers()
 
         await phone.library.refresh()
+        await phone.aislesSettle()
 
         #expect(phone.library.rows.map(\.name) == ["Week", "Party"])
         #expect(phone.library.aisles.order.names == ["Bakery", "Dairy"])
