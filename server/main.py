@@ -1182,16 +1182,24 @@ RECIPE_JOB_TIME_LIMIT = timedelta(minutes=5)
 # this as the longest a job can be outstanding.
 RECIPE_JOB_STALE_AFTER = RECIPE_JOB_TIME_LIMIT + timedelta(minutes=1)
 # Each job is a model call somebody pays for and nobody is waiting on, so only
-# a few run at once. One household makes one recipe at a time.
+# a few run at once. One household makes one recipe at a time. Counted from
+# this instance's own tasks, so a job orphaned by a kill holds no place.
 MAX_WORKING_RECIPE_JOBS = 4
 # The iOS picker takes six photos and re-encodes each as a JPEG no longer than
 # 2000 px. 5 MB is the most the model takes for one image.
 MAX_JOB_PHOTOS = 6
 MAX_JOB_PHOTO_BYTES = 5 * 1024 * 1024
-# Seconds to wait before each try at writing how a job ended.
+# Seconds to wait before each try at writing how a job ended, and the longest
+# one try may take. Together they stay inside the minute the stale rule allows
+# for the write, so a job read as stale is not later written as saved.
 RECIPE_JOB_WRITE_PAUSES = (0, 1, 5)
+RECIPE_JOB_WRITE_TIMEOUT = 10
+# The image types the model reads.
+JOB_PHOTO_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 _recipe_job_tasks: set[asyncio.Task] = set()
+# Starts that have passed the cap and not yet made their task.
+_recipe_jobs_starting = 0
 
 _JOB_FAILED = RecipeJobEnd(status="failed", failure="other")
 
@@ -1245,7 +1253,7 @@ async def _record_end(job: RecipeJobDocument, end: RecipeJobEnd) -> None:
     for pause in RECIPE_JOB_WRITE_PAUSES:
         await asyncio.sleep(pause)
         try:
-            await job.save()
+            await asyncio.wait_for(job.save(), RECIPE_JOB_WRITE_TIMEOUT)
             return
         except Exception:
             logger.exception(
@@ -1309,26 +1317,34 @@ async def _start_recipe_job(
     202 for a job this call started and 200 for one it found, whatever that
     job was started with: the key is the job.
     """
+    global _recipe_jobs_starting
     job = await RecipeJobDocument.get(str(key))
     if job is None:
-        not_stale = datetime.now(timezone.utc) - RECIPE_JOB_STALE_AFTER
-        if await RecipeJobDocument.count_working_since(not_stale) >= MAX_WORKING_RECIPE_JOBS:
+        # Checked and reserved with no await between, so a burst cannot pass the cap together.
+        if len(_recipe_job_tasks) + _recipe_jobs_starting >= MAX_WORKING_RECIPE_JOBS:
             raise HTTPException(
                 status_code=429,
                 detail="Too many recipes are being made. Try again shortly.",
                 headers={"Retry-After": "30"},
             )
-        job = RecipeJobDocument(id=str(key), kind=kind)
+        _recipe_jobs_starting += 1
         try:
-            await job.insert()
-        except DuplicateKeyError:
-            # Another start with this key got in between the look and the insert.
-            job = await RecipeJobDocument.get(str(key))
-        else:
-            task = asyncio.create_task(_run_recipe_job(job, make, refused))
-            _recipe_job_tasks.add(task)
-            task.add_done_callback(_recipe_job_tasks.discard)
-            return _recipe_job_out(job)
+            job = RecipeJobDocument(id=str(key), kind=kind)
+            try:
+                await job.insert()
+            except DuplicateKeyError:
+                # Another start with this key got in between the look and the insert.
+                job = await RecipeJobDocument.get(str(key))
+            else:
+                task = asyncio.create_task(_run_recipe_job(job, make, refused))
+                _recipe_job_tasks.add(task)
+                task.add_done_callback(_recipe_job_tasks.discard)
+                return _recipe_job_out(job)
+        finally:
+            _recipe_jobs_starting -= 1
+        if job is None:
+            # The other start's job expired between its insert and this look, which a day's TTL makes all but impossible.
+            raise HTTPException(status_code=409, detail="That recipe job is no longer there. Start a new one.")
     response.status_code = 200
     return _recipe_job_out(job)
 
@@ -1370,7 +1386,7 @@ async def start_photos_job(key: UUID, files: list[UploadFile], response: Respons
         if len(data) > MAX_JOB_PHOTO_BYTES:
             raise too_much
         # Checked here, before a job exists: a model asked to read nothing invents a recipe.
-        if not data or not (file.content_type or "").startswith("image/"):
+        if not data or file.content_type not in JOB_PHOTO_TYPES:
             raise not_photos
         images.append(RecipeImage(file.content_type, data))
 

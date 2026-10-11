@@ -133,10 +133,3 @@ class RecipeJobDocument(Document, RecipeJob):
         indexes = [
             IndexModel([("created_at", ASCENDING)], expireAfterSeconds=24 * 60 * 60),
         ]
-
-    @classmethod
-    async def count_working_since(cls, started_after: datetime) -> int:
-        """Jobs started after this instant that have not ended."""
-        return await cls.find(
-            cls.status == "working", cls.created_at > started_after
-        ).count()

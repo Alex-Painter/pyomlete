@@ -96,8 +96,9 @@ struct IntakeDependencies {
     /// Tries unanswered in a row.
     @ObservationIgnored private var misses = 0
     /// A start for the outstanding job may have reached the server. False only
-    /// from a tap until a start goes unanswered: a job restored at launch may
-    /// have been sent by the app that was killed.
+    /// from a tap until its first send is answered, goes unanswered or is
+    /// replaced by `resume()`: a job restored at launch may have been sent by
+    /// the app that was killed.
     @ObservationIgnored private var startMayHaveArrived = false
 
     /// Restores an outstanding job and sends nothing: `resume()` does that,
@@ -176,6 +177,8 @@ struct IntakeDependencies {
     func resume() {
         guard case .working(let job, _) = phase else { return }
         misses = 0
+        // The task this replaces may have a start out whose answer it will now never take.
+        startMayHaveArrived = true
         phase = .working(job, .inTouch)
         follow(job, first: .ask)
     }

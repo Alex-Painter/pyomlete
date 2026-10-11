@@ -51,14 +51,6 @@ class FakeJobDocument(RecipeJob):
         await asyncio.sleep(0)
         return cls.store.get(job_id)
 
-    @classmethod
-    async def count_working_since(cls, started_after):
-        await asyncio.sleep(0)
-        return sum(
-            job.status == "working" and job.created_at > started_after
-            for job in cls.store.values()
-        )
-
 
 @pytest.fixture(autouse=True)
 def jobs():
@@ -364,6 +356,30 @@ class TestStartingAJob:
         assert keys[-1] not in jobs
         assert claude.beta.messages.tool_runner.call_count == main.MAX_WORKING_RECIPE_JOBS
 
+    async def test_starts_that_arrive_together_cannot_pass_the_limit_together(self, api, jobs):
+        claude = a_model_that_never_answers()
+        keys = [str(uuid4()) for _ in range(main.MAX_WORKING_RECIPE_JOBS * 2)]
+
+        with a_model(async_claude=claude):
+            answers = await asyncio.gather(*(describe(api, key) for key in keys))
+            await main._end_running_recipe_jobs()
+
+        statuses = sorted(r.status_code for r in answers)
+        assert statuses == [202] * main.MAX_WORKING_RECIPE_JOBS + [429] * main.MAX_WORKING_RECIPE_JOBS
+        assert len(jobs) == main.MAX_WORKING_RECIPE_JOBS
+        assert main._recipe_jobs_starting == 0
+
+    async def test_a_job_whose_task_died_with_its_server_holds_no_place(self, api, jobs):
+        for _ in range(main.MAX_WORKING_RECIPE_JOBS):
+            orphan = FakeJobDocument(id=str(uuid4()), kind="describe")
+            jobs[orphan.id] = orphan
+
+        with a_model():
+            response = await describe(api, str(uuid4()))
+            await asyncio.gather(*list(main._recipe_job_tasks))
+
+        assert response.status_code == 202
+
     async def test_jobs_that_ended_or_went_stale_do_not_count_towards_the_limit(self, api, jobs):
         for _ in range(main.MAX_WORKING_RECIPE_JOBS):
             ended = FakeJobDocument(id=str(uuid4()), kind="describe", status="failed", failure="other")
@@ -402,8 +418,9 @@ class TestStartingAJob:
         [
             [("files", ("page.jpg", b"", "image/jpeg"))],
             [("files", ("notes.txt", b"not a photo", "text/plain"))],
+            [("files", ("page.heic", b"page", "image/heic"))],
         ],
-        ids=["empty", "not an image"],
+        ids=["empty", "not an image", "an image the model does not read"],
     )
     async def test_a_photo_that_is_empty_or_not_an_image_starts_nothing(self, api, jobs, files):
         claude = model_answering(SOUP)
