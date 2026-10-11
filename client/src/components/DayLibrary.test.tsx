@@ -70,4 +70,20 @@ describe('DayLibrary', () => {
     fireEvent.click(row())
     expect(onPick).toHaveBeenCalledWith(soup)
   })
+
+  it('Enter picks the meal after the row was dragged and dropped', async () => {
+    const onPick = vi.fn()
+    render(<Library onPick={onPick} />)
+    fireEvent.pointerDown(row())
+    fireEvent.mouseDown(row(), { button: 0, clientX: 10, clientY: 10 })
+    fireEvent.mouseMove(document, { clientX: 10, clientY: 60 })
+    fireEvent.mouseUp(document, { clientX: 10, clientY: 60 })
+    expect(row().closest('li')?.className).not.toContain('opacity-40')
+    await new Promise((r) => setTimeout(r, 80))
+
+    // A browser turns Enter on a focused button into a click.
+    fireEvent.keyDown(row(), { key: 'Enter', code: 'Enter' })
+    fireEvent.click(row())
+    expect(onPick).toHaveBeenCalledWith(soup)
+  })
 })

@@ -187,6 +187,10 @@ function LibraryRow({
         onPointerDown={() => {
           dragged.current = false
         }}
+        onKeyDown={(e) => {
+          // A drop leaves `dragged` set, since dnd-kit swallowed that click itself.
+          if (e.key === 'Enter' || e.key === ' ') dragged.current = false
+        }}
         onClick={() => {
           if (dragged.current) dragged.current = false
           else onPick()
