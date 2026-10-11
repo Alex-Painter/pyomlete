@@ -11,6 +11,7 @@ struct PlanScreen: View {
 
     @State private var editing: ItemID?
     @State private var isRenaming = false
+    @State private var isAddingMeals = false
     @State private var showsGotIt = true
 
     var body: some View {
@@ -34,7 +35,7 @@ struct PlanScreen: View {
                 items(of: list, in: store)
             }
         }
-        .undoBanner(isCovered: navigation.immersive != nil)
+        .undoBanner(isCovered: navigation.immersive != nil || isAddingMeals)
         // Start shopping owns the bottom of this screen, and the tab bar would sit on top of it.
         .toolbarVisibility(.hidden, for: .tabBar)
         .task {
@@ -54,8 +55,12 @@ struct PlanScreen: View {
                     .listRowBackground(Color.clear)
             }
 
-            if !meals.isEmpty {
-                Section("Meals (\(meals.count))") {
+            Section {
+                if meals.isEmpty {
+                    Button("Pick this week's meals", systemImage: "plus") { isAddingMeals = true }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("plan.pickMealsButton")
+                } else {
                     MealsStrip(meals: meals) {
                         store.removeMeal($0.id, title: $0.title)
                     } onCook: {
@@ -63,12 +68,20 @@ struct PlanScreen: View {
                     }
                         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                 }
+            } header: {
+                HStack {
+                    Text("Meals (\(meals.count))")
+                    Spacer()
+                    Button("Add meals", systemImage: "plus") { isAddingMeals = true }
+                        .font(.subheadline)
+                        .accessibilityIdentifier("plan.addMealsButton")
+                }
             }
 
             Section("Items (\(layout.remaining))") {
                 QuickAddField(screen: "plan") { store.add($0) }
                 if list.items.isEmpty {
-                    Text("Type items above. Paste a whole list if you have one.")
+                    Text("Add meals and their ingredients appear here, or type items above. Paste a whole list if you have one.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -128,6 +141,9 @@ struct PlanScreen: View {
                     store.remove([id], saying: "Removed \(item.name)")
                 }
             }
+        }
+        .sheet(isPresented: $isAddingMeals) {
+            MealsSheet(list: list, store: store)
         }
         .sheet(isPresented: $isRenaming) {
             RenameListSheet(name: list.name) { store.rename($0) }
