@@ -72,17 +72,20 @@ struct PlanScreen: View {
                 HStack {
                     Text("Meals (\(meals.count))")
                     Spacer()
-                    Button {
-                        isAddingMeals = true
-                    } label: {
-                        // Laid out by hand: in a List header a Label leaves a wide gutter after its icon.
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                            Text("Add meals")
+                    // With no meals the row below is the way in, and one is enough.
+                    if !meals.isEmpty {
+                        Button {
+                            isAddingMeals = true
+                        } label: {
+                            // Laid out by hand: in a List header a Label leaves a wide gutter after its icon.
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                Text("Add meals")
+                            }
                         }
+                        .font(.subheadline)
+                        .accessibilityIdentifier("plan.addMealsButton")
                     }
-                    .font(.subheadline)
-                    .accessibilityIdentifier("plan.addMealsButton")
                 }
             }
 
