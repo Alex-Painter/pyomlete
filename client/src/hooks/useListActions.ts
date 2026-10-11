@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch, apiJson } from '@/lib/api'
 import {
@@ -8,6 +8,7 @@ import {
   flushQueue,
   newId,
   pendingOpsFor,
+  pendingRemoval,
 } from '@/lib/offline'
 import type { NewOp, QueuedOp } from '@/lib/offline'
 import { guessCategory } from '@/lib/guessCategory'
@@ -31,6 +32,8 @@ export function useListActions(listId: string) {
   const key = ['list', listId]
 
   const current = () => queryClient.getQueryData<ListDetail>(key)
+  /** The list as it was before each meal removal, by the removal's op. */
+  const beforeRemoval = useRef(new Map<string, ListDetail | undefined>())
 
   const setList = useCallback(
     (fn: (l: ListDetail) => ListDetail) =>
@@ -144,6 +147,7 @@ export function useListActions(listId: string) {
         recipeId,
         notBefore: Date.now() + UNDO_WINDOW_MS + 500,
       })
+      beforeRemoval.current.set(opId, previous)
       showUndo({
         message: `Removed ${title} and its ingredients`,
         onUndo: () => restore([opId], previous),
@@ -153,11 +157,28 @@ export function useListActions(listId: string) {
     [apply, listId, restore, showUndo],
   )
 
+  /**
+   * Putting a meal back while its removal can still be undone is that Undo.
+   * The server still has the meal, so adding it again would be refused and
+   * the removal would go through anyway. Returns whether there was one.
+   */
+  const undoRemoval = useCallback(
+    (recipeId: string) => {
+      const removal = pendingRemoval(listId, recipeId)
+      if (!removal) return false
+      restore([removal.opId], beforeRemoval.current.get(removal.opId))
+      return true
+    },
+    [listId, restore],
+  )
+
   /** Put a meal on a day, or clear it. Works offline; last write wins. */
   const setDay = useCallback(
-    ({ date, recipeId, status }: { date: ISODate; recipeId: string | null; status?: DayStatus }) =>
-      apply({ kind: 'setDay', listId, date, recipeId, status: status ?? 'open' }),
-    [apply, listId],
+    ({ date, recipeId, status }: { date: ISODate; recipeId: string | null; status?: DayStatus }) => {
+      if (recipeId) undoRemoval(recipeId)
+      return apply({ kind: 'setDay', listId, date, recipeId, status: status ?? 'open' })
+    },
+    [apply, listId, undoRemoval],
   )
 
   /** Out for the evening, or back in. Keeps whatever meal the day had. */
@@ -185,6 +206,10 @@ export function useListActions(listId: string) {
   /** Put a meal and its ingredients on a plain list. Needs signal. */
   const addRecipe = useCallback(
     async (recipeId: string, title: string) => {
+      if (undoRemoval(recipeId)) {
+        showUndo({ message: `Added ${title}`, onUndo: () => removeRecipe(recipeId, title) })
+        return
+      }
       try {
         await apiJson(`/api/lists/${listId}/recipes`, {
           method: 'POST',
@@ -202,7 +227,7 @@ export function useListActions(listId: string) {
       void queryClient.invalidateQueries({ queryKey: ['lists'] })
       showUndo({ message: `Added ${title}`, onUndo: () => removeRecipe(recipeId, title) })
     },
-    [queryClient, listId, showUndo, removeRecipe],
+    [queryClient, listId, showUndo, removeRecipe, undoRemoval],
   )
 
   const reorder = useCallback(
