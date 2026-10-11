@@ -94,6 +94,7 @@ struct ShopScreen: View {
         }
         .animation(.default, value: layout)
         .contentMargins(.bottom, 72, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle(list.name)
         .navigationSubtitle(layout.remaining == 0 ? "Nothing left to get" : "\(layout.remaining) left to get")
     }

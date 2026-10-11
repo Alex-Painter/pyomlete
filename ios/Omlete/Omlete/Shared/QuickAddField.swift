@@ -10,6 +10,7 @@ struct QuickAddField: View {
     let onAdd: (String) -> Void
 
     @State private var text = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -18,8 +19,12 @@ struct QuickAddField: View {
                 .lineLimit(1...4)
                 .textInputAutocapitalization(.never)
                 .submitLabel(.done)
+                .focused($isFocused)
                 .onChange(of: text) {
-                    if text.contains(where: \.isNewline) { submit() }
+                    guard text.contains(where: \.isNewline) else { return }
+                    // Done after an item keeps the keyboard for the next one; Done on nothing puts it away.
+                    if text.trimmed.isEmpty { isFocused = false }
+                    submit()
                 }
                 .accessibilityIdentifier("\(screen).quickAddField")
             Button("Add", systemImage: "plus.circle.fill", action: submit)
