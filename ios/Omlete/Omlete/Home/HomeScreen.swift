@@ -39,6 +39,9 @@ struct HomeScreen: View {
             }
         }
         .accessibilityIdentifier("home.list")
+        // A List with no rows draws white, not the grouped grey, behind the cover.
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
         .overlay { cover(for: content) }
         .contentMargins(.bottom, 72, for: .scrollContent)
         .undoBanner(isCovered: navigation.immersive != nil)
