@@ -1,4 +1,4 @@
-import { useMemo, useReducer } from 'react'
+import { useEffect, useMemo, useReducer, useRef } from 'react'
 import type { Ref } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useDraggable } from '@dnd-kit/core'
@@ -171,6 +171,12 @@ function LibraryRow({
     data: { recipe },
     disabled: !draggable,
   })
+  // dnd-kit swallows the click that ends a drag, but not once Escape has
+  // cancelled it: releasing over the row would then pick it.
+  const dragged = useRef(false)
+  useEffect(() => {
+    if (isDragging) dragged.current = true
+  }, [isDragging])
   return (
     <li ref={setNodeRef} className={cn(isDragging && 'opacity-40')}>
       <button
@@ -178,7 +184,13 @@ function LibraryRow({
         {...(draggable ? listeners : {})}
         aria-pressed={mark === 'added' ? true : undefined}
         disabled={mark === 'busy'}
-        onClick={onPick}
+        onPointerDown={() => {
+          dragged.current = false
+        }}
+        onClick={() => {
+          if (dragged.current) dragged.current = false
+          else onPick()
+        }}
         className={cn(
           'flex min-h-[64px] w-full items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-white',
           draggable && 'select-none',
