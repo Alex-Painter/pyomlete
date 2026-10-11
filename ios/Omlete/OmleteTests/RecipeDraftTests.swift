@@ -27,7 +27,11 @@ struct RecipeDraftTests {
     @Test func anUntouchedDraftSavesTheRecipeAsItIsAndHasNoChanges() {
         let draft = RecipeDraft(traybake)
 
-        #expect(draft.outcome == .save(RecipeEdit(title: "Traybake", steps: traybake.steps, ingredients: traybake.ingredients)))
+        let saved = edit(draft)
+        #expect(saved?.title == "Traybake")
+        #expect(saved?.steps == traybake.steps)
+        #expect(saved?.ingredients == traybake.ingredients)
+        #expect(saved?.origins.map { $0?.index } == [0, 1, 2, 3])
         #expect(!draft.hasChanges)
     }
 
@@ -55,7 +59,7 @@ struct RecipeDraftTests {
         #expect(edit(draft)?.ingredients[1].amount == saved)
     }
 
-    @Test(arguments: ["a few", "1/2", "1.2.3", ".", "-2", "inf", "nan"])
+    @Test(arguments: ["a few", "1/2", "1.2.3", ".", "-2", "inf", "nan", "0x10", "1e3"])
     func aQuantityThatIsNotANumberStopsTheSaveAndNamesItsRow(typed: String) {
         var draft = RecipeDraft(traybake)
         draft.ingredients[2].quantity = typed

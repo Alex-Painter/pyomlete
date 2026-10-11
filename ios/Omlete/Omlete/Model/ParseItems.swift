@@ -64,7 +64,10 @@ nonisolated func formatAmount(_ amount: Double) -> String {
 
 /// A quantity typed into an amount field, with either decimal mark. nil for anything that is not a finite number.
 nonisolated func parseAmount(_ text: String) -> Double? {
-    Double(text.trimmed.replacingOccurrences(of: ",", with: ".")).flatMap { $0.isFinite ? $0 : nil }
+    let text = text.trimmed
+    // Digits and one decimal mark only: `Double` alone would also read "0x10" and "1e3".
+    guard text.wholeMatch(of: /\d+([.,]\d*)?|[.,]\d+/) != nil else { return nil }
+    return Double(text.replacingOccurrences(of: ",", with: ".")).flatMap { $0.isFinite ? $0 : nil }
 }
 
 nonisolated private let numberPattern = #"(\d+(?:[.,]\d+)?(?:\s*/\s*\d+)?|\d*\s*[½¼¾⅓⅔])"#
@@ -128,6 +131,11 @@ nonisolated private func cleanName(_ name: String) -> String {
 
 nonisolated extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// Trimmed, with any line breaks inside turned into single spaces.
+    var oneLine: String {
+        split(whereSeparator: \.isNewline).map { String($0).trimmed }.filter { !$0.isEmpty }.joined(separator: " ")
+    }
 
     /// The one rule for searching by title: any part of it, whatever the case. An empty search matches everything.
     func matches(search: String) -> Bool {

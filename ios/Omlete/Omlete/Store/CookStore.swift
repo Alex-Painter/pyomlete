@@ -68,6 +68,8 @@ struct RatingView: Equatable {
     @ObservationIgnored private var sleeper: Task<Void, Never>?
     @ObservationIgnored private var isSendingRating = false
     @ObservationIgnored private var onListSends: Task<Void, Never>?
+    /// How many edits have been saved, so a fetch can tell it was asked for before one.
+    @ObservationIgnored private var saves = 0
 
     private enum RatingDelivery {
         case untried
@@ -89,6 +91,9 @@ struct RatingView: Equatable {
         guard let fetchFailure else { return .loading }
         return fetchFailure.isNotFound ? .gone : .unavailable
     }
+
+    /// The server has answered for this recipe this launch, so `page` is not only the copy saved on the phone.
+    var hasServerCopy: Bool { latest != nil }
 
     var page: RecipePage {
         if deletedOnServer { return .gone }
@@ -144,7 +149,10 @@ struct RatingView: Equatable {
     func save(_ edit: RecipeEdit) async throws(APIError) {
         // An on-list change still on its way names its ingredient by position, which this save may move.
         await onListSends?.value
+        // Only now is the on-list flag settled: a change that failed has flipped back.
+        let edit = (latest ?? record?.session.recipe).map(edit.carryingUntouched) ?? edit
         let saved = try await deps.api.updateRecipe(id, edit)
+        saves += 1
         take(saved)
         deps.recipeSaved(saved)
     }
@@ -156,7 +164,10 @@ struct RatingView: Equatable {
         else { return false }
         // Only the flag, on each copy: adopting a whole recipe here would take its rating too.
         if latest?.ingredients.indices.contains(index) == true { latest?.ingredients[index].isOnList = onList }
-        mutate { $0.session.setOnList(index, onList) }
+        // A cook under way may hold the recipe as it was before an edit, where this position is another ingredient.
+        if record?.session.recipe.ingredients.map(\.name) == shown.ingredients.map(\.name) {
+            mutate { $0.session.setOnList(index, onList) }
+        }
         return true
     }
 
@@ -239,7 +250,11 @@ struct RatingView: Equatable {
 
     private func fetch(reportingFailure: Bool) async {
         do {
-            take(try await deps.api.recipe(id))
+            let asked = saves
+            let fresh = try await deps.api.recipe(id)
+            // Asked for before an edit was saved: it is the recipe as it was, and would put it back.
+            guard asked == saves else { return }
+            take(fresh)
         } catch {
             if error.isNotFound { deletedOnServer = true }
             if record == nil, reportingFailure { fetchFailure = error }

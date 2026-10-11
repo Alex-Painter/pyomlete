@@ -65,6 +65,8 @@ struct RecipeEditor: View {
                     if draft.steps.count > 1 { Text("Drag a step by its handle to move it.") }
                 }
             }
+            // What Save sent is what closes the sheet, so nothing typed meanwhile can be dropped with it.
+            .disabled(phase == .saving)
             // Always in edit mode, which is what shows the handles that move a step.
             .environment(\.editMode, .constant(.active))
             .scrollDismissesKeyboard(.interactively)
@@ -210,7 +212,7 @@ struct RecipeEditor: View {
         switch draft.outcome {
         case .fix(let rows):
             let names = draft.ingredients.filter { rows.contains($0.id) }.map(\.name.trimmed)
-            phase = .stopped("The quantity for \(names.formatted(.list(type: .and))) has to be a number, or empty.")
+            phase = .stopped("The quantity for \(names.formatted(.list(type: .and))) has to be a plain number, or empty.")
         case .save where !draft.hasChanges:
             dismiss()
         case .save(let edit):
@@ -230,7 +232,7 @@ struct RecipeEditor: View {
     private static func message(for failure: APIError) -> String {
         switch failure {
         case .unreachable:
-            "Couldn't reach Omlete, so this isn't saved yet. Saving an edit needs a connection. Your changes are still here."
+            "Couldn't reach Omlete, so this may not be saved. Saving an edit needs a connection. Your changes are still here, and saving again is safe."
         case .rejected(404):
             "This recipe doesn't exist any more, so it can't be saved."
         case .serverFault, .rejected, .undecodable:

@@ -4,9 +4,36 @@ import Foundation
 /// ingredients are whole, because the server swaps the list and keeps nothing
 /// that is not sent back.
 nonisolated struct RecipeEdit: Equatable, Sendable {
+    /// Which ingredient of the recipe a saved ingredient began as.
+    struct Origin: Equatable, Sendable {
+        let index: Int
+        let name: String
+    }
+
     var title: String
     var steps: [String]
     var ingredients: [Recipe.Ingredient]
+    /// One per ingredient, nil for one that was added. Empty when the edit was not made from a draft.
+    var origins: [Origin?] = []
+
+    /// The same edit with the fields no editor touches (note, group and the
+    /// on-list flag) as `current` has them now. A draft copies them when it
+    /// is made, and the flag can change, or fail to, before the save goes out.
+    /// An ingredient that has moved or been renamed since keeps the draft's copy.
+    func carryingUntouched(from current: Recipe) -> RecipeEdit {
+        var edit = self
+        for (place, origin) in origins.enumerated() {
+            guard let origin, edit.ingredients.indices.contains(place),
+                  current.ingredients.indices.contains(origin.index)
+            else { continue }
+            let now = current.ingredients[origin.index]
+            guard now.name == origin.name else { continue }
+            edit.ingredients[place].note = now.note
+            edit.ingredients[place].group = now.group
+            edit.ingredients[place].isOnList = now.isOnList
+        }
+        return edit
+    }
 }
 
 /// A recipe while it is being edited. Apart from `Recipe` so a quantity can be
@@ -30,6 +57,8 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         /// The ingredient this row began as, nil for an added row. Its note,
         /// group and on-list flag are not editable here and are saved as they were.
         fileprivate let origin: Recipe.Ingredient?
+        /// Where `origin` sits in the recipe.
+        fileprivate let originIndex: Int?
     }
 
     struct StepRow: Equatable, Sendable, Identifiable {
@@ -63,10 +92,16 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         ingredients = recipe.ingredients.enumerated().map { index, ingredient in
             IngredientRow(
                 id: index, name: ingredient.name, quantity: Self.text(ingredient.amount),
-                unit: ingredient.unit ?? "", aisle: ingredient.category, origin: ingredient)
+                unit: ingredient.unit ?? "", aisle: ingredient.category.flatMap { $0.isEmpty ? nil : $0 },
+                origin: ingredient, originIndex: index)
         }
         steps = recipe.steps.enumerated().map { StepRow(id: recipe.ingredients.count + $0, text: $1) }
         lastID = recipe.ingredients.count + recipe.steps.count - 1
+    }
+
+    /// Whether this draft was made from exactly this recipe, untouched fields included.
+    func isBased(on recipe: Recipe) -> Bool {
+        original == recipe
     }
 
     /// A blank row at the end, on the fallback aisle and on shopping lists, as the web adds it.
@@ -74,7 +109,7 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
     mutating func addIngredient() -> RowID {
         lastID += 1
         ingredients.append(IngredientRow(
-            id: lastID, name: "", quantity: "", unit: "", aisle: ListLayout.fallbackAisle, origin: nil))
+            id: lastID, name: "", quantity: "", unit: "", aisle: ListLayout.fallbackAisle, origin: nil, originIndex: nil))
         return lastID
     }
 
@@ -93,9 +128,12 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         let unreadable = kept.filter { $0.amount == .unreadable }.map(\.id)
         guard unreadable.isEmpty else { return .fix(quantities: unreadable) }
         return .save(RecipeEdit(
-            title: title.trimmed.isEmpty ? original.title : title.trimmed,
+            title: title.oneLine.isEmpty ? original.title : title.oneLine,
             steps: steps.map(\.text.trimmed).filter { !$0.isEmpty },
-            ingredients: kept.map(\.saved)))
+            ingredients: kept.map(\.saved),
+            origins: kept.map { row in
+                row.originIndex.flatMap { index in row.origin.map { RecipeEdit.Origin(index: index, name: $0.name) } }
+            }))
     }
 
     /// Whether saving would change the recipe. Compared as outcomes, so a

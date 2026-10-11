@@ -496,6 +496,69 @@ import Testing
         #expect(stove.transport.calls.suffix(2) == [exclude, put])
     }
 
+    private func excludedFlags(in body: [String: Any]?) -> [Bool?] {
+        (body?["ingredients"] as? [[String: Any]] ?? []).map { $0["excluded_from_list"] as? Bool }
+    }
+
+    /// The draft copied "off lists" while that change was still on its way. It failed, so the save must not send it.
+    @Test func anEditMadeWhileAnOnListChangeWasFailingSavesTheFlagAsItEndedUp() async throws {
+        await store.load()
+        stove.serverAnswers { [put, exclude] call in
+            if call == exclude { return .unreachable }
+            return call == put ? .status(200, Self.greenCurryJSON) : nil
+        }
+        stove.transport.holding = true
+        store.setOnList(1, false)
+        guard let shown = page else { return }
+        #expect(shown.ingredients[1].isOnList == false)
+        guard case .save(let edit) = RecipeDraft(shown).outcome else { return }
+
+        async let saving: Void = store.save(edit)
+        await eventually { stove.transport.calls.last == exclude }
+        stove.transport.release()
+        try await saving
+
+        #expect(excludedFlags(in: stove.transport.bodies.last) == [false, false, false])
+    }
+
+    @Test func aFlagChangedAfterTheDraftWasMadeIsKeptByTheSave() async throws {
+        await store.load()
+        serverSavesEdits()
+        guard let shown = page, case .save(let edit) = RecipeDraft(shown).outcome else { return }
+
+        store.setOnList(2, false)
+        try await store.save(edit)
+
+        #expect(excludedFlags(in: stove.transport.bodies.last) == [false, false, true])
+    }
+
+    @Test func afterAnEditReordersACooksIngredientsAFlagIsNotSetOnTheWrongOne() async throws {
+        await store.open()
+        store.start()
+        let reordered = Stove.recipeJSON.replacingOccurrences(
+            of: #"{"name":"onions","amount":2,"unit":"whole","note":"finely chopped","category":"Produce","excluded_from_list":false},"#,
+            with: "")
+        stove.serverAnswers { [put] in $0 == put ? .status(200, reordered) : nil }
+        try await store.save(greenCurry)
+        #expect(page?.ingredients.first?.name == "rice")
+
+        store.setOnList(0, false)
+
+        #expect(page?.ingredients[0].isOnList == false)
+        #expect(stove.session?.recipe.ingredients.map(\.isOnList) == [true, true, true])
+    }
+
+    @Test func anEditStartsOnlyFromACopyTheServerGaveThisLaunch() async {
+        await store.load()
+        #expect(store.hasServerCopy)
+
+        stove.relaunch()
+        stove.serverIsUnreachable()
+        await stove.store.load()
+        #expect(stove.store.page != .loading)
+        #expect(!stove.store.hasServerCopy)
+    }
+
     @Test func takingAnIngredientOffListsShowsAtOnceAndTellsTheServer() async {
         await store.load()
         #expect(page?.ingredients.map(\.isOnList) == [true, true, true])

@@ -55,9 +55,9 @@ nonisolated enum Wire {
     }
 
     /// The body of the PUT that replaces a recipe's title, method and
-    /// ingredients. The server requires a unit and an aisle to be strings, so
-    /// no unit goes as "" and no aisle is left out, which the server reads as
-    /// its own fallback. A missing quantity is left out too, which it reads as null.
+    /// ingredients. The server requires a unit to be a string, so none goes as
+    /// "". An aisle or a quantity that is not set is left out, which the
+    /// server reads as its fallback aisle and as null.
     static func recipeUpdate(_ edit: RecipeEdit) throws(APIError) -> Data {
         try encode(RecipeUpdateDTO(
             title: edit.title, instructions: edit.steps,

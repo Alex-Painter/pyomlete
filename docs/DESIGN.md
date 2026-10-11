@@ -55,6 +55,8 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | On iOS a quantity that is not a number stops the save and marks the ingredient; an emptied quantity is saved as none | The web saves 0 for what it cannot read, and a 0 nobody typed would go on every shopping list the recipe is added to. |
 | On iOS an emptied title keeps the title the recipe had | A recipe with no title is a blank tile in the library, and an error to dismiss costs more than keeping the old name. The web saves the empty title. |
 | On iOS the steps of a recipe being edited are moved by dragging a handle | It is how a list is reordered on iOS. The web has an up and a down arrow on each step. |
+| On iOS, Edit recipe is offered only once the server has answered for that recipe this launch, and a save takes the note, group and on-list flag from the recipe as it is at that moment | A save replaces the whole recipe, so an edit begun from an old copy on the phone, or sent with a flag that has since changed, would put old values back. |
+| On iOS, a discarded edit is offered back only while its recipe page is open and the recipe has not changed since | The Undo reopens the editor on that page, and a draft made from an older recipe would save the older values. |
 | Settings behind a cog, Add as a plain tab | A profile icon promised more than it did, and a raised plus button looked out of place. |
 
 ## Home plus four modes

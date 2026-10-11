@@ -14,6 +14,8 @@ struct RecipeScreen: View {
 
     /// The edit in progress, which is what puts the editor up.
     @State private var editing: RecipeDraft?
+    /// The banner offering a discarded edit back is up.
+    @State private var discardOffered = false
 
     var body: some View {
         let store = kitchen.cook(recipeID)
@@ -86,6 +88,8 @@ struct RecipeScreen: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu("More actions", systemImage: "ellipsis") {
                     Button("Edit recipe", systemImage: "pencil") { editing = RecipeDraft(recipe) }
+                        // A save replaces the whole recipe, so an edit starts only from this launch's copy of it.
+                        .disabled(!store.hasServerCopy)
                         .accessibilityIdentifier("recipe.editAction")
                     Button("Delete recipe", systemImage: "trash", role: .destructive) {
                         library.deleteRecipe(recipe.id, title: recipe.title)
@@ -98,8 +102,29 @@ struct RecipeScreen: View {
         }
         .sheet(item: $editing) { draft in
             RecipeEditor(draft: draft, store: store, aisles: library.aisleOrder, units: library.units) { discarded in
-                undo.offer("Discarded your changes to \(recipe.title)", undo: { editing = discarded })
+                discardOffered = true
+                undo.offer("Discarded your changes to \(recipe.title)", undo: {
+                    discardOffered = false
+                    restore(discarded, in: store)
+                }, commit: {
+                    discardOffered = false
+                })
             }
+        }
+        // The Undo reopens the editor on this page, so it must not outlive it.
+        .onDisappear {
+            if discardOffered { undo.commitNow() }
+        }
+    }
+
+    /// A discarded draft is only as good as the recipe it was made from. If
+    /// that changed while the banner was up, saving the draft would put the
+    /// old values back, so it is not reopened.
+    private func restore(_ discarded: RecipeDraft, in store: CookStore) {
+        if case .ready(let now) = store.page, discarded.isBased(on: now) {
+            editing = discarded
+        } else {
+            undo.offer("The recipe has changed since, so that edit can't be brought back.")
         }
     }
 
