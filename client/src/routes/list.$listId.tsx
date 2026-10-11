@@ -196,6 +196,7 @@ function PlanPage() {
             <GotItSection
               items={checked}
               onToggle={(item) => actions.setChecked(item, false)}
+              onEdit={(item) => setSearch({ item: item.id })}
               onClear={() =>
                 actions.removeItems(
                   checked,
@@ -538,10 +539,12 @@ function SortableRow({
 function GotItSection({
   items,
   onToggle,
+  onEdit,
   onClear,
 }: {
   items: ListItem[]
   onToggle: (item: ListItem) => void
+  onEdit: (item: ListItem) => void
   onClear: () => void
 }) {
   const [open, setOpen] = useState(true)
@@ -568,7 +571,12 @@ function GotItSection({
       {open && (
         <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white/70">
           {items.map((item) => (
-            <ListRow key={item.id} item={item} onToggle={() => onToggle(item)} />
+            <ListRow
+              key={item.id}
+              item={item}
+              onToggle={() => onToggle(item)}
+              onEdit={() => onEdit(item)}
+            />
           ))}
         </div>
       )}

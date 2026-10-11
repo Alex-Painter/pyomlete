@@ -11,7 +11,7 @@ Every feature, screen and line of code should be judged against this. If a chang
 
 | Principle | Design rule | Where it shows up |
 |---|---|---|
-| Lists are easy | Adding, editing and removing items is one gesture each. Type "2 onions, 500g mince" and it's parsed; paste a whole list at once. | `QuickAdd`, `ItemSheet`, `ListRow` (tap to check, swipe to delete or edit) |
+| Lists are easy | Adding, editing and removing items is one gesture each. Type "2 onions, 500g mince" and it's parsed; paste a whole list at once. | `QuickAdd`, `ItemSheet`, `ListRow` (in Plan tap to edit and tap the circle to check, in Shop tap to check, swipe to delete or edit) |
 | Nothing to undo by hand | Destructive actions happen at once with an Undo toast, never an "Are you sure?" dialog. | `UndoToast`, `useListActions`, every delete |
 | Variety comes to you | Chef, the proactive suggestions agent, fills Discover (and Chef's picks on Home) from your taste (ratings, dismissals, what's on your lists). One tap saves it or adds it to a list. | `/discover`, `SuggestionDocument`, `POST /api/suggestions/` |
 | Your taste is learned, not configured | Rating a meal after cooking and saying "Not for me" feed future suggestions. No profile forms. Clearing Chef's picks just tidies the feed and teaches Chef nothing, so you can clear without worrying. | Cook's "How was it?", `_taste_profile()` |

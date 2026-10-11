@@ -8,8 +8,8 @@ Lists are the Plan and Shop modes. Plan (`/list/<id>`) is where a list is built:
 - `lists-index` shows every list on Home (`/`, headed `Home`, section `Lists`) as a card; its `…` button opens an action sheet with Rename, Duplicate and Delete (Delete has an Undo toast, no confirm dialog).
 - `list-create` uses `New list` to create a list and open it.
 - `list-quick-add` parses the `Add items` field: `2 onions, 500g mince, oat milk` becomes three items with amounts and units. Pasting several lines adds them all. A local guess files the item under a category at once; `/api/categorize` corrects it afterwards if it can.
-- `list-edit-item` taps an item's chevron (`Edit <name>`) or swipes right to open the edit sheet: name, quantity stepper, unit chips, aisle chips, Delete and Done.
-- `list-check` taps anywhere on a row to check it. Checked items move to `Got it (n)` with `Clear checked`.
+- `list-edit-item` taps a row in Plan (a button named `Edit <name>`, rows under `Got it` included) or swipes right to open the edit sheet: name, quantity stepper, unit chips, aisle chips, Delete and Done.
+- `list-check` in Plan taps the circle at the start of a row (a checkbox named after the item); a tap elsewhere on the row edits. In Shop a tap anywhere on the row checks it. Checked items move to `Got it (n)` with `Clear checked`.
 - `list-delete-undo` swipes left (or uses Delete in the sheet). The item disappears at once; the DELETE is only sent when the Undo toast expires.
 - `list-add-meals` uses `Add meals` (`?sheet=meals`), which stays open for several picks and offers search, Discover picks and the library.
 - `list-shop` uses `Start shopping` to open `/shop/<id>`: large rows, wake lock, `Spotted something? Add it`, an offline/syncing badge, and `Leave shopping mode`.
@@ -29,7 +29,10 @@ Preconditions:
 
 - **Create a list and quick-add items.** Run `$V browse / --label lists-add-item --click-button "New list" --expect-url '^/list/' --fill "Add items=milk, 2 bananas" --press Enter --expect "milk" --expect "bananas" --expect "Dairy & Eggs"`. `run.log` shows `POST /api/lists/ -> 200` and two `POST /api/lists/<id>/items -> 200`.
 - **Confirm persistence.** Take the list id from the final URL in `run.log` and run `curl -s http://127.0.0.1:8000/api/lists/<id>`. The items include `{"name": "bananas", "amount": 2, ...}`.
-- **Shop mode.** Run `$V browse /list/<id> --label lists-shop --click-link "Start shopping" --expect-url '^/shop/' --click-sel '[role=checkbox]' --expect "Got it"`. Then check the API shows the item `"checked": true`.
+- **Check in Plan through the circle.** Run `$V browse /list/<id> --label lists-plan-check --click-sel '[role=checkbox][aria-label^="bananas"]' --expect "Got it (1)"`. The API then shows bananas `"checked": true`.
+- **Uncheck from Got it.** Run `$V browse /list/<id> --label lists-plan-uncheck --expect "Got it (1)" --click-sel '[role=checkbox][aria-checked=true]' --absent "Got it"`. The API shows `"checked": false` again.
+- **Edit from a row tap in Plan.** Run `$V browse /list/<id> --label lists-plan-edit --click-button "Edit milk" --fill "Name=oat milk" --click-button "Done" --expect "oat milk"`. `run.log` shows `PATCH /api/lists/<id>/items/<itemId> -> 200`. The API shows the new name with `"checked": false`, because the tap opened the sheet and did not check the item.
+- **Shop mode.** Run `$V browse /list/<id> --label lists-shop --click-link "Start shopping" --expect-url '^/shop/' --click-sel '[role=checkbox]' --expect "Got it"`. In Shop the whole row is the checkbox, so this is a tap on the row. Then check the API shows the item `"checked": true`.
 
 ## Gotchas
 
