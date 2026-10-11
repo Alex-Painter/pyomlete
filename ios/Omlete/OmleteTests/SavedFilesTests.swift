@@ -27,6 +27,16 @@ struct SavedFilesTests {
         "deletingLists":["6acab1afc5726b9df81a350c"]}
         """
 
+    /// An index file as written by the build before recipes carried an ingredient count.
+    private static let indexFromBeforeAddMeals = """
+        {"currentList":"6ae9a8b03b1d1a5f0c2e7711","aisleOrder":["Fresh Produce","Other"],"units":["grams"],\
+        "recipes":[{"id":"6ae9a8af3b1d1a5f0c2e7701","title":"Verify Fixture Traybake","totalMinutes":45,"rating":5,\
+        "sourceName":"example.com","imageURL":"https://img.test/t.jpg"},\
+        {"id":"6ae9a8af3b1d1a5f0c2e7702","title":"Verify Fixture Soft Egg"}],\
+        "summaries":[{"meals":[],"name":"Verify Fixture List","id":"6ae9a8b03b1d1a5f0c2e7711","checkedCount":0,"itemCount":2}],\
+        "deletingLists":[],"deletingRecipes":["6ae9a8af3b1d1a5f0c2e7703"]}
+        """
+
     private func roundTrip<Value: Codable>(_ value: Value) throws -> Value {
         try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(value))
     }
@@ -53,6 +63,19 @@ struct SavedFilesTests {
         #expect(index.aisleOrder == ["Fresh Produce", "Other"])
         #expect(index.units == ["grams", "whole"])
         #expect(index.deletingRecipes.isEmpty)
+    }
+
+    @Test func anIndexSavedBeforeAddMealsKeepsItsRecipesWithNoIngredientCount() throws {
+        let index = try JSONDecoder().decode(LibraryIndex.self, from: Data(Self.indexFromBeforeAddMeals.utf8))
+
+        #expect(index.recipes == [
+            RecipeSummary(
+                id: "6ae9a8af3b1d1a5f0c2e7701", title: "Verify Fixture Traybake",
+                imageURL: URL(string: "https://img.test/t.jpg"), totalMinutes: 45, rating: 5, sourceName: "example.com"),
+            RecipeSummary(id: "6ae9a8af3b1d1a5f0c2e7702", title: "Verify Fixture Soft Egg"),
+        ])
+        #expect(index.currentList == "6ae9a8b03b1d1a5f0c2e7711")
+        #expect(index.deletingRecipes == ["6ae9a8af3b1d1a5f0c2e7703"])
     }
 
     @Test func anIndexWithNoFieldsAtAllLoadsEmpty() throws {

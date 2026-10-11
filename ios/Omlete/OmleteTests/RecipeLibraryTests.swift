@@ -180,7 +180,7 @@ import Testing
 
         guard case .saved = outcome else { Issue.record("not saved"); return }
         #expect(phone.library.recipes.first == RecipeSummary(
-            id: "traybake", title: "Traybake", totalMinutes: 45, rating: 5, sourceName: "example.com"))
+            id: "traybake", title: "Traybake", totalMinutes: 45, rating: 5, sourceName: "example.com", ingredientCount: 4))
 
         phone.serverIsUnreachable()
         phone.relaunch()

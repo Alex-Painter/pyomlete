@@ -57,7 +57,7 @@ nonisolated struct Recipe: Codable, Equatable, Sendable, Identifiable {
     var summary: RecipeSummary {
         RecipeSummary(
             id: id, title: title, imageURL: imageURL, totalMinutes: totalMinutes, rating: rating,
-            sourceName: source?.name)
+            sourceName: source?.name, ingredientCount: ingredients.count)
     }
 }
 

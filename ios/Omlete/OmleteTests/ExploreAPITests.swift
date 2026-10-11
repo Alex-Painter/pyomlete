@@ -54,11 +54,15 @@ import UniformTypeIdentifiers
         #expect(abs(added.timeIntervalSince(try Date("2026-10-10T09:00:00Z", strategy: .iso8601))) < 1)
     }
 
-    @Test func recipeSummariesCarryRatingAndSource() async throws {
-        serverAnswers(200, #"[{"id":"a","title":"A","rating":4,"total_minutes":20,"source_name":"example.com","image_url":null}]"#)
+    @Test func recipeSummariesCarryRatingSourceAndIngredientCount() async throws {
+        serverAnswers(200, """
+            [{"id":"a","title":"A","rating":4,"total_minutes":20,"source_name":"example.com","image_url":null,"ingredient_count":7},
+             {"id":"b","title":"B"}]
+            """)
 
         #expect(try await api.recipes() == [
-            RecipeSummary(id: "a", title: "A", totalMinutes: 20, rating: 4, sourceName: "example.com"),
+            RecipeSummary(id: "a", title: "A", totalMinutes: 20, rating: 4, sourceName: "example.com", ingredientCount: 7),
+            RecipeSummary(id: "b", title: "B"),
         ])
     }
 
