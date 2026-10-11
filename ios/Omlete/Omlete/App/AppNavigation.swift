@@ -8,6 +8,7 @@ enum AppTab: Hashable {
 enum Route: Hashable {
     case plan(ListID)
     case recipe(RecipeID)
+    case settings
 }
 
 /// The one full-screen mode on top of the tabs, if any. A single optional

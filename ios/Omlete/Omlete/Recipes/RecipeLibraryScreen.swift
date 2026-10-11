@@ -47,6 +47,7 @@ struct RecipeLibraryScreen: View {
         .navigationTitle("Recipes")
         .navigationSubtitle(recipes.isEmpty ? "" : "\(recipes.count) saved")
         .toolbar {
+            SettingsCog(tab: .recipes)
             ToolbarItem(placement: .primaryAction) {
                 Menu("Sort", systemImage: "arrow.up.arrow.down") {
                     ForEach(LibraryQuery.Sort.allCases, id: \.self) { sort in

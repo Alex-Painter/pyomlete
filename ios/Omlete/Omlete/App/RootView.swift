@@ -66,6 +66,7 @@ struct RootView: View {
                     switch route {
                     case .plan(let id): PlanScreen(listID: id)
                     case .recipe(let id): RecipeScreen(recipeID: id)
+                    case .settings: SettingsScreen()
                     }
                 }
         }
