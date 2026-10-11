@@ -162,6 +162,8 @@ db.recipes.insert_many([
     },
 ])
 db.suggestions.delete_many({})
+# The server makes the default aisles again the next time they are asked for.
+db.user_settings.delete_many({})
 # A recipe a run made (saved from a card, or added) is not a fixture: the library starts from the four above.
 db.recipes.delete_many({"title": {"$not": {"$regex": "^Verify Fixture "}}})
 PY

@@ -44,6 +44,7 @@ struct HomeScreen: View {
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Home")
         .toolbar {
+            SettingsCog(tab: .home)
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     create { try await library.newList() }

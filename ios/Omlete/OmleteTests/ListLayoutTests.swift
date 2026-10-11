@@ -29,6 +29,17 @@ struct ListLayoutTests {
         #expect(layout.aisles.map(\.name) == ["Bakery", "Zebra", "Apple"])
     }
 
+    /// What Settings promises: deleting or renaming an aisle moves no item.
+    @Test func itemsInAnAisleThatWasDeletedKeepItAfterTheAislesStillInTheOrder() {
+        let items = [item("milk", "Dairy"), item("bread", "Bakery"), item("cheese", "Dairy"), item("peas", "Frozen")]
+        let before = ListLayout(list(items), aisleOrder: ["Dairy", "Bakery", "Frozen", "Other"])
+        let after = ListLayout(list(items), aisleOrder: AisleOrder(["Dairy", "Bakery", "Frozen", "Other"]).deleting("Dairy").names)
+
+        #expect(before.aisles.map(\.name) == ["Dairy", "Bakery", "Frozen"])
+        #expect(after.aisles.map(\.name) == ["Bakery", "Frozen", "Dairy"])
+        #expect(after.aisles[2].items.map(\.id) == ["milk", "cheese"])
+    }
+
     @Test func anEmptyCategoryIsFiledUnderOther() {
         let layout = ListLayout(list([item("a", ""), item("b", "Other")]), aisleOrder: ["Other"])
 

@@ -30,7 +30,12 @@ nonisolated enum Wire {
     }
 
     static func aisleOrder(_ data: Data) throws -> [String] {
-        try JSONDecoder().decode([CategoryDTO].self, from: data).sorted { $0.order < $1.order }.map(\.name)
+        AisleOrder(try JSONDecoder().decode([CategoryDTO].self, from: data).sorted { $0.order < $1.order }.map(\.name)).names
+    }
+
+    /// The whole list, each aisle numbered by its place: the PUT replaces every aisle the server has.
+    static func aisleOrder(_ names: [String]) throws(APIError) -> Data {
+        try encode(CategoriesDTO(categories: names.enumerated().map { CategoryDTO(name: $1, order: $0) }))
     }
 
     static func category(_ data: Data) throws -> String {
@@ -225,7 +230,11 @@ nonisolated private struct DetailDTO: Decodable {
     let items: [Item]
 }
 
-nonisolated private struct CategoryDTO: Decodable {
+nonisolated private struct CategoriesDTO: Encodable {
+    let categories: [CategoryDTO]
+}
+
+nonisolated private struct CategoryDTO: Codable {
     let name: String
     let order: Int
 }

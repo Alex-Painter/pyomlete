@@ -5,7 +5,7 @@ This directory is the maintained source for verifying what a user can do in Omle
 ## Baseline preconditions
 
 - Commands run from `ios/` with `V=.claude/skills/verify/scripts/omlete-ios-verify`.
-- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`. `up` seeds one list, `Verify Fixture List`, with six items and two meals, four recipes, and five Discover cards.
+- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`. `up` seeds one list, `Verify Fixture List`, with six items and two meals, four recipes, and five Discover cards, and puts the aisle order back to the server's defaults.
 - Ids are new on every seed. Each recipe below uses `<listID>` and `<itemID>`: read them from `$V snapshot`, or with `curl -s http://127.0.0.1:8765/api/lists/ | jq -r '.[0].id'` and `curl -s http://127.0.0.1:8765/api/lists/<listID> | jq -r '.items[] | "\(.id) \(.name)"'`. Recipe ids: `curl -s http://127.0.0.1:8765/api/recipes/ | jq -r '.[] | "\(.id) \(.title)"'`.
 - Never drive an Omlete instance that `$V up` did not launch.
 
@@ -35,6 +35,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 - [Discover](./discover.md): Chef's suggestions in shelves. Save, add to a list, Not for me and Clear all with Undo, Get new ideas, Tune.
 - [Recipes](./recipes.md): the recipe library with search, sort and filters, and the recipe page. Cook, add to a list, rate, keep an ingredient off lists, edit, delete with Undo.
 - [Add a recipe](./add.md): one field for a link or a description, or photos. A link already imported, and each kind of failure.
+- [Settings](./settings.md): the aisle order behind the cog on each tab. Add, rename, delete with Undo, reorder, and a change that cannot be saved.
 
 ## Screens not built yet
 
@@ -43,4 +44,3 @@ Each follows a web route (`client/src/routes`, the spec named in `ios/CLAUDE.md`
 | Screen | Web route that specifies it |
 |---|---|
 | Taking a photo in Add a recipe | `/create` (Take photo) |
-| Settings | `/settings` |

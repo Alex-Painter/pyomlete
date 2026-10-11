@@ -40,6 +40,7 @@ struct DiscoverScreen: View {
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Discover")
         .toolbar {
+            SettingsCog(tab: .discover)
             if case .shelves = feed {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Clear all") { chef.clearAll() }

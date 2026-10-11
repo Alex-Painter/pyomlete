@@ -9,6 +9,12 @@ struct CookShelf: Equatable {
     let meals: [RecipeSummary]
 }
 
+/// An aisle hidden by a delete whose Undo banner is still up, and where it sat.
+private struct HeldAisle {
+    let name: String
+    let place: Int
+}
+
 /// App-wide: the Home index, the aisle order, the recipe library and unit
 /// cache, and the registry of list stores. Every way of putting a meal on a
 /// list ends in `addMeal(_:title:to:)`.
@@ -26,10 +32,24 @@ struct CookShelf: Equatable {
     private(set) var hasLoaded: Bool
     /// The recipes have been loaded once, now or by an earlier launch: an empty library is known to be empty.
     private(set) var recipesLoaded: Bool
+    /// The server has answered for the aisles this launch. Until then they are
+    /// not changed: a save replaces the whole order, and one made from an old
+    /// copy would undo whatever another device did since.
+    private(set) var aislesLoaded = false
+    /// The whole order as the user has made it and the server lacks, an aisle
+    /// being deleted included until its banner settles. Never saved to disk:
+    /// after a kill the order is the server's again.
+    private var unsentAisles: [String]?
+    /// At most one, because there is one banner. Hidden from `aisleOrder` and
+    /// in nothing that is sent, so Undo only has to forget it.
+    private var heldAisle: HeldAisle?
 
     @ObservationIgnored private let deps: StoreDependencies
     @ObservationIgnored private var stores: [ListID: ListStore] = [:]
     @ObservationIgnored private var refreshing: Task<Void, Never>?
+    @ObservationIgnored private var aisleSave: Task<Void, Never>?
+    /// Counts each save as it goes out and as it ends, so a load can tell its answer may predate one.
+    @ObservationIgnored private var aisleSaveEvents = 0
 
     init(deps: StoreDependencies) {
         self.deps = deps
@@ -44,7 +64,18 @@ struct CookShelf: Equatable {
         }
     }
 
-    var aisleOrder: [String] { index.aisleOrder }
+    /// The order as the user last left it, sent or not. `index.aisleOrder` is the server's.
+    var aisleOrder: [String] {
+        guard let heldAisle else { return allAisles }
+        return allAisles.filter { $0 != heldAisle.name }
+    }
+
+    /// `aisleOrder` with an aisle being deleted still in it.
+    private var allAisles: [String] { unsentAisles ?? index.aisleOrder }
+
+    /// The aisle hidden behind the Undo banner, if any. Its name is still
+    /// taken: giving it to another aisle would lose that aisle when the delete settles.
+    var aisleBeingDeleted: String? { heldAisle?.name }
     var units: [String] { index.units }
 
     /// Home rows: the saved summaries minus lists being deleted, with the name
@@ -122,6 +153,7 @@ struct CookShelf: Equatable {
     }
 
     private func load() async {
+        let aisleSavesBefore = aisleSaveEvents
         async let lists = result { () async throws(APIError) in try await deps.api.lists() }
         async let aisles = result { () async throws(APIError) in try await deps.api.aisleOrder() }
         async let recipes = result { () async throws(APIError) in try await deps.api.recipes() }
@@ -135,7 +167,11 @@ struct CookShelf: Equatable {
         case .failure(let failure):
             loadFailure = failure
         }
-        if case .success(let aisles) = await aisles { index.aisleOrder = aisles }
+        // An answer that crossed a save may be the order from before it.
+        if case .success(let aisles) = await aisles, aisleSaveEvents == aisleSavesBefore {
+            index.aisleOrder = aisles
+            aislesLoaded = true
+        }
         if case .success(let recipes) = await recipes {
             index.recipes = recipes
             recipesLoaded = true
@@ -261,6 +297,74 @@ struct CookShelf: Equatable {
         })
     }
 
+    /// Shows the order at once and saves it. Needs signal: there is no queue
+    /// for settings, so a save that fails puts the order back as the server
+    /// has it and says so in the banner. An aisle whose delete can still be
+    /// undone is sent where it was, so this never sends that delete early.
+    func setAisles(_ order: AisleOrder) {
+        guard aislesLoaded, order.names != aisleOrder else { return }
+        unsentAisles = heldAisle.map { order.restoring($0.name, at: $0.place).names } ?? order.names
+        saveAisles()
+    }
+
+    /// Hides the aisle at once and offers Undo. Nothing about it is sent
+    /// until the banner settles, so an Undo sends nothing, whatever else was
+    /// changed meanwhile.
+    func deleteAisle(_ name: String) {
+        guard aislesLoaded, aisleOrder.contains(name) else { return }
+        deps.undo.offer("Deleted \(name)", undo: { [weak self] in
+            guard let self, heldAisle?.name == name else { return }
+            heldAisle = nil
+        }, commit: { [weak self] in
+            guard let self, heldAisle?.name == name else { return }
+            heldAisle = nil
+            unsentAisles = allAisles.filter { $0 != name }
+            saveAisles()
+        })
+        // Read after the offer, which settles an earlier delete and so changes the order.
+        guard let place = allAisles.firstIndex(of: name) else { return }
+        heldAisle = HeldAisle(name: name, place: place)
+    }
+
+    private func saveAisles() {
+        guard aisleSave == nil else { return }
+        aisleSave = Task { [weak self] in
+            await self?.sendAisles()
+            self?.aisleSave = nil
+        }
+    }
+
+    /// One save at a time, each the whole order as it stands when it goes
+    /// out, until the server has what the user last did. A change made during
+    /// a save is picked up by the next turn, so two saves cannot arrive out of
+    /// order, and a save that fails takes with it only the order it carried.
+    private func sendAisles() async {
+        while let order = unsentAisles {
+            if order != index.aisleOrder {
+                aisleSaveEvents += 1
+                defer { aisleSaveEvents += 1 }
+                do {
+                    try await deps.api.saveAisleOrder(order)
+                } catch {
+                    // Changed again while that was on its way: the newer order has not been tried.
+                    if unsentAisles != order { continue }
+                    unsentAisles = nil
+                    // A save that timed out may still have landed, so ask what the server holds.
+                    if let held = try? await deps.api.aisleOrder() { index.aisleOrder = held }
+                    deps.undo.inform(
+                        error == .unreachable
+                            ? "Couldn't reach Omlete. Your aisles are as the server has them."
+                            : "Couldn't save your aisles. They're as the server has them.")
+                    // Not a return: a change made while the server was being asked is still to send.
+                    continue
+                }
+                index.aisleOrder = order
+                save()
+            }
+            if unsentAisles == order { unsentAisles = nil }
+        }
+    }
+
     /// Flushes everything unsent. Called when the app comes to the front and
     /// when the network returns.
     func syncAll() {
@@ -306,7 +410,7 @@ struct CookShelf: Equatable {
     }
 
     private func makeStore(_ replica: ListReplica) -> ListStore {
-        ListStore(replica: replica, deps: deps, aisleOrder: { [weak self] in self?.index.aisleOrder ?? [] })
+        ListStore(replica: replica, deps: deps, aisleOrder: { [weak self] in self?.aisleOrder ?? [] })
     }
 
     /// A saved index is what says the lists were loaded once, so nothing is written until they have been.
