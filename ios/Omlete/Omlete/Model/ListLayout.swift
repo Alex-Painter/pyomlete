@@ -10,12 +10,7 @@ nonisolated struct ListLayout: Equatable, Sendable {
 
         /// The aisle's ids after a drag, in the shape `onMove` reports it.
         func ids(moving offsets: IndexSet, to destination: Int) -> [ItemID] {
-            let ids = items.map(\.id)
-            let moved = offsets.map { ids[$0] }
-            var rest = ids.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
-            let insertAt = destination - offsets.count(where: { $0 < destination })
-            rest.insert(contentsOf: moved, at: min(max(insertAt, 0), rest.count))
-            return rest
+            items.map(\.id).moving(offsets, to: destination)
         }
     }
 

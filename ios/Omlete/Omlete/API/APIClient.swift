@@ -99,6 +99,11 @@ nonisolated struct APIClient: Sendable {
         try await decode(Wire.aisleOrder, from: call("GET", "settings/categories"))
     }
 
+    /// Replaces the whole order. Sending the same order twice is harmless.
+    func saveAisleOrder(_ names: [String]) async throws(APIError) {
+        _ = try await call("PUT", "settings/categories", body: try Wire.aisleOrder(names))
+    }
+
     /// May be slow: the server asks a model when its cache misses.
     func categorize(_ name: String) async throws(APIError) -> String {
         try await decode(Wire.category, from: call("POST", "categorize", body: try Wire.encode(["name": name])))
