@@ -97,11 +97,13 @@ Two more steps for what the app stores and for working offline:
 |---|---|
 | `$V relaunch` | cold-start the installed build: no rebuild, no reseed, API left as it is |
 | `$V api stop` / `$V api start` | take the local API away and bring it back |
-| `$V api hold` / `$V api release` | freeze the API once it has taken the next recipe job, and let it go again |
+| `$V api freeze` / `$V api release` | freeze the API now, so nothing is read or answered, and let it go again |
+| `$V api hold` | freeze the API once it has answered the next recipe job's start |
+| `$V api bounce` | restart the API once it has answered the next recipe job's start, as a deploy would |
 
 With the API stopped the app is "offline" as far as lists go: changes are saved on the phone and shown, and they are sent when the API returns (the app retries with a backoff, so allow about 20 seconds, or `relaunch`).
 
-`api hold` is for showing a recipe job outliving the app. Run it in the background before the tap that starts the job (`$V api hold &`): it waits for the API to answer the start, then stops the process with `SIGSTOP`, so the job stays outstanding and nothing the app asks is answered until `$V api release`. `features/add.md` has the recipe.
+These three are for recipe jobs, and `features/add.md` has the recipes. `api freeze` stops the process with `SIGSTOP`: a request sent to it sits unread, which is how to show a start whose answer never arrives. `api hold` and `api bounce` are run in the background before the tap that starts the job (`$V api hold &`). Each waits for the API to answer the start and then acts, so the job is outstanding when it does. The app looks at a job as soon as its start is answered, and that first look can be answered before `hold` freezes the API or `bounce` stops it. `bounce` copies the old log to `.verify-run/api.before-bounce.log`, because the new API starts a new `api.log`.
 
 `tap`, `type` and `swipe` fail with `no tappable or scrollable control with accessibility id ...` when the id is not on screen. Run `$V snapshot` to see what is there. If the control exists but has no id, add an `accessibilityIdentifier` to it in the app rather than driving it another way.
 

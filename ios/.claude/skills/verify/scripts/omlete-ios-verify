@@ -14,7 +14,9 @@
 #   omlete-ios-verify swipe <id> <dir>      swipe up|down|left|right inside scrollable <id>
 #   omlete-ios-verify relaunch              cold-start the installed build: no rebuild, no reseed
 #   omlete-ios-verify api stop|start|seed   take the local API away, bring it back, or reset its fixtures
-#   omlete-ios-verify api hold|release      freeze the API once it has taken the next recipe job; let it go again
+#   omlete-ios-verify api freeze|release    freeze the API now, so nothing is read or answered; let it go again
+#   omlete-ios-verify api hold              freeze the API once it has taken the next recipe job
+#   omlete-ios-verify api bounce            restart the API once it has taken the next recipe job
 #   omlete-ios-verify down                  stop the app and the local API; shut the simulator down if `up` booted it
 set -euo pipefail
 
@@ -114,22 +116,41 @@ stop_api() {
   rm -f "$RUN_DIR/api.pid"
 }
 
-# Waits for the API to answer the next recipe-job start, then freezes the
-# process, so the job stays outstanding for as long as a proof needs. Run it
-# in the background before the tap that starts the job.
-hold_api() {
+# Returns once the API has answered the next recipe-job start, so what follows
+# happens with that job outstanding. Run the caller in the background before
+# the tap that starts the job.
+await_job_start() {
   pid_alive "$RUN_DIR/api.pid" || die "the API is not running; run: $0 api start"
-  local starts='POST /api/recipe-jobs/' before
+  local starts='PUT /api/recipe-jobs/' before
   before="$(grep -c "$starts" "$RUN_DIR/api.log" || true)"
   for _ in $(seq 1 1200); do
-    if [ "$(grep -c "$starts" "$RUN_DIR/api.log" || true)" -gt "$before" ]; then
-      kill -STOP "$(cat "$RUN_DIR/api.pid")"
-      say "holding the API (pid $(cat "$RUN_DIR/api.pid")) with a recipe job outstanding; let it go with: $0 api release"
-      return 0
-    fi
+    [ "$(grep -c "$starts" "$RUN_DIR/api.log" || true)" -gt "$before" ] && return 0
     sleep 0.05
   done
-  die "no recipe job was started within 60s, so the API was not held"
+  die "no recipe job was started within 60s"
+}
+
+freeze_api() {
+  pid_alive "$RUN_DIR/api.pid" || die "the API is not running; run: $0 api start"
+  kill -STOP "$(cat "$RUN_DIR/api.pid")"
+  say "froze the API (pid $(cat "$RUN_DIR/api.pid")): nothing is read or answered until: $0 api release"
+}
+
+# The API takes the job, then goes quiet with it outstanding.
+hold_api() {
+  await_job_start
+  freeze_api
+}
+
+# What a deploy does to a job: the API is told to stop while the job is
+# working, and a new one takes its place. The old log is kept beside the new.
+bounce_api() {
+  await_job_start
+  stop_api
+  cp "$RUN_DIR/api.log" "$RUN_DIR/api.before-bounce.log"
+  start_mongo
+  start_api
+  say "restarted the API under a recipe job (old log: .verify-run/api.before-bounce.log)"
 }
 
 release_api() {
@@ -456,9 +477,11 @@ cmd_api() {
     stop)  stop_api ;;
     start) mkdir -p "$RUN_DIR"; start_mongo; start_api; say "API answers on $API" ;;
     seed)  seed ;;
+    freeze) freeze_api ;;
     hold)  hold_api ;;
+    bounce) bounce_api ;;
     release) release_api ;;
-    *) die "usage: omlete-ios-verify api stop|start|seed|hold|release" ;;
+    *) die "usage: omlete-ios-verify api stop|start|seed|freeze|hold|bounce|release" ;;
   esac
 }
 

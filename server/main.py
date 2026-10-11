@@ -1184,8 +1184,8 @@ RECIPE_JOB_STALE_AFTER = RECIPE_JOB_TIME_LIMIT + timedelta(minutes=1)
 # Each job is a model call somebody pays for and nobody is waiting on, so only
 # a few run at once. One household makes one recipe at a time.
 MAX_WORKING_RECIPE_JOBS = 4
-# The iOS picker takes six photos, each re-encoded as a JPEG no longer than
-# 2000 px, which is under 2 MB. The model refuses an image over 5 MB.
+# The iOS picker takes six photos and re-encodes each as a JPEG no longer than
+# 2000 px. 5 MB is the most the model takes for one image.
 MAX_JOB_PHOTOS = 6
 MAX_JOB_PHOTO_BYTES = 5 * 1024 * 1024
 # Seconds to wait before each try at writing how a job ended.

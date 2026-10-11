@@ -34,7 +34,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 - [Cook](./cook.md): one recipe full screen, a step at a time. Scale servings, start timers, rate it at the end. Resumes where you left off.
 - [Discover](./discover.md): Chef's suggestions in shelves. Save, add to a list, Not for me and Clear all with Undo, Get new ideas, Tune.
 - [Recipes](./recipes.md): the recipe library with search, sort and filters, and the recipe page. Cook, add to a list, rate, keep an ingredient off lists, edit, delete with Undo.
-- [Add a recipe](./add.md): one field for a link or a description, or photos. A link already imported, each kind of failure, and a job that outlives the app being killed or left.
+- [Add a recipe](./add.md): one field for a link or a description, or photos. A link already imported, each kind of failure, a start whose answer is lost, a job that outlives the app being killed or left, and a server restarted under one.
 - [Settings](./settings.md): the aisle order behind the cog on each tab. Add, rename, delete with Undo, reorder, and a change that cannot be saved.
 
 ## Screens not built yet
