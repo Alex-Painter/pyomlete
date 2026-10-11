@@ -1358,7 +1358,7 @@ async def _run_recipe_job(
 
 
 async def _end_running_work() -> None:
-    """Stops the recipe jobs and card saves this instance is running and waits for each to be written as failed.
+    """Stops this instance's recipe jobs and card saves and waits for each to be written as failed.
 
     A deploy would otherwise leave them "working" or "saving" until they are
     stale. Only this instance's tasks: another instance's are still being made.

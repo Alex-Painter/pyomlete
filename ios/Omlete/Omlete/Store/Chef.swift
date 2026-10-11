@@ -286,7 +286,9 @@ struct ChefDependencies {
     /// is kept, so a recipe that does land later is still taken as landed.
     private func giveUpOnOverdueSaves() {
         let now = deps.now()
-        let overdue = saves.filter { !$0.value.givenUp && abs(now.timeIntervalSince($0.value.seen)) >= Self.giveUpAfter }.map(\.key)
+        let overdue = saves
+            .filter { !$0.value.givenUp && abs(now.timeIntervalSince($0.value.seen)) >= Self.giveUpAfter }
+            .map(\.key)
         sayNotComing(overdue)
         for id in overdue {
             saves[id]?.givenUp = true
