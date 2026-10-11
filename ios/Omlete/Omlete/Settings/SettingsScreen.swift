@@ -4,37 +4,38 @@ import SwiftUI
 /// it was opened from, not a sheet: every change saves as it is made, so there
 /// is nothing for a Done or a Cancel to mean, and Back returns to that tab.
 ///
-/// The rules are `AisleOrder`'s and the saving is `Library`'s. This view turns
-/// gestures into one or the other and words a refusal.
+/// The rules are `AisleOrder`'s, the saving is `AisleStore`'s and what is typed
+/// is `AisleDrafts`'s. This view turns gestures into those.
 struct SettingsScreen: View {
     @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
 
-    @State private var newName = ""
-    /// Why the last name typed was not taken, until the next change.
-    @State private var refusal: Refused?
+    @State private var drafts = AisleDrafts()
     /// True from the start: the screen asks as it appears, and must not say it failed before it has.
     @State private var isLoading = true
 
     var body: some View {
         List {
-            if !library.aislesLoaded {
+            if !store.isLoaded {
                 Section { waiting }
             }
             Section {
                 ForEach(aisles.names, id: \.self) { name in
-                    AisleRow(name: name, refusal: refusal?.message(at: name)) {
-                        rename(name, to: $0)
-                    } onDelete: { shown in
-                        refusal = nil
-                        library.deleteAisle(aisles.current(of: name, renamedTo: shown))
+                    AisleRow(
+                        name: name,
+                        text: Binding(get: { drafts.text(for: name) }, set: { drafts.type($0, over: name) }),
+                        refusal: drafts.refusal(at: name)
+                    ) {
+                        save(drafts.rename(name, in: aisles, beingDeleted: store.beingDeleted))
+                    } onDelete: {
+                        store.delete(drafts.deleting(name, from: aisles))
                     }
                 }
                 .onMove { offsets, destination in
-                    refusal = nil
-                    library.setAisles(aisles.moving(offsets, to: destination))
+                    drafts.moved()
+                    store.set(aisles.moving(offsets, to: destination))
                 }
-                .moveDisabled(!library.aislesLoaded)
+                .moveDisabled(!store.isLoaded)
                 newAisle
             } header: {
                 Text("Aisles")
@@ -44,7 +45,7 @@ struct SettingsScreen: View {
                     Items already in an aisle you rename or delete keep the old one until you move them.
                     """)
             }
-            .disabled(!library.aislesLoaded)
+            .disabled(!store.isLoaded)
         }
         // Always in edit mode, which is what shows the handles that move an aisle.
         .environment(\.editMode, .constant(.active))
@@ -53,13 +54,29 @@ struct SettingsScreen: View {
         .contentMargins(.bottom, 72, for: .scrollContent)
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Settings")
-        .refreshable { await library.refresh() }
+        .refreshable { await store.load() }
         .task { await load() }
+        // Back takes no focus from a field, so a rename typed and not yet offered is offered here.
+        // The screen's own going, not a row's: a row also goes when a long list scrolls it away.
+        .onDisappear { save(drafts.renameAll(in: aisles, beingDeleted: store.beingDeleted)) }
+        .onChange(of: store.refused) {
+            if let refused = store.refused { drafts.saveRefused(refused, now: aisles) }
+        }
     }
 
+    private var store: AisleStore { library.aisles }
+
+    /// Read afresh by every gesture, so none acts on the order as it was when a row was drawn.
+    private var aisles: AisleOrder { store.order }
+
+    private func save(_ order: AisleOrder?) {
+        if let order { store.set(order) }
+    }
+
+    /// Only the aisles: nothing else here comes from the server.
     private func load() async {
         isLoading = true
-        await library.refresh()
+        await store.load()
         isLoading = false
     }
 
@@ -78,81 +95,25 @@ struct SettingsScreen: View {
         }
     }
 
-    /// Read afresh by every gesture, so none acts on the order as it was when a row was drawn.
-    private var aisles: AisleOrder { AisleOrder(library.aisleOrder) }
-
     private var newAisle: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                TextField("New aisle, e.g. World foods", text: $newName)
+                TextField("New aisle, e.g. World foods", text: $drafts.newName)
                     .submitLabel(.done)
                     .onSubmit(add)
                     .accessibilityIdentifier("settings.newAisleField")
                 Button("Add", systemImage: "plus", action: add)
                     .labelStyle(.titleAndIcon)
                     .buttonStyle(.borderless)
-                    .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(drafts.newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("settings.addAisleButton")
             }
-            RefusalText(message: refusal?.message(at: nil))
+            RefusalText(message: drafts.refusal(at: nil))
         }
-    }
-
-    /// A name is refused if any aisle has it, the one behind the Undo banner included.
-    private func refusalIfHeld(_ typed: String) -> Refused? {
-        guard let held = library.aisleBeingDeleted,
-              held.caseInsensitiveCompare(typed.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
-        else { return nil }
-        return Refused(message: "\(held) is being deleted. Tap Undo to keep it.")
     }
 
     private func add() {
-        if let held = refusalIfHeld(newName) {
-            refusal = held
-            return
-        }
-        do {
-            library.setAisles(try aisles.adding(newName))
-            newName = ""
-            refusal = nil
-        } catch {
-            refusal = Refused(error, at: nil)
-        }
-    }
-
-    private func rename(_ name: String, to typed: String) {
-        if var held = refusalIfHeld(typed) {
-            held.aisle = name
-            refusal = held
-            return
-        }
-        do {
-            library.setAisles(try aisles.renaming(name, to: typed))
-            refusal = nil
-        } catch {
-            refusal = Refused(error, at: name)
-        }
-    }
-}
-
-/// A name that was not taken, worded, and the row that says so: an aisle's, or nil for the new aisle's.
-private struct Refused {
-    var aisle: String?
-    let message: String
-
-    init(message: String) {
-        self.message = message
-    }
-
-    /// An empty name needs no words: the row goes back to the name it had.
-    init?(_ refusal: AisleOrder.Refusal, at aisle: String?) {
-        guard case .taken(let other) = refusal else { return nil }
-        self.aisle = aisle
-        message = "There's already an aisle called \(other)."
-    }
-
-    func message(at row: String?) -> String? {
-        row == aisle ? message : nil
+        save(drafts.add(to: aisles, beingDeleted: store.beingDeleted))
     }
 }
 
@@ -170,29 +131,16 @@ private struct RefusalText: View {
 }
 
 /// One aisle: its name, editable where it stands, and a button to delete it.
-/// A rename is offered when Return is pressed, the field is left, or the row
-/// goes away with something typed, as it does when Back is tapped.
+/// A rename is offered when the field is left, which Return does too. What is
+/// typed is the screen's, so the row going off screen offers nothing.
 private struct AisleRow: View {
     let name: String
+    @Binding var text: String
     let refusal: String?
-    let onRename: (String) -> Void
-    /// Called with the name this row last offered as a rename, if any. Whether
-    /// that rename went through is for the caller to find out from the order.
-    let onDelete: (String?) -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
 
-    @State private var text: String
-    /// What this row last offered as its new name. Tapping Delete takes the
-    /// keyboard from the field first, which renames the aisle under this row.
-    @State private var offered: String?
     @FocusState private var isFocused: Bool
-
-    init(name: String, refusal: String?, onRename: @escaping (String) -> Void, onDelete: @escaping (String?) -> Void) {
-        self.name = name
-        self.refusal = refusal
-        self.onRename = onRename
-        self.onDelete = onDelete
-        _text = State(initialValue: name)
-    }
 
     var body: some View {
         HStack {
@@ -201,27 +149,16 @@ private struct AisleRow: View {
                     .submitLabel(.done)
                     .focused($isFocused)
                     .onChange(of: isFocused) {
-                        if !isFocused { offerRename() }
+                        if !isFocused { onRename() }
                     }
-                    .onDisappear(perform: offerRename)
                     .accessibilityIdentifier("settings.aisle.\(name)")
                 RefusalText(message: refusal)
             }
-            Button("Delete \(name)", systemImage: "minus.circle.fill", role: .destructive) {
-                onDelete(offered)
-            }
+            Button("Delete \(name)", systemImage: "minus.circle.fill", role: .destructive, action: onDelete)
                 .labelStyle(.iconOnly)
                 .tint(.red)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("settings.deleteAisle.\(name)")
         }
-    }
-
-    private func offerRename() {
-        guard text != name else { return }
-        offered = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        onRename(text)
-        // A name that was accepted shows in a new row; this one is the old name's.
-        text = name
     }
 }

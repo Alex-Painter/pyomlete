@@ -57,7 +57,7 @@ struct ShopScreen: View {
     }
 
     private func aisles(of list: ListDetail, in store: ListStore) -> some View {
-        let layout = ListLayout(list, aisleOrder: library.aisleOrder)
+        let layout = ListLayout(list, aisleOrder: library.aisles.order.names)
         return List {
             Section {
                 QuickAddField(screen: "shop", placeholder: "Spotted something? Add it") { store.add($0) }

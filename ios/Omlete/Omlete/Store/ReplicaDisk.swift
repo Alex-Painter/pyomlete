@@ -4,6 +4,7 @@ import OSLog
 /// What Home needs before any list is opened, and what has to outlive a kill.
 nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var summaries: [ListSummary] = []
+    /// The order the server holds. `AisleStore` reads it at launch and `Library` writes it.
     var aisleOrder: [String] = []
     var recipes: [RecipeSummary] = []
     var units: [String] = []
@@ -13,6 +14,8 @@ nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var currentList: ListID?
     /// Recipes whose delete is committed but not yet confirmed by the server.
     var deletingRecipes: Set<RecipeID> = []
+    /// The aisle order the user made and the server has not answered for.
+    var unsentAisles: [String]?
 }
 
 nonisolated extension LibraryIndex {
@@ -28,6 +31,7 @@ nonisolated extension LibraryIndex {
         deletingLists = try container.decodeIfPresent(Set<ListID>.self, forKey: .deletingLists) ?? []
         currentList = try container.decodeIfPresent(ListID.self, forKey: .currentList)
         deletingRecipes = try container.decodeIfPresent(Set<RecipeID>.self, forKey: .deletingRecipes) ?? []
+        unsentAisles = try container.decodeIfPresent([String].self, forKey: .unsentAisles)
     }
 }
 

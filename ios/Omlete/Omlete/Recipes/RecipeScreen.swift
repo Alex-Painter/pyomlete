@@ -105,7 +105,7 @@ struct RecipeScreen: View {
             }
         }
         .sheet(item: $editing) { draft in
-            RecipeEditor(draft: draft, store: store, aisles: library.aisleOrder, units: library.units) { discarded in
+            RecipeEditor(draft: draft, store: store, aisles: library.aisles.order.names, units: library.units) { discarded in
                 discardOffered = true
                 undo.offer("Discarded your changes to \(recipe.title)", undo: {
                     discardOffered = false

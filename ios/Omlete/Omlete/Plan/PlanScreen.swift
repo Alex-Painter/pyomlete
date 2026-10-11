@@ -45,7 +45,7 @@ struct PlanScreen: View {
     }
 
     private func items(of list: ListDetail, in store: ListStore) -> some View {
-        let layout = ListLayout(list, aisleOrder: library.aisleOrder)
+        let layout = ListLayout(list, aisleOrder: library.aisles.order.names)
         let meals = list.recipes.compactMap(library.meal)
         return List {
             if store.syncStatus == .offline {
@@ -146,7 +146,7 @@ struct PlanScreen: View {
         }
         .sheet(item: $editing) { id in
             if let item = list.items.first(where: { $0.id == id }) {
-                ItemSheet(item: item, aisles: library.aisleOrder, units: library.units) {
+                ItemSheet(item: item, aisles: library.aisles.order.names, units: library.units) {
                     store.update(id, $0)
                 } onDelete: {
                     store.remove([id], saying: "Removed \(item.name)")

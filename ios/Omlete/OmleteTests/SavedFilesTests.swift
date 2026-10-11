@@ -97,7 +97,7 @@ struct SavedFilesTests {
         let index = LibraryIndex(
             summaries: [ListSummary(id: "list", name: "Week", itemCount: 2, checkedCount: 1, meals: [])],
             aisleOrder: ["Dairy"], recipes: [recipe.summary], units: ["g"], deletingLists: ["gone"], currentList: "list",
-            deletingRecipes: ["old"])
+            deletingRecipes: ["old"], unsentAisles: ["Bakery", "Dairy"])
 
         #expect(try roundTrip(recipe) == recipe)
         #expect(try roundTrip(index) == index)
