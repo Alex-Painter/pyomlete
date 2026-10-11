@@ -25,7 +25,7 @@ Preconditions:
 - `curl -s http://127.0.0.1:8765/api/settings/categories | jq -c '[.[].name]'` is the second view of every step below.
 
 - **Open from each tab.** `$V tap tab.<tab>`, `$V tap <tab>.settingsButton`, `$V expect-id settings.newAisleField`, `$V tap BackButton`, `$V expect-id <tab>.settingsButton`, for `home`, `discover`, `add` and `recipes`.
-- **Add.** `$V type settings.newAisleField "World foods"`, `$V tap settings.addAisleButton`, `$V expect-id "settings.aisle.World foods"`. The API lists it last with `order` 9. In Plan, `$V tap plan.itemEdit.<itemID>`, `$V tap itemSheet.categoryPicker`, `$V expect "World foods"`.
+- **Add.** `$V type settings.newAisleField "World foods"`, `$V tap settings.addAisleButton`, `$V expect-id "settings.aisle.World foods"`. The API lists it last with `order` 9. In Plan, `$V tap plan.itemRow.<itemID>`, `$V tap itemSheet.categoryPicker`, `$V expect "World foods"`.
 - **A name already taken.** `$V type settings.newAisleField "bakery"`, `$V tap settings.addAisleButton`, `$V expect "There's already an aisle called Bakery."`. The log gains no `PUT /api/settings/categories`.
 - **Rename.** `$V type "settings.aisle.Dairy & Eggs" "Dairy"`, `$V tap settings.newAisleField` to leave the field, `$V expect-id settings.aisle.Dairy`. Typing and then `$V tap BackButton` saves it too.
 - **A rename that is refused.** `$V type settings.aisle.Frozen "drinks"`, `$V tap settings.newAisleField`, `$V expect "There's already an aisle called Drinks."`, `$V expect-id settings.aisle.Frozen`.

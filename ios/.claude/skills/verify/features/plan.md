@@ -5,8 +5,8 @@ One list: its meals in a strip with Add meals beside the heading, a quick-add fi
 ## Sub-features
 
 - `plan-quick-add` parses typed text ("2 onions, 500g mince") into items and files each under a guessed aisle.
-- `plan-check` ticks an item off into "Got it" and back. No Undo banner here: the row is still on screen.
-- `plan-edit` opens the item sheet from the row's chevron: name, amount, unit, aisle, and Delete.
+- `plan-check` ticks an item off into "Got it" and back from the circle at the start of its row. No Undo banner here: the row is still on screen.
+- `plan-edit` opens the item sheet from a tap anywhere else on the row, "Got it" rows included: name, amount, unit, aisle, and Delete. Tapping a row never checks it; that is Shop.
 - `plan-delete` removes an item (swipe, or the sheet's Delete) and "Clear checked" removes every ticked one. Both hide at once and are sent only after the Undo banner.
 - `plan-rename` renames the list from the pencil button.
 - `plan-meals` shows each meal as a chip whose menu cooks it, or removes it and its ingredients with Undo.
@@ -28,9 +28,9 @@ Preconditions:
 - `$V up` just ran, `$V doctor` prints no `FAIL`, and `$V tap home.listRow.<listID>` has opened the fixture list.
 
 - **Quick add.** `$V type plan.quickAddField "2 onions, 500g mince"`, `$V tap plan.quickAddButton`, `$V expect "mince"`. The API then lists `onions` (2, Fresh Produce) and `mince` (500, `g`, Meat & Fish).
-- **Check.** `$V tap plan.itemRow.<itemID>`, then `$V expect "Got it (1)"`.
-- **Edit.** `$V tap plan.itemEdit.<itemID>`, `$V type itemSheet.nameField "oat milk"`, `$V tap itemSheet.saveButton`, `$V expect "Oat milk"`.
-- **Delete with Undo.** `$V tap plan.itemEdit.<itemID>`, then `$V tap itemSheet.deleteButton then undo.button`, then `$V expect "<name>"`. Seven seconds later the API still has the item. Without `then undo.button`, the tap's own `NN-tap.json` holds `Removed <name>`, and seven seconds later the API has dropped it.
+- **Check.** `$V tap plan.itemCheck.<itemID>`, then `$V expect "Got it (1)"`, and the API shows the item checked. To uncheck, `$V swipe plan.list up` to bring the "Got it" row into the UI tree, `$V tap plan.itemCheck.<itemID>` again, then `$V gone "Got it (1)"`.
+- **Edit.** `$V tap plan.itemRow.<itemID>`, `$V expect-id itemSheet.nameField` (the API still shows the item unchecked), `$V type itemSheet.nameField "oat milk"`, `$V tap itemSheet.saveButton`, `$V expect "Oat milk"`.
+- **Delete with Undo.** `$V tap plan.itemRow.<itemID>`, then `$V tap itemSheet.deleteButton then undo.button`, then `$V expect "<name>"`. Seven seconds later the API still has the item. Without `then undo.button`, the tap's own `NN-tap.json` holds `Removed <name>`, and seven seconds later the API has dropped it.
 - **Rename.** `$V tap plan.renameButton`, `$V type rename.nameField "Weekend"`, `$V tap rename.saveButton`. Prove it with the API or by going back to Home and `$V expect "Weekend"`.
 - **Cook a meal.** `$V tap plan.mealChip.<recipeID>`, `$V tap plan.cookMealAction`, then `$V expect-id cook.startButton`. Closing Cook returns to Plan.
 - **Open the picker.** `$V tap plan.addMealsButton`, then `$V expect-id meals.searchField`. The four picks are `meals.pick.<card>` and the recipes `meals.recipe.<recipeID>`; a recipe on the list has the value `On the list`. `$V swipe meals.list up` brings the lower recipes into the UI tree. `$V tap meals.doneButton` closes it.
@@ -47,7 +47,9 @@ Preconditions:
 
 - The list name is an inline navigation title, which is not in the UI tree. Check it in the screenshot or on Home.
 - The name field capitalises the first letter as the keyboard would, so "oat milk" becomes "Oat milk".
-- Swipe actions and drag-to-reorder have no helper step. Use the item sheet for delete, and the CLI's `ui-automation` gestures with a fresh ref for the rest.
+- A row is two controls: `plan.itemCheck.<itemID>` (label `Check off <name>`) and `plan.itemRow.<itemID>` (label `Edit <name>`, value the quantity), so `$V expect "<name>"` still matches.
+- Only the rows on screen are in the UI tree, and "Got it" sits at the bottom: `$V swipe plan.list up` first.
+- Swipe actions and drag-to-reorder have no helper step. Use the item sheet for delete. To see the swipe actions, `npx -y xcodebuildmcp@latest ui-automation drag --element-ref <ref of plan.itemRow.<itemID>> --direction left --distance 0.5` shows Delete, and `--direction right` shows Edit.
 - The fixture list has two meal chips, `plan.mealChip.<recipeID>`. The "Meals (2)" heading is a section header and not in the UI tree, but its Add meals button is.
 - While the picker is up the UI tree still holds Plan's controls underneath it. The Undo banner is the picker's own, so `undo.banner` and `undo.button` appear once.
 - `tap <row> then undo.button` in the picker can lose its race with the banner: the bigger UI tree makes finding `undo.button` slower, and a late tap lands on the row under where the button was, which adds the meal back. A lost race leaves a `DELETE` then a `POST /api/lists/<listID>/recipes` in the log and an `Added ...` banner in the capture. Run the step again.
