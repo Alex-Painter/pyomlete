@@ -101,6 +101,7 @@ struct RecipeEditor: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 TextField("Ingredient", text: row.name)
+                    .textInputAutocapitalization(.never)
                     .focused($focus, equals: row.wrappedValue.id)
                     .accessibilityIdentifier("\(id).nameField")
                 removeButton("Remove \(name.isEmpty ? "ingredient" : name)") {
@@ -135,7 +136,9 @@ struct RecipeEditor: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Picker("Aisle", selection: aisle(of: row)) {
-                    ForEach(aisleChoices(with: row.wrappedValue.aisle), id: \.self) { Text($0) }
+                    ForEach(aisleChoices(with: row.wrappedValue.aisle), id: \.self) { aisle in
+                        Text(aisle).accessibilityIdentifier("recipeEditor.aisle.\(aisle)")
+                    }
                 }
                 .labelsHidden()
                 .fixedSize()
@@ -223,7 +226,7 @@ struct RecipeEditor: View {
         }
     }
 
-    /// An edit is never queued, so each of these says the recipe is not saved and the typing is safe.
+    /// An edit is never queued, so each of these says plainly that the recipe is not saved.
     private static func message(for failure: APIError) -> String {
         switch failure {
         case .unreachable:
