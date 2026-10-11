@@ -30,6 +30,8 @@ const list: ListDetail = {
       sources: [{ recipe_id: 'r1', amount: 4 }],
     },
   ],
+  week_start: null,
+  days: [],
 }
 
 describe('applyOps', () => {
