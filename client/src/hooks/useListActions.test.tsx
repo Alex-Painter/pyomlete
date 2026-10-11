@@ -44,7 +44,7 @@ function setup() {
   )
   const { result } = renderHook(() => useListActions('L'), { wrapper })
   const list = () => queryClient.getQueryData<ListDetail>(['list', 'L'])
-  return { result, list }
+  return { result, list, queryClient }
 }
 
 describe('useListActions', () => {
@@ -87,5 +87,15 @@ describe('useListActions', () => {
     const writes = calls().filter((c) => !c.startsWith('GET'))
     expect(writes).toEqual(['PUT /api/lists/L/days/2026-10-20'])
     expect(list()?.items.map((i) => i.name)).toEqual(['onion'])
+  })
+
+  it('refreshes the library once a cleared day reaches the server', async () => {
+    const { result, queryClient } = setup()
+    queryClient.setQueryData(['recipes'], [])
+    act(() => {
+      result.current.setDay({ date: '2026-10-20', recipeId: null })
+    })
+    await waitFor(() => expect(readQueue()).toEqual([]))
+    await waitFor(() => expect(queryClient.getQueryState(['recipes'])?.isInvalidated).toBe(true))
   })
 })
