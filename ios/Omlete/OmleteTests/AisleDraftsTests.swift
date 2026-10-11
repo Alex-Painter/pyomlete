@@ -178,6 +178,43 @@ struct AisleDraftsTests {
         #expect(drafts.refusal(at: "Dairy") == nil)
     }
 
+    @Test mutating func aRenameTheServerRefusedIsNotOfferedAgainWhenTheScreenIsLeft() throws {
+        drafts.type("Milk", over: "Dairy")
+        drafts.type("Bread", over: "Bakery")
+        let sentOrNil = drafts.rename("Dairy", in: order, beingDeleted: nil)
+        drafts.saveRefused(try #require(sentOrNil), now: order)
+        #expect(drafts.text(for: "Dairy") == "Milk")
+
+        let renamed = drafts.renameAll(in: order, beingDeleted: nil)
+        #expect(renamed == AisleOrder(["Bread", "Dairy", "Frozen"]))
+    }
+
+    @Test mutating func aRefusedRenameTypedOverAgainIsOfferedWhenTheScreenIsLeft() throws {
+        drafts.type("Milk", over: "Dairy")
+        let sentOrNil = drafts.rename("Dairy", in: order, beingDeleted: nil)
+        drafts.saveRefused(try #require(sentOrNil), now: order)
+
+        drafts.type("Cheese", over: "Dairy")
+
+        let renamed = drafts.renameAll(in: order, beingDeleted: nil)
+        #expect(renamed == AisleOrder(["Bakery", "Cheese", "Frozen"]))
+    }
+
+    @Test mutating func whatWasTypedOverAnAisleGoesWhenTheAisleDoes() throws {
+        drafts.type("frozen", over: "Dairy")
+        _ = drafts.rename("Dairy", in: order, beingDeleted: nil)
+        drafts.type("Bread", over: "Bakery")
+
+        // Another device deleted Dairy, and it is added again later.
+        let without = order.deleting("Dairy")
+        drafts.orderChanged(to: without)
+        #expect(drafts.refusal == nil)
+        drafts.orderChanged(to: try without.adding("Dairy"))
+
+        #expect(drafts.text(for: "Dairy") == "Dairy")
+        #expect(drafts.text(for: "Bakery") == "Bread")
+    }
+
     @Test mutating func leavingTheScreenWithNothingTypedSavesNothing() {
         let renamed = drafts.renameAll(in: order, beingDeleted: nil)
         #expect(renamed == nil)

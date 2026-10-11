@@ -26,6 +26,9 @@ nonisolated struct AisleDrafts: Equatable, Sendable {
     /// Text typed over an aisle's name and not taken as its name, by that aisle.
     private var typed: [String: String] = [:]
     private var sent: Sent?
+    /// A name the server refused to save, by the aisle whose field has it
+    /// back. Leaving the screen does not offer it again.
+    private var refusedByServer: [String: String] = [:]
 
     func text(for aisle: String) -> String {
         typed[aisle] ?? aisle
@@ -52,8 +55,9 @@ nonisolated struct AisleDrafts: Equatable, Sendable {
 
     /// The order with `aisle` under the name typed over it, to be saved, or
     /// nil when there is nothing to save: nothing was typed, the name was
-    /// emptied and goes back to the old one, or it was refused and stays in
-    /// the field with the reason in `refusal`.
+    /// emptied, or it was refused and stays in the field with the reason in
+    /// `refusal`. An emptied name is put back to the old one and not refused:
+    /// there is nothing in the field to put right, and no aisle has no name.
     mutating func rename(_ aisle: String, in order: AisleOrder, beingDeleted: String?) -> AisleOrder? {
         guard let text = typed[aisle] else { return nil }
         switch take(text, beingDeleted, at: aisle, { name throws(AisleOrder.Refusal) in try order.renaming(aisle, to: name) }) {
@@ -71,10 +75,12 @@ nonisolated struct AisleDrafts: Equatable, Sendable {
     }
 
     /// Every rename typed and not yet offered, as one order. For leaving the
-    /// screen, which takes no focus from a field.
+    /// screen, which takes no focus from a field. A name the server has just
+    /// refused is not among them: sending it again would be refused again,
+    /// to a banner on whatever screen came next.
     mutating func renameAll(in order: AisleOrder, beingDeleted: String?) -> AisleOrder? {
         var latest = order
-        for aisle in order.names where typed[aisle] != nil {
+        for aisle in order.names where typed[aisle] != nil && typed[aisle] != refusedByServer[aisle] {
             latest = rename(aisle, in: latest, beingDeleted: beingDeleted) ?? latest
         }
         return latest == order ? nil : latest
@@ -95,6 +101,15 @@ nonisolated struct AisleDrafts: Equatable, Sendable {
         refusal = nil
     }
 
+    /// The order is now `order`, by whatever hand. What was typed over an
+    /// aisle that is no longer in it goes, so a later aisle of the same name
+    /// does not open showing it.
+    mutating func orderChanged(to order: AisleOrder) {
+        typed = typed.filter { order.names.contains($0.key) }
+        refusedByServer = refusedByServer.filter { order.names.contains($0.key) }
+        if let aisle = refusal?.aisle, !order.names.contains(aisle) { refusal = nil }
+    }
+
     /// The server refused to save `refused`, and the order is `order` again.
     /// The name typed for that save goes back to its field, unless something
     /// else has been typed there since.
@@ -106,6 +121,7 @@ nonisolated struct AisleDrafts: Equatable, Sendable {
         case .renamed(let aisle, let name):
             if refused.names.contains(name), !order.names.contains(name), order.names.contains(aisle), typed[aisle] == nil {
                 typed[aisle] = name
+                refusedByServer[aisle] = name
             }
         case nil:
             break

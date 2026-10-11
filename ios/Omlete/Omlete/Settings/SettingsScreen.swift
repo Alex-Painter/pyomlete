@@ -59,6 +59,7 @@ struct SettingsScreen: View {
         // Back takes no focus from a field, so a rename typed and not yet offered is offered here.
         // The screen's own going, not a row's: a row also goes when a long list scrolls it away.
         .onDisappear { save(drafts.renameAll(in: aisles, beingDeleted: store.beingDeleted)) }
+        .onChange(of: aisles) { drafts.orderChanged(to: aisles) }
         .onChange(of: store.refused) {
             if let refused = store.refused { drafts.saveRefused(refused, now: aisles) }
         }
