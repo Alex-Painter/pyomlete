@@ -590,6 +590,21 @@ import Testing
         await eventually { disk?.saved == ["Dairy", "Bakery"] }
         #expect(shown == ["Dairy", "Bakery"])
         #expect(aisleCalls == ["GET", "PUT"])
+        #expect(phone.undo.banner?.message == "bakery had the same name as another aisle, so it was left out.")
+    }
+
+    /// The server took it, so it is not put back as a refusal would be.
+    @Test func aSaveWhoseAnswerCannotBeReadStaysOwedAndIsNotCalledRefused() async {
+        await loaded { $0.description == "PUT /api/settings/categories" ? .status(200, "not json") : nil }
+        let before = shown
+
+        store.set(aisles.moving(IndexSet(integer: before.count - 1), to: 0))
+        await eventually { aisleCalls.contains("PUT") }
+        await phone.aislesSettle()
+
+        #expect(shown != before)
+        #expect(disk?.owed == shown)
+        #expect(phone.undo.banner == nil)
     }
 
     @Test func anOwedOrderIsWrittenThoughTheListsHaveNeverLoaded() async throws {

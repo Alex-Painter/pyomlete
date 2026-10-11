@@ -49,6 +49,8 @@ struct SettingsScreen: View {
         }
         // Always in edit mode, which is what shows the handles that move an aisle.
         .environment(\.editMode, .constant(.active))
+        // A list drawn before the aisles loaded keeps its rows without handles, so it is drawn again.
+        .id(store.isLoaded)
         .scrollDismissesKeyboard(.interactively)
         .accessibilityIdentifier("settings.list")
         .contentMargins(.bottom, 72, for: .scrollContent)

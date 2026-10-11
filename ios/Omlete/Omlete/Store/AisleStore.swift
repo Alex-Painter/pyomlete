@@ -172,10 +172,16 @@ private struct HeldAisle {
             let stored = try await api.saveAisleOrder(order)
             if owed == order { owed = nil }
             serverAnswered(stored)
+            // The phone and the server can differ on what counts as one name, and an aisle must not go without a word.
+            let dropped = order.names.filter { !stored.names.contains($0) }
+            if !dropped.isEmpty {
+                undo.inform("\(dropped.formatted(.list(type: .and))) had the same name as another aisle, so it was left out.")
+            }
         } catch {
             // Changed again while that was on its way: the newer order has not been tried.
             if owed != order { return true }
-            if error.isRetryable { return false }
+            // An answer that cannot be read came from a server that took the order, so it is no refusal.
+            if error.isRetryable || error == .undecodable { return false }
             owed = nil
             refused = order
             persist()
