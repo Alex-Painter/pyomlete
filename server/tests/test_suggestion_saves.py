@@ -388,6 +388,15 @@ class TestASaveThatNoLongerOwnsItsCard:
 
         assert stored(cards, card) == before
         assert (before.status, before.recipe_id) == (left_as, None)
+        main._add_recipe_to_list_id.assert_not_called()
+
+    async def test_cannot_be_put_back_to_new(self, api, cards):
+        card = a_card_being_saved(cards)
+
+        answer = await api.patch(f"/api/suggestions/{card}", json={"status": "new"})
+
+        assert answer.status_code == 409
+        assert stored(cards, card).status == "saving"
 
     async def test_a_failed_save_does_not_bring_a_dismissed_card_back(self, api, cards):
         card = a_card(cards)

@@ -1233,6 +1233,9 @@ async def clear_suggestions(body: SuggestionsClearRequest):
 @router.patch("/suggestions/{suggestion_id}")
 async def update_suggestion(suggestion_id: PydanticObjectId, body: SuggestionStatusUpdate):
     s = await _get_suggestion(suggestion_id)
+    if body.status == "new" and _save_may_be_running(s):
+        # Back to new would let a second save start beside the one running.
+        raise HTTPException(status_code=409, detail="This card is being saved")
     # Only the status: writing the whole card back would undo a save that started or ended since the read.
     await SuggestionDocument.find_one({"_id": s.id}).update({"$set": {"status": body.status}})
     s.status = body.status
@@ -1278,6 +1281,13 @@ async def _end_save(
     and three tries at the write (36 s).
     """
     if recipe is not None and list_id:
+        still_this_saves = await SuggestionDocument.find(
+            {"_id": s.id, "status": s.status, "saving_since": s.saving_since}
+        ).limit(1).to_list()
+        if not still_this_saves:
+            # Saved again, cleared or dismissed meanwhile, so its meal is not wanted on the list.
+            logger.info("Suggestion %s was no longer this save's to end, so nothing was written", s.id)
+            return
         try:
             await asyncio.wait_for(_add_recipe_to_list_id(list_id, recipe), END_WRITE_TIMEOUT)
         except Exception:
