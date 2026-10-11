@@ -33,13 +33,11 @@ from lib.types import (
     ItemReorderRequest,
     ItemUpdateRequest,
     ListUpdateRequest,
-    MealSuggestions,
     RatingUpdate,
     RecipeMetadata,
     RecipeModelResponse,
     RecipePrompt,
     RecipeUpdateRequest,
-    SuggestMealsRequest,
     SuggestedMeals,
     SuggestionRefreshRequest,
     SuggestionSaveRequest,
@@ -57,9 +55,6 @@ async_claude = AsyncAnthropic()
 
 recipeSchema = TypeAdapter(RecipeModelResponse).json_schema()
 recipeSchema = transform_schema(recipeSchema)
-
-suggestionsSchema = TypeAdapter(MealSuggestions).json_schema()
-suggestionsSchema = transform_schema(suggestionsSchema)
 
 suggestedMealsSchema = TypeAdapter(SuggestedMeals).json_schema()
 suggestedMealsSchema = transform_schema(suggestedMealsSchema)
@@ -168,44 +163,6 @@ async def create_recipe(prompt: RecipePrompt):
     final_message = await runner.until_done()
     recipe = RecipeModelResponse.model_validate_json(final_message.content[0].text)
     return await _save_recipe(recipe)
-
-
-@router.post("/recipes/suggest/")
-async def suggest_meals(req: SuggestMealsRequest) -> MealSuggestions:
-    constraints: list[str] = []
-    if req.diet and req.diet.lower() != "any":
-        constraints.append(f"Dietary preference: {req.diet}.")
-    if req.ease and req.ease.lower() != "any":
-        constraints.append(f"Effort level: {req.ease} to cook.")
-    if req.notes and req.notes.strip():
-        constraints.append(f"Additional notes from the user: {req.notes.strip()}")
-    constraints_str = (
-        " ".join(constraints) if constraints else "No specific constraints."
-    )
-
-    avoid_str = ""
-    if req.exclude_titles:
-        avoid_str = (
-            " Do NOT suggest any of these meals, the user already has them: "
-            + "; ".join(req.exclude_titles)
-            + "."
-        )
-
-    prompt = (
-        "You are a professional chef helping a home cook decide what to make this week. "
-        "Suggest 5 distinct, appealing dinner ideas. For each idea give a short title and "
-        "a single appetising sentence describing it. Respect these constraints: "
-        f"{constraints_str}{avoid_str} Output the ideas in the given JSON format."
-    )
-
-    message = await async_claude.beta.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-        output_config={"format": {"type": "json_schema", "schema": suggestionsSchema}},
-    )
-
-    return MealSuggestions.model_validate_json(message.content[0].text)
 
 
 async def _extract_and_save(files: list[UploadFile], categories_str: str) -> RecipeDocument:
