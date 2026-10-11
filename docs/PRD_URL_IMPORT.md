@@ -222,6 +222,7 @@ Index `source_url` and return 409 with the existing recipe id on re-import. Requ
 | Save directly or preview first? | **Save immediately** | Consistent with the existing generate and extract flows. Recipes are editable and deletable, so a bad import is cheap to fix |
 | Default Create tab | From link | Will be the most-used path |
 | robots.txt | Ignore, but always store `source_url` | User is importing a page they're already viewing; attribution is the right etiquette |
+| Link plus changes ("…/vegan-burrito/ but use quorn mince") | Import as usual, then one Opus pass applies the `changes` before saving | Alex wants to adapt a recipe in the same step as importing it. Unchanged ingredients keep their structured form; only swapped-in ones are re-matched. An adapted import skips the already-imported check, since it's a new variant |
 
 ---
 
