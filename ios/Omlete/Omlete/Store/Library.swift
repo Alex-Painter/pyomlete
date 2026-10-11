@@ -276,7 +276,7 @@ private struct HeldAisle {
 
     /// A recipe as an edit just saved it: its tile, and its name wherever a
     /// list shows it as a meal, change at once and not at the next refresh.
-    func adopt(_ recipe: Recipe) {
+    func recipeEdited(_ recipe: Recipe) {
         if let place = index.recipes.firstIndex(where: { $0.id == recipe.id }) {
             index.recipes[place].title = recipe.title
             index.recipes[place].ingredientCount = recipe.ingredients.count

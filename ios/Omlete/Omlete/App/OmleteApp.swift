@@ -16,7 +16,7 @@ struct OmleteApp: App {
         let library = Library(deps: StoreDependencies(
             api: api, disk: ReplicaDisk(), undo: undo, connectivity: connectivity))
         let kitchen = Kitchen(deps: KitchenDependencies(
-            api: api, disk: CookDisk(), recipeSaved: { [weak library] in library?.adopt($0) }))
+            api: api, disk: CookDisk(), recipeSaved: { [weak library] in library?.recipeEdited($0) }))
         let intake = RecipeIntake(deps: IntakeDependencies(api: api, library: library))
         connectivity.onRegain = { [weak library, weak kitchen, weak intake] in
             library?.syncAll()

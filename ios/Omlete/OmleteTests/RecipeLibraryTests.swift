@@ -171,7 +171,7 @@ import Testing
         edited.title = "Green curry"
         edited.ingredients.removeLast()
 
-        phone.library.adopt(edited)
+        phone.library.recipeEdited(edited)
 
         #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
         #expect(phone.library.recipes[1].ingredientCount == 2)
