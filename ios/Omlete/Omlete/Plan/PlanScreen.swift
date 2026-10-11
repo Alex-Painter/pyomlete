@@ -107,9 +107,7 @@ struct PlanScreen: View {
                 Section {
                     if showsGotIt {
                         ForEach(layout.got) { item in
-                            ItemRow(item: item, identifier: "plan.itemRow.\(item.id.rawValue)") {
-                                store.setChecked(item.id, false)
-                            }
+                            row(item, in: store)
                         }
                     }
                 } header: {
@@ -117,6 +115,7 @@ struct PlanScreen: View {
                 }
             }
         }
+        .accessibilityIdentifier("plan.list")
         .animation(.default, value: layout)
         .contentMargins(.bottom, 72, for: .scrollContent)
         .navigationTitle(list.name)
@@ -159,18 +158,10 @@ struct PlanScreen: View {
     }
 
     private func row(_ item: ListItem, in store: ListStore) -> some View {
-        HStack(spacing: 4) {
-            ItemRow(item: item, identifier: "plan.itemRow.\(item.id.rawValue)") {
-                store.setChecked(item.id, true)
-            }
-            Button("Edit \(item.name)", systemImage: "chevron.right") { editing = item.id }
-                .labelStyle(.iconOnly)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("plan.itemEdit.\(item.id.rawValue)")
+        ItemRow(item: item, identifier: "plan.itemRow.\(item.id.rawValue)") {
+            store.setChecked(item.id, !item.checked)
+        } onEdit: {
+            editing = item.id
         }
         .swipeActions(edge: .trailing) {
             Button("Delete", systemImage: "trash", role: .destructive) {
