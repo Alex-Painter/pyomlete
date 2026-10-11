@@ -167,6 +167,27 @@ import Testing
         #expect(item(matches)?.category == "Bakery")
     }
 
+    @Test func theServersAisleIsIgnoredWhenThatAisleIsNoLongerInTheOrder() async {
+        phone.serverAnswers { call in
+            switch call.description {
+            case "GET /api/settings/categories":
+                return .status(200, #"[{"name":"Bakery","order":0},{"name":"Other","order":1}]"#)
+            case "GET /api/lists/": return .status(200, Phone.listsJSON)
+            case "GET /api/recipes/", "GET /api/units": return .status(200, "[]")
+            case "POST /api/categorize": return .status(200, #"{"category":"Household"}"#)
+            default: return call.method == "GET" ? .status(500) : nil
+            }
+        }
+        await phone.library.refresh()
+
+        phone.store.add("candles")
+        let candles = phone.store.replica.pending[0].op.addedID
+        await eventually { phone.transport.allCalls.contains { $0.path == "/api/categorize" } }
+        for _ in 0..<20 { await Task.yield() }
+
+        #expect(item(candles)?.category != "Household")
+    }
+
     @Test func aShopCheckIsSentAtOnceAndUndoSendsTheOpposite() async {
         phone.serverAnswers { $0.method == "GET" ? .status(500) : nil }
 

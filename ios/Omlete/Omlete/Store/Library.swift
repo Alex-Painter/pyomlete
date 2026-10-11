@@ -9,11 +9,10 @@ struct CookShelf: Equatable {
     let meals: [RecipeSummary]
 }
 
-/// An aisle order the user has made and the server does not have yet.
-private struct AisleEdit {
-    var order: [String]
-    /// The banner for a deleted aisle is still up, so nothing is sent until it settles.
-    var isHeld = false
+/// An aisle hidden by a delete whose Undo banner is still up, and where it sat.
+private struct HeldAisle {
+    let name: String
+    let place: Int
 }
 
 /// App-wide: the Home index, the aisle order, the recipe library and unit
@@ -37,8 +36,13 @@ private struct AisleEdit {
     /// not changed: a save replaces the whole order, and one made from an old
     /// copy would undo whatever another device did since.
     private(set) var aislesLoaded = false
-    /// Never saved to disk: after a kill the order is the server's again.
-    private var aisleEdit: AisleEdit?
+    /// The whole order as the user has made it and the server lacks, an aisle
+    /// being deleted included until its banner settles. Never saved to disk:
+    /// after a kill the order is the server's again.
+    private var unsentAisles: [String]?
+    /// At most one, because there is one banner. Hidden from `aisleOrder` and
+    /// in nothing that is sent, so Undo only has to forget it.
+    private var heldAisle: HeldAisle?
 
     @ObservationIgnored private let deps: StoreDependencies
     @ObservationIgnored private var stores: [ListID: ListStore] = [:]
@@ -61,7 +65,13 @@ private struct AisleEdit {
     }
 
     /// The order as the user last left it, sent or not. `index.aisleOrder` is the server's.
-    var aisleOrder: [String] { aisleEdit?.order ?? index.aisleOrder }
+    var aisleOrder: [String] {
+        guard let heldAisle else { return allAisles }
+        return allAisles.filter { $0 != heldAisle.name }
+    }
+
+    /// `aisleOrder` with an aisle being deleted still in it.
+    private var allAisles: [String] { unsentAisles ?? index.aisleOrder }
     var units: [String] { index.units }
 
     /// Home rows: the saved summaries minus lists being deleted, with the name
@@ -285,30 +295,31 @@ private struct AisleEdit {
 
     /// Shows the order at once and saves it. Needs signal: there is no queue
     /// for settings, so a save that fails puts the order back as the server
-    /// has it and says so in the banner.
+    /// has it and says so in the banner. An aisle whose delete can still be
+    /// undone is sent where it was, so this never sends that delete early.
     func setAisles(_ order: AisleOrder) {
         guard aislesLoaded, order.names != aisleOrder else { return }
-        aisleEdit = AisleEdit(order: order.names)
+        unsentAisles = heldAisle.map { order.restoring($0.name, at: $0.place).names } ?? order.names
         saveAisles()
     }
 
-    /// Hides the aisle at once and offers Undo. The save waits for the banner
-    /// to settle, so an Undo sends nothing. Another aisle change made
-    /// meanwhile sends the order without this aisle, and Undo then puts it
-    /// back with a save of its own.
+    /// Hides the aisle at once and offers Undo. Nothing about it is sent
+    /// until the banner settles, so an Undo sends nothing, whatever else was
+    /// changed meanwhile.
     func deleteAisle(_ name: String) {
-        let before = AisleOrder(aisleOrder)
-        guard aislesLoaded, let place = before.names.firstIndex(of: name) else { return }
+        guard aislesLoaded, aisleOrder.contains(name) else { return }
         deps.undo.offer("Deleted \(name)", undo: { [weak self] in
-            guard let self else { return }
-            aisleEdit = AisleEdit(order: AisleOrder(aisleOrder).restoring(name, at: place).names)
-            saveAisles()
+            guard let self, heldAisle?.name == name else { return }
+            heldAisle = nil
         }, commit: { [weak self] in
-            self?.aisleEdit?.isHeld = false
-            self?.saveAisles()
+            guard let self, heldAisle?.name == name else { return }
+            heldAisle = nil
+            unsentAisles = allAisles.filter { $0 != name }
+            saveAisles()
         })
-        // After the offer: making it settles an earlier delete's banner, which lifts that hold.
-        aisleEdit = AisleEdit(order: before.deleting(name).names, isHeld: true)
+        // Read after the offer, which settles an earlier delete and so changes the order.
+        guard let place = allAisles.firstIndex(of: name) else { return }
+        heldAisle = HeldAisle(name: name, place: place)
     }
 
     private func saveAisles() {
@@ -322,26 +333,30 @@ private struct AisleEdit {
     /// One save at a time, each the whole order as it stands when it goes
     /// out, until the server has what the user last did. A change made during
     /// a save is picked up by the next turn, so two saves cannot arrive out of
-    /// order.
+    /// order, and a save that fails takes with it only the order it carried.
     private func sendAisles() async {
-        while let edit = aisleEdit, !edit.isHeld {
-            if edit.order != index.aisleOrder {
+        while let order = unsentAisles {
+            if order != index.aisleOrder {
                 aisleSaveEvents += 1
                 defer { aisleSaveEvents += 1 }
                 do {
-                    try await deps.api.saveAisleOrder(edit.order)
+                    try await deps.api.saveAisleOrder(order)
                 } catch {
-                    aisleEdit = nil
+                    // Changed again while that was on its way: the newer order has not been tried.
+                    if unsentAisles != order { continue }
+                    unsentAisles = nil
+                    // A save that timed out may still have landed, so ask what the server holds.
+                    if let held = try? await deps.api.aisleOrder() { index.aisleOrder = held }
                     deps.undo.inform(
                         error == .unreachable
-                            ? "Couldn't reach Omlete. Your aisles are back as they were."
-                            : "Couldn't save your aisles. They're back as they were.")
+                            ? "Couldn't reach Omlete. Your aisles are as the server has them."
+                            : "Couldn't save your aisles. They're as the server has them.")
                     return
                 }
-                index.aisleOrder = edit.order
+                index.aisleOrder = order
                 save()
             }
-            if aisleEdit?.order == edit.order { aisleEdit = nil }
+            if unsentAisles == order { unsentAisles = nil }
         }
     }
 

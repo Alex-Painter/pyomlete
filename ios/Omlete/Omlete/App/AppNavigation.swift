@@ -41,6 +41,8 @@ enum Immersive: Hashable, Identifiable {
 
     /// Names its tab because a push can follow a request, and by then another tab may be showing.
     func push(_ route: Route, on tab: AppTab) {
+        // A second tap before the push shows must not stack the same screen twice.
+        guard self[tab].last != route else { return }
         self[tab].append(route)
     }
 

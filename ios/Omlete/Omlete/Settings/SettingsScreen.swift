@@ -13,7 +13,8 @@ struct SettingsScreen: View {
     @State private var newName = ""
     /// Why the last name typed was not taken, until the next change.
     @State private var refusal: Refused?
-    @State private var isLoading = false
+    /// True from the start: the screen asks as it appears, and must not say it failed before it has.
+    @State private var isLoading = true
 
     var body: some View {
         List {
@@ -24,9 +25,9 @@ struct SettingsScreen: View {
                 ForEach(aisles.names, id: \.self) { name in
                     AisleRow(name: name, refusal: refusal?.message(at: name)) {
                         rename(name, to: $0)
-                    } onDelete: {
+                    } onDelete: { shown in
                         refusal = nil
-                        library.deleteAisle(name)
+                        library.deleteAisle(aisles.names.contains(shown) ? shown : name)
                     }
                 }
                 .onMove { offsets, destination in
@@ -154,12 +155,16 @@ private struct AisleRow: View {
     let name: String
     let refusal: String?
     let onRename: (String) -> Void
-    let onDelete: () -> Void
+    /// Called with the aisle's name as it is now, which a rename just offered may have changed.
+    let onDelete: (String) -> Void
 
     @State private var text: String
+    /// What this row last offered as its new name. Tapping Delete takes the
+    /// keyboard from the field first, which renames the aisle under this row.
+    @State private var offered: String?
     @FocusState private var isFocused: Bool
 
-    init(name: String, refusal: String?, onRename: @escaping (String) -> Void, onDelete: @escaping () -> Void) {
+    init(name: String, refusal: String?, onRename: @escaping (String) -> Void, onDelete: @escaping (String) -> Void) {
         self.name = name
         self.refusal = refusal
         self.onRename = onRename
@@ -180,7 +185,9 @@ private struct AisleRow: View {
                     .accessibilityIdentifier("settings.aisle.\(name)")
                 RefusalText(message: refusal)
             }
-            Button("Delete \(name)", systemImage: "minus.circle.fill", role: .destructive, action: onDelete)
+            Button("Delete \(name)", systemImage: "minus.circle.fill", role: .destructive) {
+                onDelete(offered ?? name)
+            }
                 .labelStyle(.iconOnly)
                 .tint(.red)
                 .buttonStyle(.borderless)
@@ -190,6 +197,7 @@ private struct AisleRow: View {
 
     private func offerRename() {
         guard text != name else { return }
+        offered = text.trimmingCharacters(in: .whitespacesAndNewlines)
         onRename(text)
         // A name that was accepted shows in a new row; this one is the old name's.
         text = name

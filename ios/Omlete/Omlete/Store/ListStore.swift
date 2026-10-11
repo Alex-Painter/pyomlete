@@ -285,6 +285,9 @@ struct StoreDependencies {
     }
 
     private func recategorize(_ item: ItemID, from guess: String, to category: String) {
+        // The server remembers an ingredient's aisle by name, and that aisle may since have been renamed or deleted.
+        let aisles = aisleOrder()
+        guard aisles.isEmpty || aisles.contains(category) else { return }
         guard replica.current?.items.first(where: { $0.id == item })?.category == guess else { return }
         apply(.patch(item, .category(category)))
     }

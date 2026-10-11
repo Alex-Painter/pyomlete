@@ -115,7 +115,7 @@ struct AisleOrderTests {
 
         await eventually { phone.undo.banner != nil }
         #expect(phone.library.aisleOrder == ["Bakery", "Dairy", "Frozen"])
-        #expect(phone.undo.banner?.message == "Couldn't reach Omlete. Your aisles are back as they were.")
+        #expect(phone.undo.banner?.message == "Couldn't reach Omlete. Your aisles are as the server has them.")
         #expect(phone.undo.banner?.canUndo == false)
         #expect(phone.storage.index?.aisleOrder == ["Bakery", "Dairy", "Frozen"])
     }
@@ -127,7 +127,7 @@ struct AisleOrderTests {
 
         await eventually { phone.undo.banner != nil }
         #expect(phone.library.aisleOrder == ["Bakery", "Dairy", "Frozen"])
-        #expect(phone.undo.banner?.message == "Couldn't save your aisles. They're back as they were.")
+        #expect(phone.undo.banner?.message == "Couldn't save your aisles. They're as the server has them.")
     }
 
     @Test func twoQuickChangesArriveOneAtATimeInOrder() async throws {
@@ -215,33 +215,79 @@ struct AisleOrderTests {
         #expect(saves.last == ["Bakery", "Frozen", "Drinks"])
     }
 
-    @Test func aSecondDeleteSettlesTheFirstAndIsHeldItself() async {
+    @Test func aSecondDeleteSendsTheFirstAndIsHeldItself() async {
         await loaded()
 
         phone.library.deleteAisle("Dairy")
         phone.library.deleteAisle("Frozen")
-        for _ in 0..<20 { await Task.yield() }
         #expect(phone.library.aisleOrder == ["Bakery"])
-        #expect(saves.isEmpty)
+        await eventually { saves.count == 1 }
+        #expect(saves == [["Bakery", "Frozen"]])
 
         phone.undo.undoTapped()
 
-        await eventually { saves.count == 1 }
-        #expect(saves == [["Bakery", "Frozen"]])
+        #expect(phone.library.aisleOrder == ["Bakery", "Frozen"])
+        for _ in 0..<20 { await Task.yield() }
+        #expect(saves.count == 1)
     }
 
-    @Test func aChangeMadeWhileADeleteIsHeldSendsItAndUndoSavesTheAisleBack() async throws {
+    @Test func aChangeMadeWhileADeleteCanStillBeUndoneNeverSendsTheDelete() async throws {
         await loaded()
 
         phone.library.deleteAisle("Dairy")
         phone.library.setAisles(try aisles.adding("Drinks"))
         await eventually { saves.count == 1 }
-        #expect(saves.last == ["Bakery", "Frozen", "Drinks"])
+        #expect(saves.last == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        #expect(phone.library.aisleOrder == ["Bakery", "Frozen", "Drinks"])
 
         phone.undo.undoTapped()
 
+        #expect(phone.library.aisleOrder == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        for _ in 0..<20 { await Task.yield() }
+        #expect(saves.count == 1)
+    }
+
+    @Test func aChangeMadeWhileADeleteIsHeldIsFollowedByTheDeleteOnceItSettles() async throws {
+        await loaded()
+
+        phone.library.deleteAisle("Dairy")
+        phone.library.setAisles(try aisles.adding("Drinks"))
+        await eventually { saves.count == 1 }
+        phone.undo.commitNow()
+
         await eventually { saves.count == 2 }
-        #expect(saves.last == ["Bakery", "Dairy", "Frozen", "Drinks"])
+        #expect(saves.last == ["Bakery", "Frozen", "Drinks"])
+    }
+
+    @Test func aSaveThatFailsWhileADeleteIsHeldLeavesTheDeleteAndItsUndoAlone() async throws {
+        await loaded { $0 == Self.put ? .unreachable : nil }
+
+        phone.library.deleteAisle("Dairy")
+        phone.library.setAisles(try aisles.adding("Drinks"))
+        await eventually { phone.library.aisleOrder == ["Bakery", "Frozen"] }
+        #expect(phone.undo.banner?.message == "Deleted Dairy")
+
+        phone.undo.undoTapped()
+        #expect(phone.library.aisleOrder == ["Bakery", "Dairy", "Frozen"])
+        #expect(phone.undo.banner?.message == "Couldn't reach Omlete. Your aisles are as the server has them.")
+    }
+
+    @Test func aSaveThatFailsDoesNotTakeANewerChangeWithIt() async throws {
+        var puts = 0
+        await loaded { call in
+            guard call == Self.put else { return nil }
+            puts += 1
+            return puts == 1 ? .unreachable : nil
+        }
+        phone.transport.holding = true
+        phone.library.setAisles(try aisles.adding("Drinks"))
+        await eventually { phone.transport.calls.contains(Self.put) }
+        phone.library.setAisles(try aisles.adding("Snacks"))
+        phone.transport.release()
+
+        await eventually { puts == 2 }
+        await eventually { phone.library.aisleOrder == ["Bakery", "Dairy", "Frozen", "Drinks", "Snacks"] }
+        #expect(phone.undo.banner == nil)
     }
 
     @Test func aDeleteThatCannotBeSavedBringsTheAisleBackAndSaysSo() async {
@@ -252,7 +298,7 @@ struct AisleOrderTests {
 
         await eventually { phone.undo.banner != nil }
         #expect(phone.library.aisleOrder == ["Bakery", "Dairy", "Frozen"])
-        #expect(phone.undo.banner?.message == "Couldn't reach Omlete. Your aisles are back as they were.")
+        #expect(phone.undo.banner?.message == "Couldn't reach Omlete. Your aisles are as the server has them.")
     }
 
     @Test func aChangeNotYetSavedIsTheServersOrderAgainAfterARelaunch() async throws {
