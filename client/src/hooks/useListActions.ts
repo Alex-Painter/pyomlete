@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiJson } from '@/lib/api'
+import { ApiError, apiFetch, apiJson } from '@/lib/api'
 import {
   applyOps,
   cancelOp,
@@ -12,7 +12,8 @@ import {
 import type { NewOp, QueuedOp } from '@/lib/offline'
 import { guessCategory } from '@/lib/guessCategory'
 import type { ParsedItem } from '@/lib/parseItems'
-import type { ListDetail, ListItem } from '@/lib/types'
+import type { DayStatus, ISODate, ListDetail, ListItem, PlanDay } from '@/lib/types'
+import { dayLong } from '@/lib/week'
 import { useUndo } from '@/components/UndoToast'
 
 const UNDO_WINDOW_MS = 5000
@@ -152,6 +153,58 @@ export function useListActions(listId: string) {
     [apply, listId, restore, showUndo],
   )
 
+  /** Put a meal on a day, or clear it. Works offline; last write wins. */
+  const setDay = useCallback(
+    ({ date, recipeId, status }: { date: ISODate; recipeId: string | null; status?: DayStatus }) =>
+      apply({ kind: 'setDay', listId, date, recipeId, status: status ?? 'open' }),
+    [apply, listId],
+  )
+
+  /** Out for the evening, or back in. Keeps whatever meal the day had. */
+  const markOut = useCallback(
+    (day: PlanDay, out: boolean) =>
+      setDay({ date: day.date, recipeId: day.recipe_id, status: out ? 'out' : 'open' }),
+    [setDay],
+  )
+
+  /**
+   * Take a meal off its day at once, with Undo. The meal and its items stay
+   * on the list as an any-day meal, so Undo only has to put the day back.
+   */
+  const clearDay = useCallback(
+    (day: PlanDay, title: string) => {
+      setDay({ date: day.date, recipeId: null, status: day.status })
+      showUndo({
+        message: `Took ${title} off ${dayLong(day.date)}`,
+        onUndo: () => setDay({ date: day.date, recipeId: day.recipe_id, status: day.status }),
+      })
+    },
+    [setDay, showUndo],
+  )
+
+  /** Put a meal and its ingredients on a plain list. Needs signal. */
+  const addRecipe = useCallback(
+    async (recipeId: string, title: string) => {
+      try {
+        await apiJson(`/api/lists/${listId}/recipes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipe_id: recipeId }),
+        })
+      } catch (err) {
+        // A 400 means it's already on the list, which is what was asked for.
+        if (!(err instanceof ApiError && err.status === 400)) {
+          showUndo({ message: `Couldn't add ${title}. Check your connection.` })
+          return
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: ['list', listId] })
+      void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      showUndo({ message: `Added ${title}`, onUndo: () => removeRecipe(recipeId, title) })
+    },
+    [queryClient, listId, showUndo, removeRecipe],
+  )
+
   const reorder = useCallback(
     (category: string, itemIds: string[]) => {
       setList((l) => {
@@ -172,5 +225,17 @@ export function useListActions(listId: string) {
     [setList, listId],
   )
 
-  return { setChecked, update, addItems, removeItems, removeRecipe, reorder, sync }
+  return {
+    setChecked,
+    update,
+    addItems,
+    removeItems,
+    removeRecipe,
+    addRecipe,
+    setDay,
+    markOut,
+    clearDay,
+    reorder,
+    sync,
+  }
 }
