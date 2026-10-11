@@ -66,7 +66,7 @@ import UniformTypeIdentifiers
         ])
     }
 
-    @Test func hiddenCardsNeverLeaveTheBoundaryAndEveryOtherStatusBecomesAStage() async throws {
+    @Test func hiddenAndUnknownCardsNeverLeaveTheBoundaryAndEveryOtherStatusBecomesAStage() async throws {
         serverAnswers(200, """
             [{"id":"1","title":"New","status":"new","section":"For this week","reason":"Because","total_minutes":20,
               "source_url":"https://example.com/x","source_name":null,"image_url":"https://img.test/1.jpg","recipe_id":null},
@@ -81,9 +81,9 @@ import UniformTypeIdentifiers
 
         let cards = try await api.suggestions()
 
-        #expect(cards.map(\.id) == ["1", "2", "3", "4", "7", "8"])
-        #expect(cards.map(\.stage) == [.fresh, .saving, .saved("r3"), .failed, .fresh, .fresh])
-        #expect(cards.map(\.section) == [.thisWeek, .under30, .somethingNew, .moreIdeas, .moreIdeas, .moreIdeas])
+        #expect(cards.map(\.id) == ["1", "2", "3", "4", "7"])
+        #expect(cards.map(\.stage) == [.fresh, .saving, .saved("r3"), .failed, .failed])
+        #expect(cards.map(\.section) == [.thisWeek, .under30, .somethingNew, .moreIdeas, .moreIdeas])
         #expect(cards[0].source == RecipeSource(name: "Source", url: URL(string: "https://example.com/x")))
         #expect(cards[1].source == RecipeSource(name: "Chef", url: nil))
         #expect(cards[2].source == nil)
