@@ -27,7 +27,7 @@ struct SettingsScreen: View {
                         rename(name, to: $0)
                     } onDelete: { shown in
                         refusal = nil
-                        library.deleteAisle(aisles.names.contains(shown) ? shown : name)
+                        library.deleteAisle(aisles.current(of: name, renamedTo: shown))
                     }
                 }
                 .onMove { offsets, destination in
@@ -98,7 +98,19 @@ struct SettingsScreen: View {
         }
     }
 
+    /// A name is refused if any aisle has it, the one behind the Undo banner included.
+    private func refusalIfHeld(_ typed: String) -> Refused? {
+        guard let held = library.aisleBeingDeleted,
+              held.caseInsensitiveCompare(typed.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+        else { return nil }
+        return Refused(message: "\(held) is being deleted. Tap Undo to keep it.")
+    }
+
     private func add() {
+        if let held = refusalIfHeld(newName) {
+            refusal = held
+            return
+        }
         do {
             library.setAisles(try aisles.adding(newName))
             newName = ""
@@ -109,6 +121,11 @@ struct SettingsScreen: View {
     }
 
     private func rename(_ name: String, to typed: String) {
+        if var held = refusalIfHeld(typed) {
+            held.aisle = name
+            refusal = held
+            return
+        }
         do {
             library.setAisles(try aisles.renaming(name, to: typed))
             refusal = nil
@@ -120,8 +137,12 @@ struct SettingsScreen: View {
 
 /// A name that was not taken, worded, and the row that says so: an aisle's, or nil for the new aisle's.
 private struct Refused {
-    let aisle: String?
+    var aisle: String?
     let message: String
+
+    init(message: String) {
+        self.message = message
+    }
 
     /// An empty name needs no words: the row goes back to the name it had.
     init?(_ refusal: AisleOrder.Refusal, at aisle: String?) {
@@ -155,8 +176,9 @@ private struct AisleRow: View {
     let name: String
     let refusal: String?
     let onRename: (String) -> Void
-    /// Called with the aisle's name as it is now, which a rename just offered may have changed.
-    let onDelete: (String) -> Void
+    /// Called with the name this row last offered as a rename, if any. Whether
+    /// that rename went through is for the caller to find out from the order.
+    let onDelete: (String?) -> Void
 
     @State private var text: String
     /// What this row last offered as its new name. Tapping Delete takes the
@@ -164,7 +186,7 @@ private struct AisleRow: View {
     @State private var offered: String?
     @FocusState private var isFocused: Bool
 
-    init(name: String, refusal: String?, onRename: @escaping (String) -> Void, onDelete: @escaping (String) -> Void) {
+    init(name: String, refusal: String?, onRename: @escaping (String) -> Void, onDelete: @escaping (String?) -> Void) {
         self.name = name
         self.refusal = refusal
         self.onRename = onRename
@@ -186,7 +208,7 @@ private struct AisleRow: View {
                 RefusalText(message: refusal)
             }
             Button("Delete \(name)", systemImage: "minus.circle.fill", role: .destructive) {
-                onDelete(offered ?? name)
+                onDelete(offered)
             }
                 .labelStyle(.iconOnly)
                 .tint(.red)

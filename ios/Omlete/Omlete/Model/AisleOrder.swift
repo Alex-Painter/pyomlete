@@ -41,6 +41,14 @@ nonisolated struct AisleOrder: Equatable, Sendable {
         return order
     }
 
+    /// The name to act on for a row drawn as `name` whose rename to `renamed`
+    /// may have just gone through: the new name if the aisle has it now, else
+    /// the one the row was drawn with.
+    func current(of name: String, renamedTo renamed: String?) -> String {
+        guard !names.contains(name), let renamed, names.contains(renamed) else { return name }
+        return renamed
+    }
+
     /// A drag, in the shape `onMove` reports it.
     func moving(_ offsets: IndexSet, to destination: Int) -> AisleOrder {
         var order = self

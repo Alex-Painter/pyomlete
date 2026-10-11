@@ -60,6 +60,16 @@ struct AisleOrderTests {
         #expect(order.restoring("Bakery", at: 2) == order)
     }
 
+    @Test func aRowActsOnItsNewNameOnlyIfTheRenameWentThrough() {
+        let renamed = AisleOrder(["Bakery", "Deli", "Drinks"])
+        #expect(renamed.current(of: "Dairy", renamedTo: "Deli") == "Deli")
+
+        let refused = AisleOrder(["Bakery", "Frozen", "Drinks"])
+        #expect(refused.current(of: "Frozen", renamedTo: "Drinks") == "Frozen")
+        #expect(refused.current(of: "Frozen", renamedTo: nil) == "Frozen")
+        #expect(refused.current(of: "Frozen", renamedTo: "Nowhere") == "Frozen")
+    }
+
     @Test func aRepeatedNameIsOneAisleInItsFirstPlace() {
         #expect(AisleOrder(["Bakery", "Dairy", "Bakery", "bakery"]).names == ["Bakery", "Dairy", "bakery"])
     }
@@ -245,6 +255,36 @@ struct AisleOrderTests {
         #expect(phone.library.aisleOrder == ["Bakery", "Dairy", "Frozen", "Drinks"])
         for _ in 0..<20 { await Task.yield() }
         #expect(saves.count == 1)
+    }
+
+    @Test func theNameOfAnAisleBeingDeletedIsStillTakenUntilItsBannerSettles() async {
+        await loaded()
+        #expect(phone.library.aisleBeingDeleted == nil)
+
+        phone.library.deleteAisle("Dairy")
+        #expect(phone.library.aisleBeingDeleted == "Dairy")
+
+        phone.undo.commitNow()
+        #expect(phone.library.aisleBeingDeleted == nil)
+    }
+
+    @Test func aChangeMadeWhileTheServerIsAskedAfterAFailureIsStillSent() async throws {
+        var puts = 0
+        await loaded { call in
+            guard call == Self.put else { return nil }
+            puts += 1
+            return puts == 1 ? .unreachable : nil
+        }
+        phone.library.setAisles(try aisles.adding("Drinks"))
+        await eventually { puts == 1 }
+        phone.transport.holding = true
+        await eventually { phone.transport.calls.last?.description == "GET /api/settings/categories" && puts == 1 }
+
+        phone.library.setAisles(try aisles.adding("Snacks"))
+        phone.transport.release()
+
+        await eventually { puts == 2 }
+        #expect(saves.last == ["Bakery", "Dairy", "Frozen", "Snacks"])
     }
 
     @Test func aChangeMadeWhileADeleteIsHeldIsFollowedByTheDeleteOnceItSettles() async throws {

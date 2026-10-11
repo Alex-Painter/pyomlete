@@ -45,5 +45,6 @@ Preconditions:
 - `$V type` cannot type an empty or all-space text, so an emptied name going back to the old one is covered by the unit tests (`AisleOrderTests`) and not by a drive.
 - The handles have no identifier. They are system controls labelled `Reorder <name>`.
 - `.verify-run/api.log` is not cleared by `up`, so count `PUT /api/settings/categories` lines before and after a step.
-- A change made within the five seconds of a delete's banner sends the order without the deleted aisle, and Undo then sends it again with the aisle back: two PUTs where an untouched Undo sends none.
+- A change made within the five seconds of a delete's banner is saved with the deleted aisle still in its place: one PUT, and none on Undo. The helper is too slow for a second action inside the banner (about five seconds a step); taps by coordinate through the iOS Simulator tool do it.
+- While that banner is up the deleted aisle's name is still taken: adding or renaming to it is refused with "<name> is being deleted. Tap Undo to keep it."
 - Settings can be open under more than one tab at once. Each shows the same order.

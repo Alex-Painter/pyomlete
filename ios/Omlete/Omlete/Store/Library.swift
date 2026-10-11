@@ -72,6 +72,10 @@ private struct HeldAisle {
 
     /// `aisleOrder` with an aisle being deleted still in it.
     private var allAisles: [String] { unsentAisles ?? index.aisleOrder }
+
+    /// The aisle hidden behind the Undo banner, if any. Its name is still
+    /// taken: giving it to another aisle would lose that aisle when the delete settles.
+    var aisleBeingDeleted: String? { heldAisle?.name }
     var units: [String] { index.units }
 
     /// Home rows: the saved summaries minus lists being deleted, with the name
@@ -351,7 +355,8 @@ private struct HeldAisle {
                         error == .unreachable
                             ? "Couldn't reach Omlete. Your aisles are as the server has them."
                             : "Couldn't save your aisles. They're as the server has them.")
-                    return
+                    // Not a return: a change made while the server was being asked is still to send.
+                    continue
                 }
                 index.aisleOrder = order
                 save()
