@@ -299,4 +299,16 @@ describe('flushQueue', () => {
     await second
     expect(flushQueue()).not.toBe(second)
   })
+
+  it('sends an op queued while a flush that found nothing is finishing', async () => {
+    window.localStorage.clear()
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const first = flushQueue()
+    enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'r1', status: 'open' })
+    expect(await flushQueue()).toBe(1)
+    await first
+    expect(readQueue()).toEqual([])
+    vi.unstubAllGlobals()
+  })
 })

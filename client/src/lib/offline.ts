@@ -236,17 +236,32 @@ async function send(op: QueuedOp, keepalive: boolean): Promise<Response> {
 }
 
 let flushing: Promise<number> | null = null
+/** Asked to flush while a flush was running, which may have read the queue already. */
+let flushAgain = false
 
 /**
  * Send every op that is due, in order. Stops at the first network failure and
  * leaves the rest for next time. Resolves to the number of ops sent.
  */
 export function flushQueue(opts: { keepalive?: boolean } = {}): Promise<number> {
-  // `.finally` always runs asynchronously, so `flushing` is cleared after it
-  // has been assigned, even when there was nothing to send.
-  flushing ??= sendDue(opts.keepalive ?? false).finally(() => {
-    flushing = null
-  })
+  if (flushing) {
+    flushAgain = true
+    return flushing
+  }
+  flushing = (async () => {
+    let sent = 0
+    try {
+      do {
+        flushAgain = false
+        sent += await sendDue(opts.keepalive ?? false)
+      } while (flushAgain)
+    } finally {
+      // After an await, so `flushing` has been assigned, and with none after
+      // the last check, so no caller can slip in between.
+      flushing = null
+    }
+    return sent
+  })()
   return flushing
 }
 
