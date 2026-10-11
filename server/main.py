@@ -6,14 +6,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, NamedTuple
 from urllib.parse import urlparse, urlunparse
+from uuid import UUID
 
 from anthropic import AsyncAnthropic, transform_schema
 from beanie import PydanticObjectId, init_beanie
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, TypeAdapter
+from pymongo.errors import DuplicateKeyError
 
 from data_models import (
     IngredientDocument,
@@ -39,6 +41,7 @@ from lib.types import (
     ListUpdateRequest,
     MealSuggestions,
     RatingUpdate,
+    RecipeJobEnd,
     RecipeJobKind,
     RecipeMetadata,
     RecipeModelResponse,
@@ -87,6 +90,7 @@ async def lifespan(app: FastAPI):
         ],
     )
     yield
+    await _end_running_recipe_jobs()
     client.close()
 
 
@@ -1161,23 +1165,54 @@ async def save_suggestion(suggestion_id: PydanticObjectId, body: SuggestionSaveR
 # --- Recipe jobs ---
 # Making a recipe waits on a model for a minute or more, and a phone that
 # switches apps drops the request while the work carries on here. A job is the
-# same work started without waiting: the client keeps an id and asks how it
-# went. Each job calls the endpoint function a waiting client would have
-# called, so the two cannot drift apart.
+# same work started without waiting, under a key the client mints before it
+# sends anything. A start names its key, so sending it again (its answer was
+# lost, or the app was killed) finds the job there and starts nothing. Each
+# job calls the endpoint function a waiting client would have called, so the
+# two cannot drift apart.
 
 # Longer than any honest job: the slowest is a link with changes, which is a
 # page fetch and three model calls of a few thousand tokens. A job still
-# running after this is cancelled, so one called stale cannot go on to save.
+# running after this is cancelled, which bounds what it can spend. It does not
+# promise that a job ending failed saved nothing: a cancel that lands while the
+# recipe's insert is on its way to Mongo leaves the recipe behind.
 RECIPE_JOB_TIME_LIMIT = timedelta(minutes=5)
 # The limit plus time to write how the job ended. A job still "working" after
-# this lost its task, which is what a server restart does to it.
+# this lost its task, which is what a killed server does to it. Clients treat
+# this as the longest a job can be outstanding.
 RECIPE_JOB_STALE_AFTER = RECIPE_JOB_TIME_LIMIT + timedelta(minutes=1)
+# Each job is a model call somebody pays for and nobody is waiting on, so only
+# a few run at once. One household makes one recipe at a time.
+MAX_WORKING_RECIPE_JOBS = 4
+# The iOS picker takes six photos, each re-encoded as a JPEG no longer than
+# 2000 px, which is under 2 MB. The model refuses an image over 5 MB.
+MAX_JOB_PHOTOS = 6
+MAX_JOB_PHOTO_BYTES = 5 * 1024 * 1024
+# Seconds to wait before each try at writing how a job ended.
+RECIPE_JOB_WRITE_PAUSES = (0, 1, 5)
+
+_recipe_job_tasks: set[asyncio.Task] = set()
+
+_JOB_FAILED = RecipeJobEnd(status="failed", failure="other")
 
 _LINK_FAILURES = {
     400: "link_blocked",
     404: "no_recipe_on_page",
     502: "site_did_not_respond",
 }
+
+
+def _refused(_exc: HTTPException) -> RecipeJobEnd:
+    return _JOB_FAILED
+
+
+def _link_refused(exc: HTTPException) -> RecipeJobEnd:
+    """How import-from-url's refusals end a job: its 409 is a recipe, not a failure."""
+    if exc.status_code == 409:
+        return RecipeJobEnd(status="already_imported", recipe_id=exc.detail["recipe_id"])
+    return RecipeJobEnd(
+        status="failed", failure=_LINK_FAILURES.get(exc.status_code, "other")
+    )
 
 
 def _recipe_job_out(job: RecipeJobDocument) -> dict:
@@ -1192,7 +1227,7 @@ def _recipe_job_out(job: RecipeJobDocument) -> dict:
     ):
         status, failure = "failed", "other"
     return {
-        "id": str(job.id),
+        "key": job.id,
         "kind": job.kind,
         "status": status,
         "recipe_id": job.recipe_id,
@@ -1200,73 +1235,146 @@ def _recipe_job_out(job: RecipeJobDocument) -> dict:
     }
 
 
+async def _record_end(job: RecipeJobDocument, end: RecipeJobEnd) -> None:
+    """Writes how a job ended, more than once if Mongo will not take it.
+
+    If every try fails the job stays "working" and is answered as failed once
+    it is stale, whatever it really did. The log says which.
+    """
+    job.status, job.recipe_id, job.failure = end.status, end.recipe_id, end.failure
+    for pause in RECIPE_JOB_WRITE_PAUSES:
+        await asyncio.sleep(pause)
+        try:
+            await job.save()
+            return
+        except Exception:
+            logger.exception(
+                "Recipe job %s ended %s (recipe %s) and that could not be written",
+                job.id, end.status, end.recipe_id,
+            )
+
+
 async def _run_recipe_job(
-    job: RecipeJobDocument, make: Callable[[], Awaitable[RecipeDocument]]
+    job: RecipeJobDocument,
+    make: Callable[[], Awaitable[RecipeDocument]],
+    refused: Callable[[HTTPException], RecipeJobEnd],
 ) -> None:
     try:
         async with asyncio.timeout(RECIPE_JOB_TIME_LIMIT.total_seconds()):
             recipe = await make()
-        job.status, job.recipe_id = "saved", str(recipe.id)
+        end = RecipeJobEnd(status="saved", recipe_id=str(recipe.id))
     except HTTPException as exc:
-        if job.kind == "link" and exc.status_code == 409:
-            job.status, job.recipe_id = "already_imported", exc.detail["recipe_id"]
-        else:
-            job.status = "failed"
-            job.failure = (
-                _LINK_FAILURES.get(exc.status_code, "other")
-                if job.kind == "link"
-                else "other"
-            )
+        end = refused(exc)
+    except asyncio.CancelledError:
+        # The server is shutting down, and waits for this job to be written off.
+        end = _JOB_FAILED
     except Exception:
         # Nobody is waiting on this request, so the log is the only trace.
         logger.exception("Recipe job %s failed", job.id)
-        job.status, job.failure = "failed", "other"
-    await job.save()
+        end = _JOB_FAILED
+    write = asyncio.create_task(_record_end(job, end))
+    try:
+        await asyncio.shield(write)
+    except asyncio.CancelledError:
+        # Shutdown arrived mid-write. What is being written is how the job
+        # really ended, so it is finished, not replaced.
+        await write
+
+
+async def _end_running_recipe_jobs() -> None:
+    """Stops the jobs this instance is running and waits for each to be written as failed.
+
+    A deploy would otherwise leave them "working" until they are stale. Only
+    this instance's tasks: another instance's jobs are still being made.
+    """
+    tasks = list(_recipe_job_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _start_recipe_job(
-    kind: RecipeJobKind, make: Callable[[], Awaitable[RecipeDocument]]
+    key: UUID,
+    kind: RecipeJobKind,
+    make: Callable[[], Awaitable[RecipeDocument]],
+    response: Response,
+    refused: Callable[[HTTPException], RecipeJobEnd] = _refused,
 ) -> dict:
-    job = RecipeJobDocument(kind=kind)
-    await job.insert()
-    task = asyncio.create_task(_run_recipe_job(job, make))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    """Starts the job with this key, or answers with the one already there.
+
+    202 for a job this call started and 200 for one it found, whatever that
+    job was started with: the key is the job.
+    """
+    job = await RecipeJobDocument.get(str(key))
+    if job is None:
+        not_stale = datetime.now(timezone.utc) - RECIPE_JOB_STALE_AFTER
+        if await RecipeJobDocument.count_working_since(not_stale) >= MAX_WORKING_RECIPE_JOBS:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many recipes are being made. Try again shortly.",
+                headers={"Retry-After": "30"},
+            )
+        job = RecipeJobDocument(id=str(key), kind=kind)
+        try:
+            await job.insert()
+        except DuplicateKeyError:
+            # Another start with this key got in between the look and the insert.
+            job = await RecipeJobDocument.get(str(key))
+        else:
+            task = asyncio.create_task(_run_recipe_job(job, make, refused))
+            _recipe_job_tasks.add(task)
+            task.add_done_callback(_recipe_job_tasks.discard)
+            return _recipe_job_out(job)
+    response.status_code = 200
     return _recipe_job_out(job)
 
 
-@router.post("/recipe-jobs/link", status_code=202)
-async def start_link_job(body: ImportFromUrlRequest):
-    """`POST /recipes/import-from-url/` as a job. Answers at once with its id."""
-    return await _start_recipe_job("link", lambda: import_recipe_from_url(body))
+@router.put("/recipe-jobs/{key}/link", status_code=202)
+async def start_link_job(key: UUID, body: ImportFromUrlRequest, response: Response):
+    """`POST /recipes/import-from-url/` as the job with this key."""
+    return await _start_recipe_job(
+        key, "link", lambda: import_recipe_from_url(body), response, _link_refused
+    )
 
 
-@router.post("/recipe-jobs/describe", status_code=202)
-async def start_describe_job(prompt: RecipePrompt):
-    """`POST /recipes/generate/` as a job. Answers at once with its id."""
-    return await _start_recipe_job("describe", lambda: create_recipe(prompt))
+@router.put("/recipe-jobs/{key}/describe", status_code=202)
+async def start_describe_job(key: UUID, prompt: RecipePrompt, response: Response):
+    """`POST /recipes/generate/` as the job with this key."""
+    return await _start_recipe_job(key, "describe", lambda: create_recipe(prompt), response)
 
 
-@router.post("/recipe-jobs/photos", status_code=202)
-async def start_photos_job(files: list[UploadFile]):
-    """One recipe read from every photo sent, as a job.
+@router.put("/recipe-jobs/{key}/photos", status_code=202)
+async def start_photos_job(key: UUID, files: list[UploadFile], response: Response):
+    """One recipe read from every photo sent, as the job with this key.
 
     This is `POST /recipes/extract-from-images/` with a single group, since a
     job ends in one recipe.
     """
-    images = await _read_images(files)
+    too_much = HTTPException(
+        status_code=413,
+        detail=f"A recipe is read from up to {MAX_JOB_PHOTOS} photos of up to "
+        f"{MAX_JOB_PHOTO_BYTES // (1024 * 1024)} MB each.",
+    )
+    if len(files) > MAX_JOB_PHOTOS:
+        raise too_much
+    images = []
+    for file in files:
+        data = await file.read(MAX_JOB_PHOTO_BYTES + 1)
+        if len(data) > MAX_JOB_PHOTO_BYTES:
+            raise too_much
+        images.append(RecipeImage(file.content_type, data))
 
     async def make() -> RecipeDocument:
         categories_str = ", ".join(await _get_category_names())
         return await _extract_and_save(images, categories_str)
 
-    return await _start_recipe_job("photos", make)
+    return await _start_recipe_job(key, "photos", make, response)
 
 
-@router.get("/recipe-jobs/{job_id}")
-async def get_recipe_job(job_id: PydanticObjectId):
+@router.get("/recipe-jobs/{key}")
+async def get_recipe_job(key: UUID):
     """How a job stands: working, saved, already_imported or failed."""
-    job = await RecipeJobDocument.get(job_id)
+    job = await RecipeJobDocument.get(str(key))
     if not job:
         raise HTTPException(status_code=404, detail="Recipe job not found")
     return _recipe_job_out(job)

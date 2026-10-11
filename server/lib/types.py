@@ -103,6 +103,14 @@ class RecipeJob(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class RecipeJobEnd(BaseModel):
+    """How a job ended: the three fields of `RecipeJob` that its ending writes."""
+
+    status: RecipeJobStatus
+    recipe_id: Optional[str] = None
+    failure: Optional[RecipeJobFailure] = None
+
+
 class MealIdea(BaseModel):
     title: str
     description: str = Field(
