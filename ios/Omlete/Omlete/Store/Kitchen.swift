@@ -8,6 +8,9 @@ struct KitchenDependencies {
     var sleepUntil: (Date) async throws -> Void = { try await Task.sleep(for: .seconds($0.timeIntervalSinceNow)) }
     /// Sound and haptic for a finished timer.
     var chime: () -> Void = { TimerChime.play() }
+    /// Called with a recipe as an edit saved it. The library keeps its own
+    /// summary of every recipe, and Kitchen never writes Library's state.
+    var recipeSaved: (Recipe) -> Void = { _ in }
 }
 
 /// App-wide owner of cooking, beside `Library`. Library owns lists; Kitchen

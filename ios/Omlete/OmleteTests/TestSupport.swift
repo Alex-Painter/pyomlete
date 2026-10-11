@@ -218,6 +218,8 @@ import Testing
     let clock = TestClock()
     /// Chimes since the test began, across relaunches.
     private(set) var chimes = 0
+    /// Every recipe the kitchen reported as saved by an edit.
+    private(set) var reportedSaves: [Recipe] = []
     private(set) var kitchen: Kitchen!
 
     init() {
@@ -237,7 +239,8 @@ import Testing
             disk: storage,
             now: { [clock] in clock.now },
             sleepUntil: { [clock] in try await clock.sleep(until: $0) },
-            chime: { [unowned self] in chimes += 1 }))
+            chime: { [unowned self] in chimes += 1 },
+            recipeSaved: { [unowned self] in reportedSaves.append($0) }))
     }
 
     func kill() {

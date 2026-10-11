@@ -208,6 +208,53 @@ import UniformTypeIdentifiers
         await #expect(throws: APIError.rejected(404)) { try await api.addRecipe("curry", to: "list") }
     }
 
+    @Test func anEditReplacesTheTitleMethodAndEveryIngredientFieldAndAnswersWithTheSavedRecipe() async throws {
+        serverAnswers(200, Self.traybakeJSON)
+        let edit = RecipeEdit(
+            title: "Sunday traybake", steps: ["Roast.", "Dress."],
+            ingredients: [
+                .init(name: "potatoes", amount: 1.5, unit: "kg", note: "halved", group: "For the traybake", category: "Fresh Produce"),
+                .init(name: "oil", amount: 2, unit: "tbsp", group: "For the dressing", category: "Pantry", isOnList: false),
+            ])
+
+        let saved = try await api.updateRecipe("traybake", edit)
+
+        #expect(transport.calls == [Call(method: "PUT", path: "/api/recipes/traybake")])
+        let body = transport.bodies[0]
+        #expect(body["title"] as? String == "Sunday traybake")
+        #expect(body["instructions"] as? [String] == ["Roast.", "Dress."])
+        let sent = try #require(body["ingredients"] as? [NSDictionary])
+        #expect(sent == [
+            ["name": "potatoes", "amount": 1.5, "unit": "kg", "note": "halved", "group": "For the traybake",
+             "category": "Fresh Produce", "excluded_from_list": false],
+            ["name": "oil", "amount": 2, "unit": "tbsp", "group": "For the dressing", "category": "Pantry",
+             "excluded_from_list": true],
+        ])
+        #expect(saved.title == "Traybake")
+        #expect(saved.ingredients.count == 4)
+    }
+
+    /// The server's `IngredientRecipe` takes a string for `unit` and `category`
+    /// and refuses null for either, with a 422 that would lose the whole save.
+    @Test func anIngredientWithNoQuantityUnitOrAisleIsSentWithoutANullTheServerWouldRefuse() async throws {
+        serverAnswers(200, Self.traybakeJSON)
+
+        _ = try await api.updateRecipe("traybake", RecipeEdit(title: "T", steps: [], ingredients: [.init(name: "salt")]))
+
+        let sent = try #require((transport.bodies[0]["ingredients"] as? [NSDictionary])?.first)
+        #expect(sent == ["name": "salt", "unit": "", "excluded_from_list": false])
+    }
+
+    @Test func anEditTheServerRefusesOrNeverGetsIsAnError() async {
+        let edit = RecipeEdit(title: "T", steps: [], ingredients: [])
+
+        serverAnswers(404)
+        await #expect(throws: APIError.rejected(404)) { try await api.updateRecipe("gone", edit) }
+
+        transport.reply = { _ in .unreachable }
+        await #expect(throws: APIError.unreachable) { try await api.updateRecipe("traybake", edit) }
+    }
+
     @Test func anIngredientIsKeptOffListsByItsPosition() async throws {
         try await api.setOnList("curry", ingredient: 2, false)
 

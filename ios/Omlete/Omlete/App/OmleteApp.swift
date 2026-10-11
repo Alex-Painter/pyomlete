@@ -15,7 +15,8 @@ struct OmleteApp: App {
         let api = APIClient(baseURL: APIEnvironment.baseURL, transport: URLSessionTransport())
         let library = Library(deps: StoreDependencies(
             api: api, disk: ReplicaDisk(), undo: undo, connectivity: connectivity))
-        let kitchen = Kitchen(deps: KitchenDependencies(api: api, disk: CookDisk()))
+        let kitchen = Kitchen(deps: KitchenDependencies(
+            api: api, disk: CookDisk(), recipeSaved: { [weak library] in library?.adopt($0) }))
         connectivity.onRegain = { [weak library, weak kitchen] in
             library?.syncAll()
             kitchen?.resume()

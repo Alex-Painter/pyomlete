@@ -231,6 +231,21 @@ struct CookShelf: Equatable {
         return outcome
     }
 
+    /// A recipe as an edit just saved it: its tile, and its name wherever a
+    /// list shows it as a meal, change at once and not at the next refresh.
+    func adopt(_ recipe: Recipe) {
+        if let place = index.recipes.firstIndex(where: { $0.id == recipe.id }) {
+            index.recipes[place].title = recipe.title
+            index.recipes[place].ingredientCount = recipe.ingredients.count
+        }
+        for list in index.summaries.indices {
+            index.summaries[list].meals = index.summaries[list].meals.map {
+                $0.id == recipe.id ? ListSummary.Meal(id: recipe.id, title: recipe.title) : $0
+            }
+        }
+        save()
+    }
+
     /// Hides the recipe at once and offers Undo. The DELETE goes out when the
     /// banner settles; if it cannot, the id is saved and `syncAll` retries.
     func deleteRecipe(_ id: RecipeID, title: String) {

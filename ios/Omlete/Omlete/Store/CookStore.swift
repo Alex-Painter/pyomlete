@@ -68,6 +68,8 @@ struct RatingView: Equatable {
     @ObservationIgnored private var sleeper: Task<Void, Never>?
     @ObservationIgnored private var isSendingRating = false
     @ObservationIgnored private var onListSends: Task<Void, Never>?
+    /// How many edits have been saved, so a fetch can tell it was asked for before one.
+    @ObservationIgnored private var saves = 0
 
     private enum RatingDelivery {
         case untried
@@ -89,6 +91,9 @@ struct RatingView: Equatable {
         guard let fetchFailure else { return .loading }
         return fetchFailure.isNotFound ? .gone : .unavailable
     }
+
+    /// The server has answered for this recipe this launch, so `page` is not only the copy saved on the phone.
+    var hasServerCopy: Bool { latest != nil }
 
     var page: RecipePage {
         if deletedOnServer { return .gone }
@@ -137,6 +142,21 @@ struct RatingView: Equatable {
         }
     }
 
+    /// Sends an edit and takes the server's answer as the recipe: the page
+    /// shows it at once, a cook adopts it per `CookSession.adopt`, so one
+    /// under way keeps the recipe it started with, and the library is told.
+    /// Needs signal. An edit is never queued, so a failure is the caller's to show.
+    func save(_ edit: RecipeEdit) async throws(APIError) {
+        // An on-list change still on its way names its ingredient by position, which this save may move.
+        await onListSends?.value
+        // Only now is the on-list flag settled: a change that failed has flipped back.
+        let edit = (latest ?? record?.session.recipe).map(edit.carryingUntouched) ?? edit
+        let saved = try await deps.api.updateRecipe(id, edit)
+        saves += 1
+        take(saved)
+        deps.recipeSaved(saved)
+    }
+
     @discardableResult
     private func flip(_ index: Int, to onList: Bool) -> Bool {
         guard let shown = latest ?? record?.session.recipe, shown.ingredients.indices.contains(index),
@@ -144,7 +164,10 @@ struct RatingView: Equatable {
         else { return false }
         // Only the flag, on each copy: adopting a whole recipe here would take its rating too.
         if latest?.ingredients.indices.contains(index) == true { latest?.ingredients[index].isOnList = onList }
-        mutate { $0.session.setOnList(index, onList) }
+        // A cook under way may hold the recipe as it was before an edit, where this position is another ingredient.
+        if record?.session.recipe.ingredients.map(\.name) == shown.ingredients.map(\.name) {
+            mutate { $0.session.setOnList(index, onList) }
+        }
         return true
     }
 
@@ -227,18 +250,26 @@ struct RatingView: Equatable {
 
     private func fetch(reportingFailure: Bool) async {
         do {
+            let asked = saves
             let fresh = try await deps.api.recipe(id)
-            (latest, deletedOnServer) = (fresh, false)
-            if record == nil {
-                let created = CookRecord(session: CookSession(recipe: fresh, now: deps.now()))
-                record = created
-                deps.disk.save(created)
-            } else {
-                mutate { $0.session.adopt(fresh) }
-            }
+            // Asked for before an edit was saved: it is the recipe as it was, and would put it back.
+            guard asked == saves else { return }
+            take(fresh)
         } catch {
             if error.isNotFound { deletedOnServer = true }
             if record == nil, reportingFailure { fetchFailure = error }
+        }
+    }
+
+    /// The server's copy, fetched or just saved: the page's at once, the cook's when `adopt` allows.
+    private func take(_ fresh: Recipe) {
+        (latest, deletedOnServer) = (fresh, false)
+        if record == nil {
+            let created = CookRecord(session: CookSession(recipe: fresh, now: deps.now()))
+            record = created
+            deps.disk.save(created)
+        } else {
+            mutate { $0.session.adopt(fresh) }
         }
     }
 
