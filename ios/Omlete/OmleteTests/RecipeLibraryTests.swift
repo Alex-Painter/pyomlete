@@ -143,6 +143,25 @@ import Testing
         #expect(phone.transport.calls.count == before)
     }
 
+    @Test func anEditedRecipeShowsItsNewTitleOnItsTileAndOnEveryListAtOnceAndAfterARelaunch() async {
+        serverAnswers()
+        await phone.library.refresh()
+        var edited = Recipe.fixture()
+        edited.title = "Green curry"
+        edited.ingredients.removeLast()
+
+        phone.library.adopt(edited)
+
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
+        #expect(phone.library.recipes[1].ingredientCount == 2)
+        #expect(phone.library.recipes[1].sourceName == "example.com")
+        #expect(phone.library.cookShelf?.meals.map(\.title) == ["Green curry"])
+        #expect(phone.storage.index?.summaries[0].meals.map(\.title) == ["Green curry"])
+
+        phone.relaunch()
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
+    }
+
     @Test func aSettledRecipeDeleteIsSentAndTheRecipeForgotten() async {
         serverAnswers()
         await phone.library.refresh()
@@ -397,6 +416,84 @@ import Testing
 
         #expect(page?.title == "Green curry")
         #expect(stove.session?.recipe.title == "Curry")
+    }
+
+    private static let greenCurryJSON = Stove.recipeJSON
+        .replacingOccurrences(of: #""title":"Curry""#, with: #""title":"Green curry""#)
+        .replacingOccurrences(of: #""rating":null"#, with: #""rating":3"#)
+    private let put = Call(method: "PUT", path: "/api/recipes/curry")
+    private let greenCurry = RecipeEdit(title: "Green curry", steps: ["Simmer."], ingredients: [.init(name: "rice")])
+
+    /// The server answers a PUT with the recipe as it now has it, which is not what was sent.
+    private func serverSavesEdits() {
+        stove.serverAnswers { [put] in $0 == put ? .status(200, Self.greenCurryJSON) : nil }
+    }
+
+    @Test func aSavedEditIsOnePutAndThePageShowsWhatTheServerAnswered() async throws {
+        await store.load()
+        serverSavesEdits()
+
+        try await store.save(greenCurry)
+
+        #expect(stove.transport.calls.count(where: { $0 == put }) == 1)
+        #expect(stove.transport.bodies.last?["title"] as? String == "Green curry")
+        #expect(page?.title == "Green curry")
+        #expect(page?.steps.count == 4)
+        #expect(page?.rating == 3)
+        #expect(stove.reportedSaves.map(\.title) == ["Green curry"])
+    }
+
+    @Test func aCookNotYetStartedTakesTheEditAndStillHasItAfterARelaunchWithNoSignal() async throws {
+        await store.open()
+        serverSavesEdits()
+
+        try await store.save(greenCurry)
+        #expect(stove.session?.recipe.title == "Green curry")
+
+        stove.relaunch()
+        stove.serverIsUnreachable()
+        await store.load()
+        #expect(page?.title == "Green curry")
+    }
+
+    @Test func aCookUnderWayKeepsTheRecipeItStartedWithWhileThePageShowsTheEdit() async throws {
+        await store.open()
+        store.start()
+        store.next()
+        serverSavesEdits()
+
+        try await store.save(greenCurry)
+
+        #expect(page?.title == "Green curry")
+        #expect(stove.session?.recipe.title == "Curry")
+        #expect(stove.session?.stage == .step(1))
+    }
+
+    @Test(arguments: [ScriptedTransport.Reply.unreachable, .status(500), .status(404), .status(422)])
+    func anEditThatCannotBeSavedThrowsAndChangesNothing(reply: ScriptedTransport.Reply) async {
+        await store.load()
+        stove.serverAnswers { [put] in $0 == put ? reply : nil }
+
+        await #expect(throws: APIError.self) { try await store.save(greenCurry) }
+
+        #expect(page?.title == "Curry")
+        #expect(stove.session?.recipe.title == "Curry")
+        #expect(stove.reportedSaves.isEmpty)
+    }
+
+    @Test func anEditWaitsForAnOnListChangeStillOnItsWayBecauseThatNamesItsIngredientByPosition() async throws {
+        await store.load()
+        serverSavesEdits()
+        stove.transport.holding = true
+
+        store.setOnList(1, false)
+        async let saving: Void = store.save(greenCurry)
+        await eventually { stove.transport.calls.last == exclude }
+        #expect(!stove.transport.calls.contains(put))
+        stove.transport.release()
+        try await saving
+
+        #expect(stove.transport.calls.suffix(2) == [exclude, put])
     }
 
     @Test func takingAnIngredientOffListsShowsAtOnceAndTellsTheServer() async {

@@ -137,6 +137,18 @@ struct RatingView: Equatable {
         }
     }
 
+    /// Sends an edit and takes the server's answer as the recipe: the page
+    /// shows it at once, a cook adopts it per `CookSession.adopt`, so one
+    /// under way keeps the recipe it started with, and the library is told.
+    /// Needs signal. An edit is never queued, so a failure is the caller's to show.
+    func save(_ edit: RecipeEdit) async throws(APIError) {
+        // An on-list change still on its way names its ingredient by position, which this save may move.
+        await onListSends?.value
+        let saved = try await deps.api.updateRecipe(id, edit)
+        take(saved)
+        deps.recipeSaved(saved)
+    }
+
     @discardableResult
     private func flip(_ index: Int, to onList: Bool) -> Bool {
         guard let shown = latest ?? record?.session.recipe, shown.ingredients.indices.contains(index),
@@ -227,18 +239,22 @@ struct RatingView: Equatable {
 
     private func fetch(reportingFailure: Bool) async {
         do {
-            let fresh = try await deps.api.recipe(id)
-            (latest, deletedOnServer) = (fresh, false)
-            if record == nil {
-                let created = CookRecord(session: CookSession(recipe: fresh, now: deps.now()))
-                record = created
-                deps.disk.save(created)
-            } else {
-                mutate { $0.session.adopt(fresh) }
-            }
+            take(try await deps.api.recipe(id))
         } catch {
             if error.isNotFound { deletedOnServer = true }
             if record == nil, reportingFailure { fetchFailure = error }
+        }
+    }
+
+    /// The server's copy, fetched or just saved: the page's at once, the cook's when `adopt` allows.
+    private func take(_ fresh: Recipe) {
+        (latest, deletedOnServer) = (fresh, false)
+        if record == nil {
+            let created = CookRecord(session: CookSession(recipe: fresh, now: deps.now()))
+            record = created
+            deps.disk.save(created)
+        } else {
+            mutate { $0.session.adopt(fresh) }
         }
     }
 
