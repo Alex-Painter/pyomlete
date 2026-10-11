@@ -1,12 +1,14 @@
 import json
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from beanie import init_beanie
 from mongomock_motor import AsyncMongoMockClient
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 import main
+from chef import discover
 from data_models import ListDocument, ListItem, RecipeDocument, SuggestionDocument
 from lib.types import SuggestionRefreshRequest
 
@@ -68,13 +70,13 @@ async def seed():
 
 
 def fake_claude(seen: list[str]):
-    async def create(**kwargs):
-        seen.append(kwargs["messages"][0]["content"])
-        return MagicMock(content=[MagicMock(text=json.dumps({"suggestions": IDEAS}))])
+    async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.extend(
+            p.content for m in messages for p in m.parts if isinstance(p, UserPromptPart)
+        )
+        return ModelResponse(parts=[TextPart(json.dumps({"suggestions": IDEAS}))])
 
-    client = MagicMock()
-    client.beta.messages.create = AsyncMock(side_effect=create)
-    return patch.object(main, "async_claude", client)
+    return discover.agent.override(model=FunctionModel(respond))
 
 
 async def test_refresh_builds_the_prompt_from_taste_signals_and_stores_six_cards(db):
