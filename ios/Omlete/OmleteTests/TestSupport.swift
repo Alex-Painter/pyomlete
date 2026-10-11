@@ -12,9 +12,10 @@ import Testing
 
     enum Reply {
         case status(Int, String = "{}")
+        /// There is no network: the request never leaves.
         case unreachable
-        /// The request went out and nothing came back.
-        case timedOut
+        /// The request left and nothing came back.
+        case lost
     }
 
     /// Requests in arrival order, without the `/categorize` lookups that adds fire on the side.
@@ -57,7 +58,7 @@ import Testing
         switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
-        case .timedOut:
+        case .lost:
             throw URLError(.timedOut)
         case .status(let status, let body):
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
@@ -101,7 +102,14 @@ import Testing
     let transport = ScriptedTransport()
     let storage = MemoryStorage()
     let ticker = Ticker()
+    /// The intake's wait between looks at a job, apart from Chef's so neither wakes the other.
+    let pulse = Ticker()
     private let defaults = UserDefaults(suiteName: "phone-\(UUID().uuidString)")!
+    nonisolated static let apiAddress = "http://phone.test"
+    /// The phone's clock, which a test puts forward.
+    var now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    /// Recipe jobs are keyed job1, job2, … in the order they were tapped.
+    private var jobsKeyed = 0
     private(set) var undo = UndoCenter()
     private(set) var library: Library!
     private(set) var chef: Chef!
@@ -119,15 +127,26 @@ import Testing
 
     var store: ListStore { library.list(Self.listID) }
 
-    func relaunch() {
+    /// A new process on the same phone. `comingToFront` is the scene becoming
+    /// active, which a launch ends in; without it the app has been made and nothing more.
+    func relaunch(against server: String = Phone.apiAddress, comingToFront: Bool = true) {
         undo = UndoCenter()
-        let api = APIClient(baseURL: URL(string: "http://phone.test")!, transport: transport)
+        // The intake that is replaced below was mid-wait, and that wait dies with its process.
+        pulse.tick()
+        let api = APIClient(baseURL: URL(string: server)!, transport: transport)
         library = Library(deps: StoreDependencies(
             api: api,
             disk: storage, undo: undo, connectivity: Connectivity(), retryDelay: nil))
         chef = Chef(deps: ChefDependencies(
             api: api, undo: undo, library: library, defaults: defaults, pause: { [ticker] _ in try await ticker.pause() }))
-        intake = RecipeIntake(library: library)
+        intake = RecipeIntake(deps: IntakeDependencies(
+            api: api, library: library, defaults: defaults, pause: { [pulse] in try await pulse.pause($0) },
+            now: { [unowned self] in now },
+            newKey: { [unowned self] in
+                jobsKeyed += 1
+                return RecipeJobID("job\(jobsKeyed)")
+            }))
+        if comingToFront { intake.resume() }
     }
 
     /// Scripts the server: the list GET returns the fixture, everything else 200,
@@ -145,13 +164,16 @@ import Testing
     }
 }
 
-/// Stands in for Chef's wait between polls: each poll waits here until the test calls `tick()`.
+/// Stands in for the wait between polls: each poll waits here until the test calls `tick()`.
 @MainActor final class Ticker {
     private var waiting: [CheckedContinuation<Void, Never>] = []
+    /// How long each wait was asked to be, in order.
+    private(set) var asked: [Duration] = []
 
     var isWaiting: Bool { !waiting.isEmpty }
 
-    func pause() async throws {
+    func pause(_ wanted: Duration = .zero) async throws {
+        asked.append(wanted)
         await withCheckedContinuation { waiting.append($0) }
     }
 

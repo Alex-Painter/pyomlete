@@ -20,6 +20,8 @@ nonisolated enum APIError: Error, Equatable, Sendable {
 
     var isNotFound: Bool { self == .rejected(404) }
 
+    var silence: Silence { self == .unreachable ? .noConnection : .serverTrouble }
+
     init?(status: Int) {
         switch status {
         case 200..<300: return nil
@@ -37,7 +39,8 @@ nonisolated protocol HTTPTransport: Sendable {
 /// Typed endpoints that return domain values and throw `APIError`. The JSON
 /// shapes live in `Wire`, so a server rename touches one file.
 nonisolated struct APIClient: Sendable {
-    private let baseURL: URL
+    /// Which server this is. A recipe job belongs to the server it was sent to.
+    let baseURL: URL
     private let transport: any HTTPTransport
 
     init(baseURL: URL, transport: any HTTPTransport) {
@@ -143,30 +146,54 @@ nonisolated struct APIClient: Sendable {
             "PATCH", "recipes/\(recipe.rawValue)/ingredients/\(index)/exclude", body: try Wire.encode(["excluded": !onList]))
     }
 
-    /// Asks a model, so it can take a minute or more. Never throws: a link
-    /// already imported is an outcome, and each failure is named for the kind
-    /// of request that met it. This is the one place an error body is read.
-    func createRecipe(_ request: RecipeRequest) async -> RecipeCreation {
-        let answer: (status: Int, data: Data)
+    /// Sends a job's start, which the server answers at once and is safe to
+    /// send again: the key in the path is the job. Never throws.
+    func startRecipe(_ request: RecipeRequest, as job: RecipeJob) async -> RecipeStart {
         do {
-            let upload = try Wire.creation(request)
-            answer = try await transmit(
-                "POST", upload.path, body: upload.body, contentType: upload.contentType, patience: .slow)
-        } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
-            // It was sent, and the server may well finish it.
-            return .failed(.noAnswer)
+            let upload = try Wire.jobStart(request, key: job.key)
+            let answer = try await transmit("PUT", upload.path, body: upload.body, contentType: upload.contentType)
+            switch answer.status {
+            case 200..<300: return .taken
+            case 429: return .refused(.busy)
+            case 408, 500...: return .unanswered(.serverTrouble)
+            default: return .refused(.other)
+            }
         } catch is APIError {
-            return .failed(.other)
+            return .refused(.other)
+        } catch let error as URLError where Self.neverLeft.contains(error.code) {
+            return .notSent
         } catch {
-            return .failed(.unreachable)
+            return .unanswered(.noConnection)
         }
-        switch (answer.status, request.kind) {
-        case (200..<300, _): return (try? Wire.createdRecipe(answer.data)).map { .saved($0) } ?? .failed(.other)
-        case (409, .link): return Wire.alreadyImported(answer.data).map { .alreadySaved($0) } ?? .failed(.other)
-        case (400, .link): return .failed(.linkBlocked)
-        case (404, .link): return .failed(.noRecipeOnPage)
-        case (502, .link): return .failed(.siteDidNotRespond)
-        default: return .failed(.other)
+    }
+
+    /// Failures that happen before a request can reach a server, so it cannot
+    /// have been acted on. A timeout or a dropped connection is not one of them.
+    private static let neverLeft: Set<URLError.Code> = [
+        .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .dataNotAllowed,
+        .internationalRoamingOff,
+    ]
+
+    /// Asks how a job stands. Never throws, and only a clear answer is a
+    /// verdict: a fault or a body this build cannot read is `.unanswered`. A
+    /// saved job's recipe is fetched here, so `.finished(.saved)` carries it.
+    func checkRecipe(_ job: RecipeJob) async -> RecipeJobCheck {
+        let answer: Wire.JobAnswer
+        do throws(APIError) {
+            answer = try decode(Wire.jobAnswer, from: try await call("GET", "recipe-jobs/\(job.key.rawValue)"))
+        } catch {
+            return error.isNotFound ? .unknown : .unanswered(error.silence)
+        }
+        switch answer {
+        case .working: return .working
+        case .alreadySaved(let id): return .finished(.alreadySaved(id))
+        case .failed(let failure): return .finished(.failed(failure))
+        case .saved(let id):
+            do throws(APIError) {
+                return .finished(.saved(try await recipe(id)))
+            } catch {
+                return error.isNotFound ? .recipeGone : .unanswered(error.silence)
+            }
         }
     }
 
@@ -226,9 +253,10 @@ nonisolated struct APIClient: Sendable {
     }
 
     /// `exchange` with the transport's own error left as it is, for the one
-    /// caller that tells a request never sent from one never answered.
+    /// caller that tells a request that never left from one never answered.
     private func transmit(
-        _ method: String, _ path: String, body: Data?, contentType: String, patience: Patience
+        _ method: String, _ path: String, body: Data? = nil, contentType: String = Wire.json,
+        patience: Patience = .quick
     ) async throws -> (status: Int, data: Data) {
         guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw APIError.rejected(400) }
         var request = URLRequest(url: url)
