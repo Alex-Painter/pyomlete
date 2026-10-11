@@ -27,6 +27,7 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ActionSheet } from '@/components/BottomSheet'
+import { BackLink } from '@/components/BackLink'
 import { ErrorState } from '@/components/ErrorState'
 import { ItemSheet } from '@/components/ItemSheet'
 import { ListRow } from '@/components/ListRow'
@@ -105,7 +106,7 @@ function PlanPage() {
   if (error || !list) {
     return (
       <main className="mx-auto min-h-screen max-w-5xl bg-cream px-4">
-        <BackLink />
+        <BackButton />
         <ErrorState
           error={error}
           onRetry={() => void refetch()}
@@ -130,7 +131,7 @@ function PlanPage() {
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-line bg-cream/95 backdrop-blur safe-area-top sm:top-14">
         <div className="mx-auto flex max-w-5xl items-center gap-2 px-2 py-2 sm:px-6">
-          <BackLink />
+          <BackButton />
           <button
             type="button"
             onClick={() => setSearch({ sheet: 'rename' })}
@@ -270,15 +271,15 @@ function PlanPage() {
   )
 }
 
-function BackLink() {
+function BackButton() {
   return (
-    <Link
+    <BackLink
       to="/"
-      aria-label="Back to lists"
+      aria-label="Back"
       className="flex size-11 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-sand hover:text-ink"
     >
       <ArrowLeft className="size-5" />
-    </Link>
+    </BackLink>
   )
 }
 

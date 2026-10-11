@@ -17,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ActionSheet } from '@/components/BottomSheet'
 import { AddToListButton } from '@/components/AddToListButton'
+import { BackLink } from '@/components/BackLink'
 import { ErrorState } from '@/components/ErrorState'
 import { StarRating } from '@/components/StarRating'
 import { RecipeHeroImage, RecipeMetaRow } from '@/components/RecipeMetaRow'
@@ -137,13 +138,13 @@ function RecipeDetailPage() {
     <main className="min-h-screen bg-cream pb-24 text-ink">
       <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6 sm:py-8">
         <div className="mb-4 flex items-center justify-between">
-          <Link
+          <BackLink
             to="/recipes"
             className="-ml-2 flex min-h-[44px] items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-ink-soft hover:bg-sand hover:text-ink"
           >
             <ArrowLeft className="size-4" />
-            Recipes
-          </Link>
+            Back
+          </BackLink>
           {recipe && !editing && (
             <button
               type="button"
