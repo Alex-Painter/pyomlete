@@ -53,6 +53,7 @@ Preconditions:
 
 ## Gotchas
 
+- **Edit from a copy saved on the phone.** Open a recipe once, `$V api stop`, `$V relaunch`, open it again, `$V tap recipe.moreMenu`, `$V tap recipe.editAction`: the tap's `NN-tap.json` holds `Couldn't reach Omlete. Editing a recipe needs a connection.` and no `recipeEditor.` id. After `$V api start`, the same two taps open the editor.
 - The grid's own empty state ("No recipes yet", `recipes.addRecipeButton`, `recipes.browseDiscoverButton`) needs a library with no recipes. Delete the four fixtures through the API (`curl -X DELETE http://127.0.0.1:8765/api/recipes/<id>`), then pull the grid down or `$V relaunch`.
 - The Sort menu's items exist only while the menu is open.
 - An ingredient row's toggle is labelled `<name>: on shopping lists` or `<name>: not on shopping lists`; the visible text is "On list" or "Not on list". Its id is `recipe.onList.<n>`, where `n` is the ingredient's position in the recipe, counted from 0 across all groups.

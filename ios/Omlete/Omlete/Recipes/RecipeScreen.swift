@@ -14,6 +14,8 @@ struct RecipeScreen: View {
 
     /// The edit in progress, which is what puts the editor up.
     @State private var editing: RecipeDraft?
+    /// Edit was tapped and the recipe store is being asked what it may start from.
+    @State private var isStartingEdit = false
     /// The banner offering a discarded edit back is up.
     @State private var discardOffered = false
 
@@ -43,6 +45,9 @@ struct RecipeScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .undoBanner(isCovered: navigation.immersive != nil)
         .task { await store.load() }
+        .task(id: isStartingEdit) {
+            if isStartingEdit { await startEdit(in: store) }
+        }
     }
 
     private func page(_ recipe: Recipe, in store: CookStore) -> some View {
@@ -87,9 +92,8 @@ struct RecipeScreen: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu("More actions", systemImage: "ellipsis") {
-                    Button("Edit recipe", systemImage: "pencil") { editing = RecipeDraft(recipe) }
-                        // A save replaces the whole recipe, so an edit starts only from this launch's copy of it.
-                        .disabled(!store.hasServerCopy)
+                    Button("Edit recipe", systemImage: "pencil") { isStartingEdit = true }
+                        .disabled(isStartingEdit)
                         .accessibilityIdentifier("recipe.editAction")
                     Button("Delete recipe", systemImage: "trash", role: .destructive) {
                         library.deleteRecipe(recipe.id, title: recipe.title)
@@ -114,6 +118,25 @@ struct RecipeScreen: View {
         // The Undo reopens the editor on this page, so it must not outlive it.
         .onDisappear {
             if discardOffered { undo.commitNow() }
+        }
+    }
+
+    /// Runs under `.task(id:)`, so asking the server ends with the page. The
+    /// refusal is news that may arrive seconds after the tap, so it waits
+    /// its turn behind a banner that still offers Undo.
+    private func startEdit(in store: CookStore) async {
+        defer { isStartingEdit = false }
+        let start = await store.recipeToEdit()
+        guard !Task.isCancelled else { return }
+        switch start {
+        case .ready(let recipe):
+            editing = RecipeDraft(recipe)
+        case .gone:
+            break
+        case .unavailable(.unreachable):
+            undo.inform("Couldn't reach Omlete. Editing a recipe needs a connection.")
+        case .unavailable:
+            undo.inform("Couldn't load this recipe to edit. Try again.")
         }
     }
 

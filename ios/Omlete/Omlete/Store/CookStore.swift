@@ -19,6 +19,14 @@ enum RecipePage: Equatable {
     case gone
 }
 
+/// Whether an edit may start, and from what.
+enum EditStart: Equatable {
+    case ready(Recipe)
+    /// Deleted on the server. The page says so itself.
+    case gone
+    case unavailable(APIError)
+}
+
 /// The rating as shown: the unsent tap if there is one, else the server's.
 struct RatingView: Equatable {
     enum Status: Equatable {
@@ -142,6 +150,17 @@ struct RatingView: Equatable {
         }
     }
 
+    /// What Edit recipe may begin from. A save replaces the whole recipe, so
+    /// an edit starts only from a copy the server gave this launch, never
+    /// from the one saved on the phone: if there is none yet the server is
+    /// asked, and if it cannot be had the edit does not start.
+    func recipeToEdit() async -> EditStart {
+        let failure = latest == nil ? await fetch(reportingFailure: false) : nil
+        if deletedOnServer { return .gone }
+        if let latest { return .ready(latest) }
+        return .unavailable(failure ?? .unreachable)
+    }
+
     /// Sends an edit and takes the server's answer as the recipe: the page
     /// shows it at once, a cook adopts it per `CookSession.adopt`, so one
     /// under way keeps the recipe it started with, and the library is told.
@@ -248,16 +267,20 @@ struct RatingView: Equatable {
         }
     }
 
-    private func fetch(reportingFailure: Bool) async {
+    /// Returns why the server's copy could not be had, if it could not.
+    @discardableResult
+    private func fetch(reportingFailure: Bool) async -> APIError? {
         do {
             let asked = saves
             let fresh = try await deps.api.recipe(id)
             // Asked for before an edit was saved: it is the recipe as it was, and would put it back.
-            guard asked == saves else { return }
+            guard asked == saves else { return nil }
             take(fresh)
+            return nil
         } catch {
             if error.isNotFound { deletedOnServer = true }
             if record == nil, reportingFailure { fetchFailure = error }
+            return error
         }
     }
 
