@@ -98,6 +98,9 @@ export function newId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+/** The op `sendDue` is sending. It can no longer change or be cancelled. */
+let inFlight: string | null = null
+
 export function enqueue(op: NewOp): string {
   const queued = { ...op, opId: newId() } as QueuedOp
   let queue = readQueue()
@@ -120,12 +123,12 @@ export function enqueue(op: NewOp): string {
           ((o.kind === 'patch' && o.itemId === queued.itemId) ||
             (o.kind === 'add' && o.item.id === queued.itemId)),
       )
-    if (target?.kind === 'patch') {
+    if (target?.kind === 'patch' && target.opId !== inFlight) {
       target.updates = { ...target.updates, ...queued.updates }
       writeQueue(queue)
       return target.opId
     }
-    if (target?.kind === 'add') {
+    if (target?.kind === 'add' && target.opId !== inFlight) {
       target.item = { ...target.item, ...queued.updates }
       writeQueue(queue)
       return target.opId
@@ -136,7 +139,12 @@ export function enqueue(op: NewOp): string {
   // into the list's latest op, so a removal queued in between keeps its order.
   if (queued.kind === 'setDay') {
     const target = queue.filter((o) => o.listId === queued.listId).at(-1)
-    if (target?.kind === 'setDay' && target.date === queued.date && !target.notBefore) {
+    if (
+      target?.kind === 'setDay' &&
+      target.date === queued.date &&
+      !target.notBefore &&
+      target.opId !== inFlight
+    ) {
       target.recipeId = queued.recipeId
       target.status = queued.status
       writeQueue(queue)
@@ -160,6 +168,7 @@ export function pendingRemoval(listId: string, recipeId: string): QueuedOp | und
       o.kind === 'removeRecipe' &&
       o.listId === listId &&
       o.recipeId === recipeId &&
+      o.opId !== inFlight &&
       o.notBefore != null &&
       o.notBefore > now,
   )
@@ -260,10 +269,13 @@ async function sendDue(keepalive: boolean): Promise<number> {
     const op = nextDue(readQueue(), Date.now())
     if (!op) break
     let res: Response
+    inFlight = op.opId
     try {
       res = await send(op, keepalive)
     } catch {
       break // offline: try again later
+    } finally {
+      inFlight = null
     }
     if (res.status >= 500) break
     // 2xx, or a 4xx that retrying can't fix (the item or list is gone).

@@ -242,6 +242,47 @@ describe('send order', () => {
     expect(sent()).toEqual(['PATCH /api/lists/M/items/a'])
     expect(pendingOpsFor('L').map((o) => o.kind)).toEqual(['removeRecipe', 'setDay'])
   })
+
+  describe('while an op is being sent', () => {
+    let release: () => void = () => {}
+
+    beforeEach(() => {
+      fetchMock.mockImplementation(async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return new Response('{}', { status: 200 })
+      })
+    })
+
+    const bodies = () => fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))
+
+    it('a second write to the same day is sent after it, not folded into it', async () => {
+      enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'A', status: 'open' })
+      const flushing = flushQueue()
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'B', status: 'open' })
+      release()
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+      release()
+      await flushing
+      expect(bodies().map((b) => b.recipe_id)).toEqual(['A', 'B'])
+      expect(readQueue()).toEqual([])
+    })
+
+    it('a second patch of the same item is sent after it, not folded into it', async () => {
+      enqueue({ kind: 'patch', listId: 'L', itemId: 'a', updates: { checked: true } })
+      const flushing = flushQueue()
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      enqueue({ kind: 'patch', listId: 'L', itemId: 'a', updates: { checked: false } })
+      release()
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+      release()
+      await flushing
+      expect(bodies()).toEqual([{ checked: true }, { checked: false }])
+      expect(readQueue()).toEqual([])
+    })
+  })
 })
 
 function offlineFetch(fetchMock: ReturnType<typeof vi.fn<typeof fetch>>) {
