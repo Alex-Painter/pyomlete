@@ -154,7 +154,7 @@ struct PlanScreen: View {
             }
         }
         .sheet(isPresented: $isAddingMeals) {
-            MealsSheet(list: list, store: store)
+            MealsSheet(list: list)
         }
         .sheet(isPresented: $isRenaming) {
             RenameListSheet(name: list.name) { store.rename($0) }
