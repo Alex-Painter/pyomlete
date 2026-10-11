@@ -67,6 +67,19 @@ import Testing
         #expect(shown == ["c", "b", "a"])
     }
 
+    @Test func theCardsOnScreenAreTheFeedInServerOrderWithoutThoseHiddenForUndo() async {
+        server.cards = [card("a"), card("b", "saving", section: "For this week"), card("c", "failed")]
+        await chef.load()
+        #expect(chef.visible.map(\.id) == ["a", "b", "c"])
+        #expect(chef.visible.map(\.stage) == [.fresh, .saving, .failed])
+
+        chef.dismiss("a")
+        #expect(chef.visible.map(\.id) == ["b", "c"])
+
+        phone.undo.undoTapped()
+        #expect(chef.visible.map(\.id) == ["a", "b", "c"])
+    }
+
     @Test func anEmptyFeedAndAFeedThatNeverLoadedAreToldApart() async {
         await chef.load()
         #expect(chef.feed == .empty)

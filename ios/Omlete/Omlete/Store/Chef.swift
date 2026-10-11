@@ -60,7 +60,8 @@ struct ChefDependencies {
         return loadFailure.map { .unavailable($0) } ?? .loading
     }
 
-    private var visible: [Suggestion] {
+    /// The cards on screen, newest first: what `feed` shelves and the meal picker picks from.
+    var visible: [Suggestion] {
         cards.filter { !hidden.contains($0.id) }
     }
 

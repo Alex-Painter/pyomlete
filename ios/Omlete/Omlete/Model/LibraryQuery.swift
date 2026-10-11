@@ -43,10 +43,7 @@ nonisolated struct LibraryQuery: Equatable, Sendable {
     /// `recipes` arrive newest first, which is what `.newest` keeps. Every
     /// other sort keeps that order among equals.
     func apply(to recipes: [RecipeSummary]) -> [RecipeSummary] {
-        let needle = search.trimmed.lowercased()
-        let shown = recipes.filter { recipe in
-            (needle.isEmpty || recipe.title.lowercased().contains(needle)) && (filter?.admits(recipe) ?? true)
-        }
+        let shown = recipes.filter { $0.title.matches(search: search) && (filter?.admits($0) ?? true) }
         let ordered: (RecipeSummary, RecipeSummary) -> ComparisonResult = switch sort {
         case .newest: { _, _ in .orderedSame }
         case .topRated: { compare($1.rating ?? 0, $0.rating ?? 0) }
