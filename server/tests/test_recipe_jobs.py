@@ -64,7 +64,7 @@ def jobs():
     # The cap's own state, so a test that dies mid-start cannot shrink the cap for the next.
     main._recipe_jobs_starting.clear()
     main._recipe_job_tasks.clear()
-    with patch.multiple(main, RecipeJobDocument=FakeJobDocument, RECIPE_JOB_WRITE_PAUSES=(0, 0, 0)):
+    with patch.multiple(main, RecipeJobDocument=FakeJobDocument, END_WRITE_PAUSES=(0, 0, 0)):
         yield FakeJobDocument.store
 
 
@@ -476,8 +476,8 @@ class TestHowAJobEndsIsWritten:
         assert refusals == [f"Recipe job {KEY} ended saved (recipe {RECIPE_ID}) and that could not be written"] * 2
 
     async def test_a_write_that_hangs_is_given_up_on_and_tried_again(self, api, jobs, monkeypatch):
-        monkeypatch.setattr(main, "RECIPE_JOB_WRITE_TIMEOUT", 0.01)
-        monkeypatch.setattr(main, "RECIPE_JOB_WRITE_PAUSES", (0, 0, 0))
+        monkeypatch.setattr(main, "END_WRITE_TIMEOUT", 0.01)
+        monkeypatch.setattr(main, "END_WRITE_PAUSES", (0, 0, 0))
         FakeJobDocument.hanging_saves = 1
 
         with a_model():
@@ -486,7 +486,7 @@ class TestHowAJobEndsIsWritten:
         assert (job["status"], job["recipe_id"]) == ("saved", RECIPE_ID)
 
     async def test_a_write_that_never_lands_leaves_the_job_working_for_the_stale_rule(self, api, jobs):
-        FakeJobDocument.failing_saves = len(main.RECIPE_JOB_WRITE_PAUSES)
+        FakeJobDocument.failing_saves = len(main.END_WRITE_PAUSES)
 
         with a_model():
             job = await finished(api, await describe(api))
@@ -498,7 +498,7 @@ class TestHowAJobEndsIsWritten:
         FakeJobDocument.failing_saves = 2
         limit = timedelta(seconds=0.05)
 
-        with a_model(RECIPE_JOB_TIME_LIMIT=limit, RECIPE_JOB_WRITE_PAUSES=(0.05,) * 3):
+        with a_model(BACKGROUND_WORK_TIME_LIMIT=limit, END_WRITE_PAUSES=(0.05,) * 3):
             job = await finished(api, await describe(api))
 
         assert job["status"] == "saved"
@@ -569,11 +569,11 @@ class TestReadingAJob:
         job = FakeJobDocument(id=KEY, kind="describe")
         jobs[KEY] = job
 
-        job.created_at = datetime.now(timezone.utc) - main.RECIPE_JOB_STALE_AFTER * 0.9
+        job.created_at = datetime.now(timezone.utc) - main.BACKGROUND_WORK_STALE_AFTER * 0.9
         fresh = (await api.get(f"/api/recipe-jobs/{job.id}")).json()
         # As Mongo returns it: the same instant with its zone dropped.
         job.created_at = (
-            datetime.now(timezone.utc) - main.RECIPE_JOB_STALE_AFTER * 1.1
+            datetime.now(timezone.utc) - main.BACKGROUND_WORK_STALE_AFTER * 1.1
         ).replace(tzinfo=None)
         stale = (await api.get(f"/api/recipe-jobs/{job.id}")).json()
 
@@ -582,7 +582,7 @@ class TestReadingAJob:
         # Decided when read, not written: a task that does finish still has the last word.
         assert jobs[job.id].status == "working"
 
-    async def test_a_job_that_runs_past_the_time_limit_is_cancelled_and_fails(self, api):
+    async def test_a_job_that_runs_past_the_time_limit_is_cancelled_and_fails(self, api, caplog):
         cancelled = asyncio.Event()
 
         async def never_answers(*_args, **_kwargs):
@@ -598,10 +598,19 @@ class TestReadingAJob:
         with a_model(
             async_claude=claude,
             _save_recipe=save,
-            RECIPE_JOB_TIME_LIMIT=main.RECIPE_JOB_TIME_LIMIT * 0,
-        ):
+            BACKGROUND_WORK_TIME_LIMIT=main.BACKGROUND_WORK_TIME_LIMIT * 0,
+        ), caplog.at_level(logging.WARNING, logger="main"):
             job = await finished(api, await describe(api))
 
         assert (job["status"], job["failure"]) == ("failed", "other")
         assert cancelled.is_set()
+        assert [r.getMessage() for r in caplog.records] == [f"Recipe job {KEY} ran past its time limit"]
         save.assert_not_called()
+
+    async def test_a_timeout_inside_the_making_is_logged_as_that_making_s_failure(self, api, caplog):
+        with a_model(TimeoutError("the model did not answer")), caplog.at_level(logging.WARNING, logger="main"):
+            job = await finished(api, await describe(api))
+
+        assert (job["status"], job["failure"]) == ("failed", "other")
+        assert [(r.levelname, r.getMessage()) for r in caplog.records] == [("ERROR", f"Recipe job {KEY} failed")]
+        assert "the model did not answer" in caplog.text
