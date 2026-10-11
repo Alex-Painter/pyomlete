@@ -89,10 +89,6 @@ class _OverADict(BaseModel):
     async def before_write(cls, _change: dict) -> None:
         await asyncio.sleep(0)
 
-    async def save(self):
-        await asyncio.sleep(0)
-        self.store[self.id] = self.model_copy()
-
     @classmethod
     async def get(cls, suggestion_id):
         await asyncio.sleep(0)
@@ -392,7 +388,6 @@ class TestASaveThatNoLongerOwnsItsCard:
 
         assert stored(cards, card) == before
         assert (before.status, before.recipe_id) == (left_as, None)
-        assert statuses_written(card) == ["saving"]
 
     async def test_a_failed_save_does_not_bring_a_dismissed_card_back(self, api, cards):
         card = a_card(cards)

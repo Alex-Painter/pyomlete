@@ -1233,8 +1233,9 @@ async def clear_suggestions(body: SuggestionsClearRequest):
 @router.patch("/suggestions/{suggestion_id}")
 async def update_suggestion(suggestion_id: PydanticObjectId, body: SuggestionStatusUpdate):
     s = await _get_suggestion(suggestion_id)
+    # Only the status: writing the whole card back would undo a save that started or ended since the read.
+    await SuggestionDocument.find_one({"_id": s.id}).update({"$set": {"status": body.status}})
     s.status = body.status
-    await s.save()
     return _suggestion_out(s)
 
 
