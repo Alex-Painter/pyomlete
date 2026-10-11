@@ -210,9 +210,11 @@ class CategoriesUpdateRequest(BaseModel):
         kept = []
         for category in categories:
             name = category.name.strip()
-            if not name or name.lower() in seen:
+            # casefold, not lower: "Straße" and "STRASSE" are one name.
+            folded = name.casefold()
+            if not name or folded in seen:
                 continue
-            seen.add(name.lower())
+            seen.add(folded)
             kept.append(CategoryConfigRequest(name=name, order=category.order))
         return kept
 

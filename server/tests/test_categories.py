@@ -69,6 +69,12 @@ async def test_a_name_repeated_in_any_case_keeps_its_first_place(api, settings):
     assert [(c.name, c.order) for c in settings.categories] == [("Bakery", 0), ("Dairy", 1), ("Frozen", 4)]
 
 
+async def test_a_repeat_that_only_casefolding_finds_is_dropped(api, settings):
+    await put(api, numbered("Straße", "STRASSE", "Frozen"))
+
+    assert [c.name for c in settings.categories] == ["Straße", "Frozen"]
+
+
 async def test_a_list_with_nothing_left_is_stored_empty(api, settings):
     answer = await put(api, numbered(" "))
 
