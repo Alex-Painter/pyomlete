@@ -60,13 +60,19 @@ struct HomeScreen: View {
             }
         }
         .refreshable { await refresh() }
-        .task { await refresh() }
+        .task { await appear() }
         .sheet(item: $renaming) { row in
             RenameListSheet(name: row.name) { library.list(row.id).rename($0) }
         }
     }
 
     /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.
+    private func appear() async {
+        async let ideas: Void = chef.loadIfNeeded()
+        await library.refresh()
+        await ideas
+    }
+
     private func refresh() async {
         async let ideas: Bool = chef.load()
         await library.refresh()

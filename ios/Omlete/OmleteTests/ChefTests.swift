@@ -629,6 +629,21 @@ import Testing
         #expect(shown == ["b"])
     }
 
+    @Test func aScreenThatOnlyShowsTheFeedAsksOnceAndAgainOnlyAfterAFailure() async {
+        phone.serverIsUnreachable()
+        await chef.loadIfNeeded()
+        #expect(calls(getFeed) == 1)
+
+        serverAnswers()
+        server.cards = [card("a")]
+        await chef.loadIfNeeded()
+        #expect(calls(getFeed) == 2)
+        #expect(shown == ["a"])
+
+        await chef.loadIfNeeded()
+        #expect(calls(getFeed) == 2)
+    }
+
     @Test func clearingPicksWhenNoneIsFreshSaysNothing() async {
         server.cards = [card("c", "saved", recipe: "r"), card("d", "failed")]
         await chef.load()

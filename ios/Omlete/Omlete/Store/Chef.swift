@@ -109,6 +109,13 @@ struct ChefDependencies {
         return await task.value
     }
 
+    /// For a screen that only shows the feed. Chef reloads after every change
+    /// it makes and the app reloads on coming to the front, so a feed that has
+    /// loaded is not asked for again each time the screen appears.
+    func loadIfNeeded() async {
+        if !hasLoaded { await load() }
+    }
+
     /// Asks for a new batch of cards, which takes a model a while. `tuned`
     /// replaces the remembered settings first. Ignored while one is running.
     func findIdeas(tuned: TuneSettings? = nil) {
