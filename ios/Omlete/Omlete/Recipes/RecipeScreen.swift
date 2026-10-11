@@ -77,6 +77,7 @@ struct RecipeScreen: View {
             }
         }
         .contentMargins(.bottom, 72, for: .scrollContent)
+        .accessibilityIdentifier("recipe.page")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu("More actions", systemImage: "ellipsis") {

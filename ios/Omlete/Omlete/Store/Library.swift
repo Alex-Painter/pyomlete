@@ -143,10 +143,14 @@ struct CookShelf: Equatable {
     }
 
     func newList() async throws(APIError) -> ListID {
+        try await startList().id
+    }
+
+    private func startList() async throws(APIError) -> ListSummary {
         let created = try await deps.api.createList()
         index.summaries.insert(created, at: 0)
         save()
-        return created.id
+        return created
     }
 
     func duplicate(_ id: ListID) async throws(APIError) -> ListID {
@@ -186,8 +190,8 @@ struct CookShelf: Equatable {
         }
         if let existing { return ListRef(id: existing.id, name: existing.name) }
         if case .list = target { throw .rejected(404) }
-        let id = try await newList()
-        return ListRef(id: id, name: rows.first { $0.id == id }?.name ?? "")
+        let created = try await startList()
+        return ListRef(id: created.id, name: created.name)
     }
 
     /// Puts a recipe on a list and says so in the banner, with Undo. Never

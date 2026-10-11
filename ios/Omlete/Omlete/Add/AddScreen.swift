@@ -29,6 +29,7 @@ struct AddScreen: View {
             }
             .padding(16)
         }
+        .accessibilityIdentifier("add.form")
         .scrollDismissesKeyboard(.interactively)
         .contentMargins(.bottom, 72, for: .scrollContent)
         .background(Color(.systemGroupedBackground))

@@ -31,6 +31,7 @@ struct DiscoverScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 8)
         }
+        .accessibilityIdentifier("discover.feed")
         .overlay {
             if !chef.isFindingIdeas { stateMessage(for: feed) }
         }
@@ -76,17 +77,7 @@ struct DiscoverScreen: View {
                     .accessibilityIdentifier("discover.emptyGetIdeasButton")
             }
         case .unavailable(let failure):
-            ContentUnavailableView {
-                Label(
-                    failure == .unreachable ? "Couldn't reach Omlete. Check your connection." : "Something went wrong loading this.",
-                    systemImage: failure == .unreachable ? "wifi.slash" : "exclamationmark.circle")
-                    .font(.headline)
-            } actions: {
-                Button("Try again") {
-                    Task { await chef.load() }
-                }
-                .accessibilityIdentifier("discover.retryButton")
-            }
+            LoadFailure(failure: failure, retryIdentifier: "discover.retryButton") { await chef.load() }
         }
     }
 }
@@ -112,6 +103,7 @@ private struct ShelfRow: View {
             }
             .scrollTargetBehavior(.viewAligned)
             .scrollIndicators(.hidden)
+            .accessibilityIdentifier("discover.shelf.\(shelf.section.rawValue)")
         }
     }
 }

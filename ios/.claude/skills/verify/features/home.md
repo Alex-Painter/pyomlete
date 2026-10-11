@@ -11,7 +11,7 @@ The first screen: the meals on the list you last opened, one tap from cooking, t
 
 ## How to get to it (user POV)
 
-- Open the app. From Plan, tap the back button (`BackButton`).
+- Open the app. From another tab, tap Home in the tab bar (`tab.home`). From Plan, tap the back button (`BackButton`).
 
 ## Driving it with omlete-ios-verify
 

@@ -2,7 +2,7 @@ import Foundation
 
 /// Discover's shelves, in the order they are shown. A card whose section the
 /// app does not know goes under "More ideas".
-nonisolated enum DiscoverSection: CaseIterable, Sendable {
+nonisolated enum DiscoverSection: String, CaseIterable, Sendable {
     case thisWeek, under30, somethingNew, moreIdeas
 
     var title: String {

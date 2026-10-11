@@ -30,6 +30,7 @@ struct RecipeLibraryScreen: View {
                 .padding(.vertical, 8)
             }
         }
+        .accessibilityIdentifier("recipes.grid")
         .overlay {
             if recipes.isEmpty {
                 emptyState
@@ -122,17 +123,7 @@ struct RecipeLibraryScreen: View {
                     .accessibilityIdentifier("recipes.browseDiscoverButton")
             }
         } else if let failure = library.loadFailure {
-            ContentUnavailableView {
-                Label(
-                    failure == .unreachable ? "Couldn't reach Omlete. Check your connection." : "Something went wrong loading this.",
-                    systemImage: failure == .unreachable ? "wifi.slash" : "exclamationmark.circle")
-                    .font(.headline)
-            } actions: {
-                Button("Try again") {
-                    Task { await library.refresh() }
-                }
-                .accessibilityIdentifier("recipes.retryButton")
-            }
+            LoadFailure(failure: failure, retryIdentifier: "recipes.retryButton") { await library.refresh() }
         } else {
             ProgressView()
         }
