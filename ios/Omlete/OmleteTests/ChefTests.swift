@@ -321,10 +321,48 @@ import Testing
         #expect(shown == ["c", "d"])
     }
 
-    @Test func aFeedThatFailsToLoadGivesHomeNoPicks() async {
+    @Test func aRefreshThatFailsKeepsThePicksHomeAlreadyHad() async {
+        server.cards = [card("a")]
+        await chef.load()
+        #expect(chef.hasAnswered)
+
         phone.serverIsUnreachable()
         await chef.load()
 
+        #expect(chef.picks.shown.map(\.id) == ["a"])
+    }
+
+    @Test func aFeedThatNeverLoadedHasAnsweredOnceItHasFailed() async {
+        #expect(!chef.hasAnswered)
+        phone.serverIsUnreachable()
+        await chef.load()
+
+        #expect(chef.hasAnswered)
+        #expect(chef.picks.shown.isEmpty)
+    }
+
+    @Test func aFeedAskedForBeforeAClearWasSentDoesNotBringTheCardsBack() async {
+        server.cards = [card("a"), card("b")]
+        await chef.load()
+        let stale = server.json
+        chef.clearPicks()
+        var feedsAsked = 0
+        serverAnswers { [server, getFeed] call in
+            if call.path == "/api/suggestions/clear" { server.cards = [] }
+            guard call == getFeed else { return nil }
+            feedsAsked += 1
+            return feedsAsked == 1 ? .status(200, stale) : nil
+        }
+        phone.transport.holding = true
+        Task { await chef.load() }
+        await eventually { calls(getFeed) == 2 }
+
+        phone.undo.commitNow()
+        await eventually { calls(Call(method: "POST", path: "/api/suggestions/clear")) == 1 }
+        phone.transport.release()
+
+        await eventually { calls(getFeed) == 3 }
+        await eventually { chef.feed == .empty }
         #expect(chef.picks.shown.isEmpty)
     }
 

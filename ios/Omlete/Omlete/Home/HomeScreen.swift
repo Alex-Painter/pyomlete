@@ -11,9 +11,9 @@ struct HomeScreen: View {
     @State private var actionFailure: APIError?
 
     var body: some View {
-        let rows = library.rows
-        // Not under the spinner or the failure message, which have the screen to themselves.
-        let picks = library.hasLoaded ? chef.picks.shown : []
+        let content = HomeContent(
+            lists: library.rows, listsLoaded: library.hasLoaded, loadFailure: library.loadFailure,
+            picks: chef.picks.shown, feedAnswered: chef.hasAnswered)
         List {
             if let actionFailure {
                 Label(message(for: actionFailure), systemImage: "exclamationmark.triangle")
@@ -23,30 +23,23 @@ struct HomeScreen: View {
             if let shelf = library.cookShelf {
                 cookSection(shelf)
             }
-            if !rows.isEmpty {
+            if case .sections(let lists, let picks) = content {
                 Section("Lists") {
-                    ForEach(rows) { row in
+                    if lists.isEmpty {
+                        Label("\(HomeContent.noListsTitle). \(HomeContent.noListsInvitation)", systemImage: "cart")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(lists) { row in
                         listRow(row)
                     }
                 }
-            } else if !picks.isEmpty {
-                // The overlay would cover the picks, so the invitation takes the lists' place instead.
-                Section("Lists") {
-                    Label(
-                        "No lists yet. Start one, add a few meals, and the ingredients collect themselves.",
-                        systemImage: "cart"
-                    )
-                    .foregroundStyle(.secondary)
+                if !picks.isEmpty {
+                    picksSection(picks)
                 }
-            }
-            if !picks.isEmpty {
-                picksSection(picks)
             }
         }
         .accessibilityIdentifier("home.list")
-        .overlay {
-            if rows.isEmpty, picks.isEmpty { emptyState }
-        }
+        .overlay { cover(for: content) }
         .contentMargins(.bottom, 72, for: .scrollContent)
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Home")
@@ -65,25 +58,28 @@ struct HomeScreen: View {
                 .accessibilityIdentifier("home.newListButton")
             }
         }
-        .refreshable {
-            async let ideas: Void = chef.load()
-            await library.refresh()
-            await ideas
-        }
-        .task { await library.refresh() }
-        // Home asks for the feed itself, so the picks do not wait for a visit to Discover.
-        .task { await chef.load() }
+        .refreshable { await refresh() }
+        .task { await refresh() }
         .sheet(item: $renaming) { row in
             RenameListSheet(name: row.name) { library.list(row.id).rename($0) }
         }
     }
 
-    @ViewBuilder private var emptyState: some View {
-        if library.hasLoaded {
+    /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.
+    private func refresh() async {
+        async let ideas: Void = chef.load()
+        await library.refresh()
+        await ideas
+    }
+
+    @ViewBuilder private func cover(for content: HomeContent) -> some View {
+        switch content {
+        case .sections:
+            EmptyView()
+        case .noLists:
             ContentUnavailableView(
-                "No lists yet", systemImage: "cart",
-                description: Text("Start one, add a few meals, and the ingredients collect themselves."))
-        } else if let failure = library.loadFailure {
+                HomeContent.noListsTitle, systemImage: "cart", description: Text(HomeContent.noListsInvitation))
+        case .unavailable(let failure):
             ContentUnavailableView {
                 Label(message(for: failure), systemImage: failure == .unreachable ? "wifi.slash" : "exclamationmark.circle")
                     .font(.headline)
@@ -93,7 +89,7 @@ struct HomeScreen: View {
                 }
                 .accessibilityIdentifier("home.retryButton")
             }
-        } else {
+        case .loading:
             ProgressView()
         }
     }
@@ -157,10 +153,15 @@ struct HomeScreen: View {
                         .accessibilityHidden(true)
                     Text("Chef's picks")
                 }
+                .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button("Clear") { chef.clearPicks() }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                     .accessibilityIdentifier("home.picks.clearButton")
                 Button("See all") { navigation.tab = .discover }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                     .accessibilityIdentifier("home.picks.seeAllButton")
             }
         }

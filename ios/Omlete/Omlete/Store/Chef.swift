@@ -141,6 +141,9 @@ struct ChefDependencies {
     }
 
     /// What Home shows of the feed, and what its Clear covers.
+    /// The feed has loaded, or tried and failed: there is nothing more to wait for.
+    var hasAnswered: Bool { hasLoaded || loadFailure != nil }
+
     var picks: ChefPicks {
         ChefPicks(cards: visible)
     }
@@ -174,7 +177,11 @@ struct ChefDependencies {
             self?.hidden.subtract(ids)
         }, commit: { [weak self] in
             Task {
-                if (try? await tell()) != nil { self?.forget(ids) }
+                guard (try? await tell()) != nil else { return }
+                // A feed asked for before the server was told still lists these cards, so they
+                // stay hidden until one asked for afterwards has been adopted.
+                await self?.reload()
+                self?.forget(ids)
             }
         })
     }
