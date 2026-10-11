@@ -100,6 +100,11 @@ import Testing
     /// The intake's wait between looks at a job, apart from Chef's so neither wakes the other.
     let pulse = Ticker()
     private let defaults = UserDefaults(suiteName: "phone-\(UUID().uuidString)")!
+    nonisolated static let apiAddress = "http://phone.test"
+    /// The phone's clock, which a test puts forward.
+    var now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    /// Recipe jobs are keyed job1, job2, … in the order they were tapped.
+    private var jobsKeyed = 0
     private(set) var undo = UndoCenter()
     private(set) var library: Library!
     private(set) var chef: Chef!
@@ -117,18 +122,26 @@ import Testing
 
     var store: ListStore { library.list(Self.listID) }
 
-    func relaunch() {
+    /// A new process on the same phone. `comingToFront` is the scene becoming
+    /// active, which a launch ends in; without it the app has been made and nothing more.
+    func relaunch(against server: String = Phone.apiAddress, comingToFront: Bool = true) {
         undo = UndoCenter()
         // The intake that is replaced below was mid-wait, and that wait dies with its process.
         pulse.tick()
-        let api = APIClient(baseURL: URL(string: "http://phone.test")!, transport: transport)
+        let api = APIClient(baseURL: URL(string: server)!, transport: transport)
         library = Library(deps: StoreDependencies(
             api: api,
             disk: storage, undo: undo, connectivity: Connectivity(), retryDelay: nil))
         chef = Chef(deps: ChefDependencies(
             api: api, undo: undo, library: library, defaults: defaults, pause: { [ticker] _ in try await ticker.pause() }))
         intake = RecipeIntake(deps: IntakeDependencies(
-            api: api, library: library, defaults: defaults, pause: { [pulse] in try await pulse.pause($0) }))
+            api: api, library: library, defaults: defaults, pause: { [pulse] in try await pulse.pause($0) },
+            now: { [unowned self] in now },
+            newKey: { [unowned self] in
+                jobsKeyed += 1
+                return RecipeJobID("job\(jobsKeyed)")
+            }))
+        if comingToFront { intake.resume() }
     }
 
     /// Scripts the server: the list GET returns the fixture, everything else 200,

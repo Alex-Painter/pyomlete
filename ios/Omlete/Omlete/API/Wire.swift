@@ -73,10 +73,6 @@ nonisolated enum Wire {
             }))
     }
 
-    static func startedJob(_ data: Data) throws -> RecipeJobID {
-        RecipeJobID(try JSONDecoder().decode(RecipeJobDTO.self, from: data).id)
-    }
-
     /// How the server says a job stands. A saved job names its recipe and does not carry it.
     enum JobAnswer: Equatable {
         case working
@@ -86,6 +82,7 @@ nonisolated enum Wire {
     }
 
     /// A status this build does not know, or one missing the recipe it promises, throws.
+    /// A failure it does not know is still a failure.
     static func jobAnswer(_ data: Data) throws -> JobAnswer {
         let dto = try JSONDecoder().decode(RecipeJobDTO.self, from: data)
         switch (dto.status, dto.recipe_id) {
@@ -146,12 +143,13 @@ nonisolated enum Wire {
     }
 
     /// The request that starts a job for each kind of recipe request.
-    static func jobStart(_ request: RecipeRequest) throws(APIError) -> Upload {
+    static func jobStart(_ request: RecipeRequest, key: RecipeJobID) throws(APIError) -> Upload {
+        let path = "recipe-jobs/\(key.rawValue)/\(request.kind.rawValue)"
         switch request {
         case .link(let url):
-            return Upload(path: "recipe-jobs/link", body: try encode(["url": url]), contentType: json)
+            return Upload(path: path, body: try encode(["url": url]), contentType: json)
         case .describe(let prompt):
-            return Upload(path: "recipe-jobs/describe", body: try encode(["prompt": prompt]), contentType: json)
+            return Upload(path: path, body: try encode(["prompt": prompt]), contentType: json)
         case .photos(let photos):
             let boundary = "omlete-\(UUID().uuidString)"
             var body = Data()
@@ -166,7 +164,7 @@ nonisolated enum Wire {
             }
             // The server reads every photo of a job as pages of one recipe.
             body.append(Data("--\(boundary)--\r\n".utf8))
-            return Upload(path: "recipe-jobs/photos", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
+            return Upload(path: path, body: body, contentType: "multipart/form-data; boundary=\(boundary)")
         }
     }
 
@@ -323,7 +321,6 @@ nonisolated private struct RecipeUpdateDTO: Encodable {
 }
 
 nonisolated private struct RecipeJobDTO: Decodable {
-    let id: String
     let status: String
     let recipe_id: String?
     let failure: String?

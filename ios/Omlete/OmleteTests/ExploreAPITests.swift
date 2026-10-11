@@ -96,37 +96,41 @@ import UniformTypeIdentifiers
         #expect(try await api.suggestions().first?.source == RecipeSource(name: "Somewhere", url: nil))
     }
 
-    private static let startedJSON = #"{"id":"job1","kind":"link","status":"working","recipe_id":null,"failure":null}"#
 
     nonisolated static func jobJSON(_ status: String, recipe: String? = nil, failure: String? = nil) -> String {
         let quoted = { (value: String?) in value.map { #""\#($0)""# } ?? "null" }
-        return #"{"id":"job1","kind":"link","status":"\#(status)","recipe_id":\#(quoted(recipe)),"failure":\#(quoted(failure))}"#
+        return #"{"key":"job1","kind":"link","status":"\#(status)","recipe_id":\#(quoted(recipe)),"failure":\#(quoted(failure))}"#
     }
 
-    @Test func aLinkStartsAJobAndTheAnswerIsItsId() async {
-        serverAnswers(202, Self.startedJSON)
+    private func job(_ kind: RecipeRequest.Kind = .link) -> RecipeJob {
+        RecipeJob(key: "job1", kind: kind, startedAt: Date(timeIntervalSinceReferenceDate: 0))
+    }
 
-        #expect(await api.startRecipe(.link("https://example.com/traybake")) == .started(RecipeJob(id: "job1", kind: .link)))
-        #expect(transport.calls == [Call(method: "POST", path: "/api/recipe-jobs/link")])
+    @Test func aLinkIsStartedUnderItsJobsKey() async {
+        serverAnswers(202, Self.jobJSON("working"))
+
+        #expect(await api.startRecipe(.link("https://example.com/traybake"), as: job()) == .taken)
+        #expect(transport.calls == [Call(method: "PUT", path: "/api/recipe-jobs/job1/link")])
         #expect(transport.bodies[0] as? [String: String] == ["url": "https://example.com/traybake"])
     }
 
-    @Test func aDescriptionStartsAJobFromItsPrompt() async {
-        serverAnswers(202, Self.startedJSON)
+    @Test func aDescriptionIsStartedFromItsPrompt() async {
+        serverAnswers(202, Self.jobJSON("working"))
 
-        #expect(await api.startRecipe(.describe("a traybake")) == .started(RecipeJob(id: "job1", kind: .describe)))
-        #expect(transport.calls == [Call(method: "POST", path: "/api/recipe-jobs/describe")])
+        #expect(await api.startRecipe(.describe("a traybake"), as: job(.describe)) == .taken)
+        #expect(transport.calls == [Call(method: "PUT", path: "/api/recipe-jobs/job1/describe")])
         #expect(transport.bodies[0] as? [String: String] == ["prompt": "a traybake"])
     }
 
-    @Test func photosStartAJobAsOneUploadOfEveryPage() async throws {
-        serverAnswers(202, Self.startedJSON)
+    @Test func photosAreStartedAsOneUploadOfEveryPage() async throws {
+        serverAnswers(202, Self.jobJSON("working"))
         let photos = [RecipePhoto(id: UUID(), jpeg: Data("first".utf8)), RecipePhoto(id: UUID(), jpeg: Data("second".utf8))]
 
-        #expect(await api.startRecipe(.photos(photos)) == .started(RecipeJob(id: "job1", kind: .photos)))
+        #expect(await api.startRecipe(.photos(photos), as: job(.photos)) == .taken)
 
         let request = try #require(transport.requests.first)
-        #expect(request.url?.path() == "/api/recipe-jobs/photos")
+        #expect(request.httpMethod == "PUT")
+        #expect(request.url?.path() == "/api/recipe-jobs/job1/photos")
         let contentType = try #require(request.value(forHTTPHeaderField: "Content-Type"))
         let boundary = try #require(contentType.split(separator: "boundary=").last)
         #expect(contentType.hasPrefix("multipart/form-data; boundary="))
@@ -140,17 +144,23 @@ import UniformTypeIdentifiers
         ].joined(separator: "\r\n"))
     }
 
-    @Test func startingWithNoSignalSaysOmleteCouldNotBeReached() async {
-        transport.reply = { _ in .unreachable }
-
-        #expect(await api.startRecipe(.describe("leek and potato soup")) == .failed(.unreachable))
-    }
-
-    @Test(arguments: [(500, "{}"), (422, "{}"), (404, "{}"), (202, "[]")])
-    func aStartTheServerRefusesOrAnswersUnreadablyOnlySaysSomethingWentWrong(status: Int, body: String) async {
+    /// 200 is a job the server already had, and what it says in the body is for the next look.
+    @Test(arguments: [(202, "{}"), (200, jobJSON("saved", recipe: "traybake")), (200, "[]")])
+    func anyAnswerThatTheServerHasTheJobIsTaken(status: Int, body: String) async {
         serverAnswers(status, body)
 
-        #expect(await api.startRecipe(.link("https://example.com/x")) == .failed(.other))
+        #expect(await api.startRecipe(.link("https://example.com/x"), as: job()) == .taken)
+    }
+
+    @Test(arguments: [
+        (nil, RecipeStart.unanswered(.noConnection)), (500, .unanswered(.serverTrouble)), (503, .unanswered(.serverTrouble)),
+        (408, .unanswered(.serverTrouble)), (429, .refused(.busy)), (413, .refused(.other)), (422, .refused(.other)),
+        (404, .refused(.other)),
+    ])
+    func onlyAnAnswerThatRefusesTheJobIsARefusal(status: Int?, expected: RecipeStart) async {
+        transport.reply = { _ in status.map { .status($0) } ?? .unreachable }
+
+        #expect(await api.startRecipe(.describe("leek and potato soup"), as: job(.describe)) == expected)
     }
 
     @Test(arguments: [
@@ -162,15 +172,15 @@ import UniformTypeIdentifiers
         (jobJSON("failed", failure: "other"), .finished(.failed(.other))),
         (jobJSON("failed", failure: "from_the_future"), .finished(.failed(.other))),
         (jobJSON("failed"), .finished(.failed(.other))),
-        (jobJSON("simmering"), .finished(.failed(.other))),
-        (jobJSON("saved"), .finished(.failed(.other))),
-        (jobJSON("already_imported"), .finished(.failed(.other))),
-        ("[]", .finished(.failed(.other))),
+        (jobJSON("simmering"), .unanswered(.serverTrouble)),
+        (jobJSON("saved"), .unanswered(.serverTrouble)),
+        (jobJSON("already_imported"), .unanswered(.serverTrouble)),
+        ("[]", .unanswered(.serverTrouble)),
     ])
-    func aLookAtAJobReadsHowItStands(body: String, expected: RecipeJobCheck) async {
+    func aLookAtAJobReadsHowItStandsAndWhatItCannotReadIsNoAnswer(body: String, expected: RecipeJobCheck) async {
         serverAnswers(200, body)
 
-        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == expected)
+        #expect(await api.checkRecipe(job()) == expected)
         #expect(transport.calls == [Call(method: "GET", path: "/api/recipe-jobs/job1")])
     }
 
@@ -179,7 +189,7 @@ import UniformTypeIdentifiers
             call.path == "/api/recipes/traybake" ? .status(200, Self.traybakeJSON) : .status(200, Self.jobJSON("saved", recipe: "traybake"))
         }
 
-        guard case .finished(.saved(let recipe)) = await api.checkRecipe(RecipeJob(id: "job1", kind: .describe)) else {
+        guard case .finished(.saved(let recipe)) = await api.checkRecipe(job(.describe)) else {
             Issue.record("not saved")
             return
         }
@@ -189,28 +199,37 @@ import UniformTypeIdentifiers
         ])
     }
 
-    @Test(arguments: [nil, 500, 503, 429])
-    func aLookThatCouldNotBeAnsweredSaysNothingAboutTheJob(status: Int?) async {
+    @Test(arguments: [
+        (nil, Silence.noConnection), (500, .serverTrouble), (503, .serverTrouble), (429, .serverTrouble), (422, .serverTrouble),
+    ])
+    func aLookThatCouldNotBeAnsweredSaysNothingAboutTheJobAndSaysWhy(status: Int?, why: Silence) async {
         transport.reply = { _ in status.map { .status($0) } ?? .unreachable }
 
-        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == .unanswered)
+        #expect(await api.checkRecipe(job()) == .unanswered(why))
     }
 
-    @Test func aSavedJobWhoseRecipeCannotBeFetchedYetIsAskedAgain() async {
+    @Test(arguments: [(nil, Silence.noConnection), (500, .serverTrouble), (200, .serverTrouble)])
+    func aSavedJobWhoseRecipeCannotBeFetchedOrReadIsAskedAgain(status: Int?, why: Silence) async {
         transport.reply = { call in
-            call.path == "/api/recipes/traybake" ? .unreachable : .status(200, Self.jobJSON("saved", recipe: "traybake"))
+            guard call.path == "/api/recipes/traybake" else { return .status(200, Self.jobJSON("saved", recipe: "traybake")) }
+            return status.map { .status($0, "[]") } ?? .unreachable
         }
 
-        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == .unanswered)
+        #expect(await api.checkRecipe(job()) == .unanswered(why))
     }
 
-    @Test(arguments: ["/api/recipe-jobs/job1", "/api/recipes/traybake"])
-    func aJobOrItsRecipeThatIsGoneHasFailed(missing: String) async {
+    @Test func aKeyTheServerWasNeverSentIsUnknownWhichIsNotAFailure() async {
+        serverAnswers(404, #"{"detail":"Recipe job not found"}"#)
+
+        #expect(await api.checkRecipe(job()) == .unknown)
+    }
+
+    @Test func aSavedJobWhoseRecipeHasBeenDeletedSaysSo() async {
         transport.reply = { call in
-            call.path == missing ? .status(404) : .status(200, Self.jobJSON("saved", recipe: "traybake"))
+            call.path == "/api/recipes/traybake" ? .status(404) : .status(200, Self.jobJSON("saved", recipe: "traybake"))
         }
 
-        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == .finished(.failed(.other)))
+        #expect(await api.checkRecipe(job()) == .recipeGone)
     }
 
     @Test func onlyFindingIdeasWaitsOnAModelAndIsGivenLonger() async throws {
@@ -219,8 +238,8 @@ import UniformTypeIdentifiers
         _ = try await api.lists()
         _ = try await api.suggestions()
         try await api.findIdeas(TuneSettings())
-        _ = await api.startRecipe(.describe("soup of the day"))
-        _ = await api.checkRecipe(RecipeJob(id: "job1", kind: .describe))
+        _ = await api.startRecipe(.describe("soup of the day"), as: job(.describe))
+        _ = await api.checkRecipe(job(.describe))
 
         let standard = URLRequest(url: URL(string: "http://phone.test")!).timeoutInterval
         #expect(transport.requests.map(\.timeoutInterval) == [standard, standard, 180, standard, standard])

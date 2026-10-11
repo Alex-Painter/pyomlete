@@ -20,6 +20,8 @@ nonisolated enum APIError: Error, Equatable, Sendable {
 
     var isNotFound: Bool { self == .rejected(404) }
 
+    var silence: Silence { self == .unreachable ? .noConnection : .serverTrouble }
+
     init?(status: Int) {
         switch status {
         case 200..<300: return nil
@@ -37,7 +39,8 @@ nonisolated protocol HTTPTransport: Sendable {
 /// Typed endpoints that return domain values and throw `APIError`. The JSON
 /// shapes live in `Wire`, so a server rename touches one file.
 nonisolated struct APIClient: Sendable {
-    private let baseURL: URL
+    /// Which server this is. A recipe job belongs to the server it was sent to.
+    let baseURL: URL
     private let transport: any HTTPTransport
 
     init(baseURL: URL, transport: any HTTPTransport) {
@@ -143,34 +146,43 @@ nonisolated struct APIClient: Sendable {
             "PATCH", "recipes/\(recipe.rawValue)/ingredients/\(index)/exclude", body: try Wire.encode(["excluded": !onList]))
     }
 
-    /// Hands the request to the server, which answers at once and makes the
-    /// recipe in its own time. Never throws: not reaching the server is the
-    /// one failure the user can do something about, and it is named here.
-    func startRecipe(_ request: RecipeRequest) async -> RecipeStart {
+    /// Sends a job's start, which the server answers at once and is safe to
+    /// send again: the key in the path is the job. Never throws.
+    func startRecipe(_ request: RecipeRequest, as job: RecipeJob) async -> RecipeStart {
         do throws(APIError) {
-            let upload = try Wire.jobStart(request)
-            let answer = try await exchange("POST", upload.path, body: upload.body, contentType: upload.contentType)
-            if let failure = APIError(status: answer.status) { throw failure }
-            return .started(RecipeJob(id: try decode(Wire.startedJob, from: answer.data), kind: request.kind))
+            let upload = try Wire.jobStart(request, key: job.key)
+            let answer = try await exchange("PUT", upload.path, body: upload.body, contentType: upload.contentType)
+            switch answer.status {
+            case 200..<300: return .taken
+            case 429: return .refused(.busy)
+            case 408, 500...: return .unanswered(.serverTrouble)
+            default: return .refused(.other)
+            }
         } catch {
-            return .failed(error == .unreachable ? .unreachable : .other)
+            return error == .unreachable ? .unanswered(.noConnection) : .refused(.other)
         }
     }
 
-    /// Asks how a job stands. Never throws: an answer that could not be had
-    /// is `.unanswered`, which is for asking again, and a job the server no
-    /// longer knows has failed. A saved job's recipe is fetched here, so
-    /// `.finished(.saved)` always carries it.
+    /// Asks how a job stands. Never throws, and only a clear answer is a
+    /// verdict: a fault or a body this build cannot read is `.unanswered`. A
+    /// saved job's recipe is fetched here, so `.finished(.saved)` carries it.
     func checkRecipe(_ job: RecipeJob) async -> RecipeJobCheck {
+        let answer: Wire.JobAnswer
         do throws(APIError) {
-            switch try decode(Wire.jobAnswer, from: try await call("GET", "recipe-jobs/\(job.id.rawValue)")) {
-            case .working: return .working
-            case .saved(let id): return .finished(.saved(try await recipe(id)))
-            case .alreadySaved(let id): return .finished(.alreadySaved(id))
-            case .failed(let failure): return .finished(.failed(failure))
-            }
+            answer = try decode(Wire.jobAnswer, from: try await call("GET", "recipe-jobs/\(job.key.rawValue)"))
         } catch {
-            return error.isRetryable ? .unanswered : .finished(.failed(.other))
+            return error.isNotFound ? .unknown : .unanswered(error.silence)
+        }
+        switch answer {
+        case .working: return .working
+        case .alreadySaved(let id): return .finished(.alreadySaved(id))
+        case .failed(let failure): return .finished(.failed(failure))
+        case .saved(let id):
+            do throws(APIError) {
+                return .finished(.saved(try await recipe(id)))
+            } catch {
+                return error.isNotFound ? .recipeGone : .unanswered(error.silence)
+            }
         }
     }
 

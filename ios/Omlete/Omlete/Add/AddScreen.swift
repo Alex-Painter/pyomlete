@@ -137,14 +137,17 @@ struct AddScreen: View {
         switch intake.phase {
         case .editing:
             EmptyView()
-        case .starting(let kind):
-            WorkingLine(kind: kind)
         case .working(let job, .inTouch):
             WorkingLine(kind: job.kind)
-        case .working(_, .waitingForConnection):
+        case .working(_, .lost(.noConnection)):
             notice(systemImage: "wifi.slash", tint: .secondary) {
                 Text("Waiting for a connection. Your recipe will show here once Omlete can be reached.")
                     .accessibilityIdentifier("add.waiting")
+            }
+        case .working(_, .lost(.serverTrouble)):
+            notice(systemImage: "exclamationmark.icloud", tint: .secondary) {
+                Text("Omlete is having trouble. Your recipe will show here once it answers.")
+                    .accessibilityIdentifier("add.serverTrouble")
             }
         case .finished(.alreadySaved(let id)):
             notice(systemImage: "info.circle", tint: .secondary) {

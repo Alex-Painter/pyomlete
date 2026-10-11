@@ -192,39 +192,70 @@ import Testing
     }
 }
 
-/// The life of one tap on Add a recipe: a job started on the server, asked
-/// after until it ends, and picked up again by a phone that was away.
+/// The life of one tap on Add a recipe: a job keyed and saved on the phone,
+/// sent until the server has it, asked after until it ends, and picked up
+/// again by a phone that was away.
 @MainActor struct RecipeIntakeTests {
     private typealias Call = ScriptedTransport.Call
     private let phone = Phone()
     private let server = JobServer()
-    private let startLink = Call(method: "POST", path: "/api/recipe-jobs/link")
+    private let startLink = Call(method: "PUT", path: "/api/recipe-jobs/job1/link")
     private let askAfter = Call(method: "GET", path: "/api/recipe-jobs/job1")
     private let fetchRecipe = Call(method: "GET", path: "/api/recipes/traybake")
-    private let job = RecipeJob(id: "job1", kind: .link)
+    private let refreshLibrary = Call(method: "GET", path: "/api/recipes/")
 
-    /// What the scripted server says about the job. A test changes it between polls.
+    /// A server that keeps jobs by key, as the real one does: a start for a
+    /// key it has makes nothing, and a key it was never sent is not found.
     @MainActor final class JobServer {
-        var start = ScriptedTransport.Reply.status(202, #"{"id":"job1","kind":"link","status":"working","recipe_id":null,"failure":null}"#)
+        enum Start {
+            case taken
+            /// The job is made and the phone never hears.
+            case takenButTheAnswerIsLost
+            case neverArrives
+            case answers(Int)
+        }
+
+        var start = Start.taken
+        /// What is said about a job the server has.
         var job = ScriptedTransport.Reply.status(200, RecipeIntakeTests.working)
+        var recipe = ScriptedTransport.Reply.status(200, ExploreAPITests.traybakeJSON)
+        /// One entry for each job made, so a key twice here is a recipe paid for twice.
+        private(set) var made: [String] = []
+
+        func answer(_ call: ScriptedTransport.Call) -> ScriptedTransport.Reply? {
+            let path = call.path.split(separator: "/").map(String.init)
+            guard path.starts(with: ["api", "recipe-jobs"]), path.count > 2 else { return nil }
+            let key = path[2]
+            switch (call.method, start) {
+            case ("GET", _): return made.contains(key) ? job : .status(404, #"{"detail":"Recipe job not found"}"#)
+            case (_, .neverArrives): return .unreachable
+            case (_, .answers(let status)): return .status(status)
+            case (_, .taken), (_, .takenButTheAnswerIsLost):
+                let isNew = !made.contains(key)
+                if isNew { made.append(key) }
+                if case .takenButTheAnswerIsLost = start { return .unreachable }
+                return .status(isNew ? 202 : 200, RecipeIntakeTests.working)
+            }
+        }
     }
 
-    static let working = #"{"id":"job1","kind":"link","status":"working","recipe_id":null,"failure":null}"#
-    static let saved = #"{"id":"job1","kind":"link","status":"saved","recipe_id":"traybake","failure":null}"#
-    static let alreadySaved = #"{"id":"job1","kind":"link","status":"already_imported","recipe_id":"traybake","failure":null}"#
+    nonisolated static let working = ExploreAPITests.jobJSON("working")
+    static let saved = ExploreAPITests.jobJSON("saved", recipe: "traybake")
+    static let alreadySaved = ExploreAPITests.jobJSON("already_imported", recipe: "traybake")
 
     static func failed(_ failure: String) -> String {
-        #"{"id":"job1","kind":"link","status":"failed","recipe_id":null,"failure":"\#(failure)"}"#
+        ExploreAPITests.jobJSON("failed", failure: failure)
     }
 
     private var intake: RecipeIntake { phone.intake }
 
+    private var job: RecipeJob { RecipeJob(key: "job1", kind: .link, startedAt: phone.now) }
+
     init() {
         phone.serverAnswers { [server] call in
+            if let answer = server.answer(call) { return answer }
             switch (call.method, call.path) {
-            case ("POST", let path) where path.hasPrefix("/api/recipe-jobs/"): return server.start
-            case ("GET", "/api/recipe-jobs/job1"): return server.job
-            case ("GET", "/api/recipes/traybake"): return .status(200, ExploreAPITests.traybakeJSON)
+            case ("GET", "/api/recipes/traybake"): return server.recipe
             case ("GET", "/api/lists/"): return .status(200, Phone.listsJSON)
             case ("GET", "/api/recipes/"), ("GET", "/api/units"), ("GET", "/api/settings/categories"): return .status(200, "[]")
             default: return nil
@@ -236,18 +267,18 @@ import Testing
         phone.transport.calls.count(where: { $0 == call })
     }
 
-    /// Submits a link and waits until the first look at the job has been taken.
+    /// Submits a link and waits until the start has been taken and the job looked at once.
     private func startALinkJob() async {
         intake.edit("https://example.com/traybake")
         intake.submit()
         await eventually { phone.pulse.isWaiting }
     }
 
-    /// Lets the wait between looks end, and waits for the next look to be answered.
-    private func nextLook() async {
-        let looks = calls(askAfter)
+    /// Lets the wait between tries end, and waits for the next try to be answered.
+    private func nextTry() async {
+        let before = phone.transport.calls.count
         phone.pulse.tick()
-        await eventually { calls(askAfter) > looks && (phone.pulse.isWaiting || !intake.isWorking) }
+        await eventually { phone.transport.calls.count > before && (phone.pulse.isWaiting || !intake.isWorking) }
     }
 
     @Test func theButtonNamesWhatSubmittingWillDo() {
@@ -272,12 +303,28 @@ import Testing
         #expect(intake.photos.count == 1)
     }
 
+    @Test func aTapIsOnThePhoneUnderItsKeyBeforeAnythingIsAnswered() async {
+        phone.transport.holding = true
+        intake.edit("https://example.com/traybake")
+
+        intake.submit()
+        #expect(intake.phase == .working(job, .inTouch))
+
+        // Killed before the start was even sent: the next launch has the job
+        // all the same, and making the app sends nothing.
+        phone.relaunch(comingToFront: false)
+        #expect(intake.phase == .working(job, .inTouch))
+        #expect(intake.text == "https://example.com/traybake")
+        #expect(!intake.canSubmit)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(phone.transport.calls.isEmpty)
+    }
+
     @Test func oneTapStartsOneJobHoweverOftenItIsTapped() async {
         phone.transport.holding = true
         intake.edit("https://example.com/traybake")
 
         intake.submit()
-        #expect(intake.phase == .starting(.link))
         #expect(!intake.canSubmit)
         intake.submit()
         intake.edit("something else")
@@ -290,16 +337,17 @@ import Testing
         #expect(intake.text == "https://example.com/traybake")
         #expect(phone.transport.calls == [startLink, askAfter])
         #expect(phone.transport.bodies[0] as? [String: String] == ["url": "https://example.com/traybake"])
+        #expect(server.made == ["job1"])
     }
 
     @Test func aJobIsAskedAfterUntilItIsSavedAndTheRecipeJoinsTheLibraryFirst() async {
         await phone.library.refresh()
         await startALinkJob()
-        await nextLook()
+        await nextTry()
         #expect(intake.phase == .working(job, .inTouch))
 
         server.job = .status(200, Self.saved)
-        await nextLook()
+        await nextTry()
 
         guard case .finished(.saved(let recipe)) = intake.phase else { Issue.record("not saved"); return }
         #expect(recipe.title == "Traybake")
@@ -330,7 +378,7 @@ import Testing
         #expect(intake.phase == .editing)
     }
 
-    @Test func aJobThatFailsKeepsTheInputForAnotherTryWhichIsANewJob() async {
+    @Test func aJobThatFailsKeepsTheInputForAnotherTryWhichIsANewJobUnderANewKey() async {
         await phone.library.refresh()
         let before = phone.library.recipes
         server.job = .status(200, Self.failed("site_did_not_respond"))
@@ -345,26 +393,7 @@ import Testing
         #expect(intake.canSubmit)
 
         intake.submit()
-        await eventually { calls(startLink) == 2 }
-    }
-
-    @Test func aJobTheServerCallsStaleOrNoLongerKnowsEndsAsAFailureAndIsForgotten() async {
-        await startALinkJob()
-
-        // A job that lost its task to a restart is answered as failed once it is old enough.
-        server.job = .status(200, Self.failed("other"))
-        await nextLook()
-        #expect(intake.phase == .finished(.failed(.other)))
-
-        server.job = .status(200, Self.working)
-        intake.submit()
-        await eventually { phone.pulse.isWaiting }
-        server.job = .status(404, #"{"detail":"Recipe job not found"}"#)
-        await nextLook()
-        #expect(intake.phase == .finished(.failed(.other)))
-
-        phone.relaunch()
-        #expect(intake.phase == .editing)
+        await eventually { server.made == ["job1", "job2"] }
     }
 
     @Test func nothingIsSentWhilePickedPhotosAreStillArriving() {
@@ -381,48 +410,234 @@ import Testing
         #expect(intake.submitLabel == "Read 2 photos")
     }
 
-    @Test func aJobThatCouldNotBeStartedIsTheOnlyTimeOmleteCouldNotBeReached() async {
-        server.start = .unreachable
+    @Test func aStartThatIsNotAnsweredIsSentAgainUnderTheSameKeyUntilItIs() async {
+        server.start = .neverArrives
+        await startALinkJob()
+        #expect(intake.phase == .working(job, .inTouch))
+
+        await nextTry()
+        #expect(intake.phase == .working(job, .lost(.noConnection)))
+        #expect(phone.transport.calls == [startLink, startLink])
+        #expect(!intake.canSubmit)
+
+        server.start = .taken
+        await nextTry()
+
+        #expect(intake.phase == .working(job, .inTouch))
+        #expect(phone.transport.calls == [startLink, startLink, startLink, askAfter])
+        #expect(phone.pulse.asked == [.seconds(2), .seconds(4), .milliseconds(1500)])
+        #expect(server.made == ["job1"])
+    }
+
+    @Test func aStartWhoseAnswerWasLostIsSentAgainAndTheServerStillHasOneJob() async {
+        server.start = .takenButTheAnswerIsLost
+        await startALinkJob()
+
+        server.start = .taken
+        server.job = .status(200, Self.alreadySaved)
+        await nextTry()
+
+        #expect(intake.phase == .finished(.alreadySaved("traybake")))
+        #expect(phone.transport.calls == [startLink, startLink, askAfter])
+        #expect(server.made == ["job1"])
+    }
+
+    @Test(arguments: [(429, RecipeCreation.Failure.busy), (413, .other), (422, .other)])
+    func aStartTheServerRefusesIsTheOnlyStartThatFails(status: Int, failure: RecipeCreation.Failure) async {
+        server.start = .answers(status)
         intake.edit("leek and potato soup")
 
         intake.submit()
         await eventually { !intake.isWorking }
 
-        #expect(intake.phase == .finished(.failed(.unreachable)))
+        #expect(intake.phase == .finished(.failed(failure)))
         #expect(intake.text == "leek and potato soup")
-        #expect(phone.transport.calls == [Call(method: "POST", path: "/api/recipe-jobs/describe")])
+        #expect(intake.canSubmit)
+        #expect(phone.transport.calls == [Call(method: "PUT", path: "/api/recipe-jobs/job1/describe")])
 
         phone.relaunch()
         #expect(intake.phase == .editing)
     }
 
-    @Test func looksThatCannotReachTheServerKeepTheJobAndBackOffAndSaySoWhenItGoesOn() async {
-        server.job = .unreachable
+    @Test func aServerFaultOnTheStartIsNotARefusalAndSaysTheServerIsInTrouble() async {
+        server.start = .answers(503)
         await startALinkJob()
-        #expect(intake.phase == .working(job, .inTouch))
+        await nextTry()
 
-        await nextLook()
-        #expect(intake.phase == .working(job, .waitingForConnection))
-        await nextLook()
-        await nextLook()
-        #expect(intake.phase == .working(job, .waitingForConnection))
-        #expect(phone.pulse.asked == [.seconds(2), .seconds(4), .seconds(8), .seconds(15)])
+        #expect(intake.phase == .working(job, .lost(.serverTrouble)))
+        #expect(phone.transport.calls == [startLink, startLink])
+    }
+
+    @Test func pastTheStartWindowTheStartIsNoLongerSentAndAServerThatNeverGotItEndsTheJob() async {
+        server.start = .neverArrives
+        await startALinkJob()
+
+        phone.now += RecipeIntake.startWindow + 1
+        await nextTry()
+        // That send was already due. From here the job is only asked after.
+        server.start = .taken
+        await nextTry()
+
+        #expect(intake.phase == .finished(.failed(.unreachable)))
+        #expect(intake.text == "https://example.com/traybake")
+        #expect(phone.transport.calls == [startLink, startLink, askAfter])
+        #expect(server.made.isEmpty)
+    }
+
+    @Test func triesThatCannotReachTheServerKeepTheJobAndBackOffAndSaySoWhenItGoesOn() async {
+        await startALinkJob()
+        server.job = .unreachable
+
+        await nextTry()
+        #expect(intake.phase == .working(job, .inTouch))
+        await nextTry()
+        #expect(intake.phase == .working(job, .lost(.noConnection)))
+        await nextTry()
+        await nextTry()
+        #expect(phone.pulse.asked == [.milliseconds(1500), .seconds(2), .seconds(4), .seconds(8), .seconds(15)])
 
         server.job = .status(200, Self.working)
-        await nextLook()
+        await nextTry()
         #expect(intake.phase == .working(job, .inTouch))
         #expect(phone.pulse.asked.last == .milliseconds(1500))
 
         server.job = .status(200, Self.alreadySaved)
-        await nextLook()
+        await nextTry()
         #expect(intake.phase == .finished(.alreadySaved("traybake")))
         #expect(calls(startLink) == 1)
     }
 
-    @Test func theWaitBetweenLooksIsShortWhileAnsweredAndGrowsToACapWhileNot() {
+    @Test(arguments: [
+        ScriptedTransport.Reply.status(500), .status(503), .status(422), .status(200, "[]"),
+        .status(200, ExploreAPITests.jobJSON("simmering")), .status(200, ExploreAPITests.jobJSON("saved")),
+    ])
+    func anAnswerThatCannotBeReadDoesNotEndTheJobAndSaysTheServerIsInTrouble(answer: ScriptedTransport.Reply) async {
+        await startALinkJob()
+        server.job = answer
+
+        await nextTry()
+        await nextTry()
+        #expect(intake.phase == .working(job, .lost(.serverTrouble)))
+
+        server.job = .status(200, Self.failed("no_recipe_on_page"))
+        await nextTry()
+        #expect(intake.phase == .finished(.failed(.noRecipeOnPage)))
+        #expect(server.made == ["job1"])
+    }
+
+    @Test func aSavedJobWhoseRecipeCannotBeFetchedYetIsAskedAgainUntilItCan() async {
+        await startALinkJob()
+        server.job = .status(200, Self.saved)
+        server.recipe = .status(500)
+
+        await nextTry()
+        await nextTry()
+        #expect(intake.phase == .working(job, .lost(.serverTrouble)))
+
+        server.recipe = .status(200, ExploreAPITests.traybakeJSON)
+        await nextTry()
+        guard case .finished(.saved(let recipe)) = intake.phase else { Issue.record("not saved"); return }
+        #expect(recipe.id == "traybake")
+    }
+
+    @Test func aSavedJobWhoseRecipeHasSinceBeenDeletedEndsQuietlyOnAnEmptyForm() async {
+        await startALinkJob()
+        server.job = .status(200, Self.saved)
+        server.recipe = .status(404)
+
+        await nextTry()
+
+        #expect(intake.phase == .editing)
+        #expect(intake.text.isEmpty)
+        #expect(!intake.canSubmit)
+        await eventually { calls(refreshLibrary) == 1 }
+
+        phone.relaunch()
+        #expect(intake.phase == .editing)
+        #expect(calls(askAfter) == 2)
+    }
+
+    @Test(arguments: [ScriptedTransport.Reply.unreachable, .status(500), .status(200, RecipeIntakeTests.working)])
+    func aJobNothingEndsIsOverForThePhoneOnceNoJobCouldStillBeRunning(answer: ScriptedTransport.Reply) async {
+        await startALinkJob()
+        server.job = answer
+        await nextTry()
+
+        phone.now += RecipeIntake.giveUpAfter - 1
+        await nextTry()
+        #expect(intake.isWorking)
+
+        phone.now += 2
+        let asked = calls(askAfter)
+        phone.pulse.tick()
+        await eventually { !intake.isWorking }
+
+        #expect(intake.phase == .finished(.failed(.noAnswerInTime)))
+        #expect(intake.text == "https://example.com/traybake")
+        #expect(intake.canSubmit)
+        #expect(calls(askAfter) == asked)
+        // The recipe may have been saved by a server that could not say so.
+        await eventually { calls(refreshLibrary) == 1 }
+
+        phone.relaunch()
+        #expect(intake.phase == .editing)
+    }
+
+    @Test func aPhoneOpenedLongAfterItsJobWasStartedEndsItWithoutAsking() async {
+        await startALinkJob()
+
+        phone.now += RecipeIntake.giveUpAfter + 1
+        phone.relaunch()
+        await eventually { !intake.isWorking }
+
+        #expect(intake.phase == .finished(.failed(.noAnswerInTime)))
+        #expect(intake.text == "https://example.com/traybake")
+        #expect(phone.transport.calls.filter { $0.path.hasPrefix("/api/recipe-jobs/") } == [startLink, askAfter])
+    }
+
+    @Test func theLongestAJobIsKeptIsTheStartWindowPlusTheServersOwnLimit() {
+        #expect(RecipeIntake.startWindow == 120)
+        #expect(RecipeIntake.giveUpAfter == 480)
+    }
+
+    @Test func theWaitBetweenTriesIsShortWhileAnsweredAndGrowsToACapWhileNot() {
         #expect((0...6).map(RecipeIntake.wait(afterMisses:)) == [
             .milliseconds(1500), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(15), .seconds(15),
         ])
+    }
+
+    @Test func aPhoneKilledBeforeItsStartArrivedSendsItAgainUnderTheSameKeyAndFollowsTheOneJob() async {
+        server.start = .neverArrives
+        await startALinkJob()
+
+        server.start = .taken
+        phone.relaunch()
+        await eventually { calls(askAfter) == 1 && phone.pulse.isWaiting }
+        #expect(intake.phase == .working(job, .inTouch))
+        #expect(server.made.isEmpty)
+
+        server.job = .status(200, Self.failed("link_blocked"))
+        await nextTry()
+
+        #expect(intake.phase == .finished(.failed(.linkBlocked)))
+        #expect(phone.transport.calls == [startLink, askAfter, startLink, askAfter])
+        #expect(phone.transport.bodies[2] as? [String: String] == ["url": "https://example.com/traybake"])
+        #expect(server.made == ["job1"])
+    }
+
+    @Test func aPhoneKilledAfterItsStartArrivedAndBeforeTheAnswerFollowsTheJobAndSendsNothingMore() async {
+        server.start = .takenButTheAnswerIsLost
+        await startALinkJob()
+
+        phone.relaunch()
+        await eventually { calls(askAfter) == 1 && phone.pulse.isWaiting }
+        server.job = .status(200, Self.saved)
+        await nextTry()
+
+        guard case .finished(.saved(let recipe)) = intake.phase else { Issue.record("not saved"); return }
+        #expect(recipe.id == "traybake")
+        #expect(phone.transport.calls == [startLink, askAfter, askAfter, fetchRecipe])
+        #expect(server.made == ["job1"])
     }
 
     @Test func aPhoneRelaunchedWithAJobOutstandingShowsItWorkingAndReachesItsOutcomeWithoutStartingAgain() async {
@@ -436,7 +651,7 @@ import Testing
         await eventually { calls(askAfter) == 2 && phone.pulse.isWaiting }
 
         server.job = .status(200, Self.saved)
-        await nextLook()
+        await nextTry()
 
         guard case .finished(.saved(let recipe)) = intake.phase else { Issue.record("not saved"); return }
         #expect(recipe.id == "traybake")
@@ -455,31 +670,50 @@ import Testing
         server.job = .unreachable
         phone.relaunch()
         await eventually { calls(askAfter) == 2 && phone.pulse.isWaiting }
-        await nextLook()
-        #expect(intake.phase == .working(job, .waitingForConnection))
+        await nextTry()
+        #expect(intake.phase == .working(job, .lost(.noConnection)))
 
         server.job = .status(200, Self.failed("no_recipe_on_page"))
-        await nextLook()
+        await nextTry()
 
         #expect(intake.phase == .finished(.failed(.noRecipeOnPage)))
         #expect(intake.text == "https://example.com/traybake")
         #expect(calls(startLink) == 1)
     }
 
-    @Test func comingBackToTheAppAsksAtOnceAndOnlyOneTaskGoesOnAsking() async {
-        server.job = .unreachable
+    @Test func aJobSentToAnotherServerIsLeftAloneAndIsStillThereForItsOwn() async {
         await startALinkJob()
-        await nextLook()
-        #expect(intake.phase == .working(job, .waitingForConnection))
+        let sent = phone.transport.calls
 
-        server.job = .status(200, Self.working)
+        phone.relaunch(against: "http://another.test")
+        #expect(intake.phase == .editing)
+        #expect(intake.text.isEmpty)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(phone.transport.calls == sent)
+
+        phone.relaunch()
+        #expect(intake.phase == .working(job, .inTouch))
+    }
+
+    @Test func comingBackToTheAppAsksAtOnceStartsCountingMissesAgainAndOnlyOneTaskGoesOnAsking() async {
+        await startALinkJob()
+        server.job = .unreachable
+        await nextTry()
+        await nextTry()
+        await nextTry()
+        #expect(intake.phase == .working(job, .lost(.noConnection)))
+
         let looks = calls(askAfter)
         intake.resume()
-        await eventually { intake.phase == .working(job, .inTouch) }
-        #expect(calls(askAfter) == looks + 1)
+        #expect(intake.phase == .working(job, .inTouch))
+        await eventually { calls(askAfter) == looks + 1 && phone.pulse.isWaiting }
+        // One miss since coming back, not four.
+        #expect(intake.phase == .working(job, .inTouch))
+        #expect(phone.pulse.asked.last == .seconds(2))
 
         // The wait that `resume()` cut short ends here too, and its task must not ask again.
-        await nextLook()
+        server.job = .status(200, Self.working)
+        await nextTry()
         #expect(calls(askAfter) == looks + 2)
         #expect(calls(startLink) == 1)
     }
@@ -500,11 +734,62 @@ import Testing
         intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page".utf8)))
 
         intake.submit()
-        #expect(intake.phase == .starting(.photos))
+        #expect(intake.phase == .working(RecipeJob(key: "job1", kind: .photos, startedAt: phone.now), .inTouch))
         await eventually { !intake.isWorking }
 
-        #expect(phone.transport.calls == [Call(method: "POST", path: "/api/recipe-jobs/photos"), askAfter, fetchRecipe])
+        #expect(phone.transport.calls == [Call(method: "PUT", path: "/api/recipe-jobs/job1/photos"), askAfter, fetchRecipe])
         #expect(intake.photos.isEmpty)
+    }
+
+    @Test func photosWhoseStartWasNotAnsweredAreSentAgainWhileTheAppStillHoldsThem() async {
+        server.start = .neverArrives
+        intake.expectPhotos(1)
+        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page".utf8)))
+        intake.submit()
+        await eventually { phone.pulse.isWaiting }
+
+        server.start = .taken
+        intake.resume()
+        await eventually { calls(askAfter) == 1 && phone.pulse.isWaiting }
+        await nextTry()
+
+        let sendPhotos = Call(method: "PUT", path: "/api/recipe-jobs/job1/photos")
+        #expect(phone.transport.calls == [sendPhotos, askAfter, sendPhotos, askAfter])
+        let resent = String(decoding: phone.transport.requests[2].httpBody ?? Data(), as: UTF8.self)
+        #expect(resent.contains("Content-Type: image/jpeg\r\n\r\npage\r\n"))
+    }
+
+    @Test func photosThatNeverArrivedBeforeTheAppWasKilledCannotBeSentAgainAndTheScreenSaysSo() async {
+        server.start = .neverArrives
+        intake.expectPhotos(1)
+        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page".utf8)))
+        intake.submit()
+        await eventually { phone.pulse.isWaiting }
+
+        server.start = .taken
+        phone.relaunch()
+        await eventually { !intake.isWorking }
+
+        #expect(intake.phase == .finished(.failed(.photosNotSent)))
+        #expect(RecipeCreation.Failure.photosNotSent.message == "Your photos didn't reach Omlete before the app closed. Choose them again.")
+        #expect(phone.transport.calls == [Call(method: "PUT", path: "/api/recipe-jobs/job1/photos"), askAfter])
+        #expect(server.made.isEmpty)
+    }
+
+    @Test func photosThatDidArriveBeforeTheAppWasKilledAreFollowedToTheirRecipe() async {
+        server.start = .takenButTheAnswerIsLost
+        intake.expectPhotos(1)
+        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page".utf8)))
+        intake.submit()
+        await eventually { phone.pulse.isWaiting }
+
+        server.job = .status(200, Self.saved)
+        phone.relaunch()
+        await eventually { !intake.isWorking }
+
+        guard case .finished(.saved(let recipe)) = intake.phase else { Issue.record("not saved"); return }
+        #expect(recipe.id == "traybake")
+        #expect(server.made == ["job1"])
     }
 }
 
