@@ -287,6 +287,47 @@ import Testing
         #expect(phone.undo.banner == nil)
     }
 
+    @Test func clearingHomesPicksTidiesEveryFreshCardAndLeavesTheRest() async {
+        server.cards = [
+            card("a"), card("b", "saving"), card("c", "saved", recipe: "r"), card("d", "failed"),
+            card("e"), card("f"), card("g"),
+        ]
+        await chef.load()
+        let clear = Call(method: "POST", path: "/api/suggestions/clear")
+        #expect(chef.picks.shown.map(\.id) == ["a", "e", "f"])
+
+        chef.clearPicks()
+        #expect(chef.picks.shown.isEmpty)
+        #expect(shown == ["b", "c", "d"])
+        #expect(phone.undo.banner?.message == "Cleared 4 suggestions")
+
+        phone.undo.undoTapped()
+        #expect(chef.picks.shown.map(\.id) == ["a", "e", "f"])
+        #expect(calls(clear) == 0)
+
+        chef.clearPicks()
+        phone.undo.commitNow()
+        await eventually { calls(clear) == 1 }
+        #expect(body(of: clear)?["ids"] as? [String] == ["a", "e", "f", "g"])
+    }
+
+    @Test func clearingPicksWhenNoneIsFreshSaysNothing() async {
+        server.cards = [card("c", "saved", recipe: "r"), card("d", "failed")]
+        await chef.load()
+
+        chef.clearPicks()
+
+        #expect(phone.undo.banner == nil)
+        #expect(shown == ["c", "d"])
+    }
+
+    @Test func aFeedThatFailsToLoadGivesHomeNoPicks() async {
+        phone.serverIsUnreachable()
+        await chef.load()
+
+        #expect(chef.picks.shown.isEmpty)
+    }
+
     @Test func findingIdeasAsksOnceShowsItIsWorkingAndThenLoadsTheNewCards() async {
         await chef.load()
         let refresh = Call(method: "POST", path: "/api/suggestions/refresh")
