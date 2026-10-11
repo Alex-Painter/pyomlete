@@ -107,7 +107,6 @@ Chef is the proactive suggestions agent. Its job is the "more variety" half of t
 
 Not built yet; the current structure leaves room for each.
 
-- **Chef searches the web.** Replace the generate-only Refresh with an agent that finds real recipes online and posts cards with a `source_url` and `image_url`. Save then imports the real recipe, and the Discover and Home UI need no changes.
-- **Chef suggests whole lists**, not just meals, e.g. a week of dinners ready to shop for.
+- **Chef becomes a planner you can talk to.** A weekly week of dinners, a chat in its own tab that finds recipes on the web and edits lists with Undo, a memory of your taste, and iOS notifications. The decisions and phases are in [PRD_CHEF.md](PRD_CHEF.md).
 - **More Home sections** below Chef's picks: recent activity (lists and meals cooked lately) and stats (how often you cooked from scratch, how varied the week was). Home is a stack of sections, so these slot in without a redesign.
 - **iOS app.** The web UI uses patterns with native iOS equivalents (tab bar, large titles, bottom and action sheets, swipe actions), and components are written to map onto SwiftUI views.
