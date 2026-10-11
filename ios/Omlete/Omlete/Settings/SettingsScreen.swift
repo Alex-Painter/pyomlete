@@ -12,7 +12,7 @@ struct SettingsScreen: View {
 
     @State private var newName = ""
     /// Why the last name typed was not taken, until the next change.
-    @State private var refusal: String?
+    @State private var refusal: Refused?
     @State private var isLoading = false
 
     var body: some View {
@@ -22,13 +22,10 @@ struct SettingsScreen: View {
                 if !library.aislesLoaded {
                     waiting
                 }
-                if let refusal {
-                    Label(refusal, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("settings.refusal")
-                }
                 ForEach(order.names, id: \.self) { name in
-                    AisleRow(name: name) { rename(name, to: $0, in: order) } onDelete: {
+                    AisleRow(name: name, refusal: refusal?.message(at: name)) {
+                        rename(name, to: $0, in: order)
+                    } onDelete: {
                         refusal = nil
                         library.deleteAisle(name)
                     }
@@ -76,16 +73,19 @@ struct SettingsScreen: View {
     }
 
     private func newAisle(in order: AisleOrder) -> some View {
-        HStack {
-            TextField("New aisle, e.g. World foods", text: $newName)
-                .submitLabel(.done)
-                .onSubmit { add(to: order) }
-                .accessibilityIdentifier("settings.newAisleField")
-            Button("Add", systemImage: "plus") { add(to: order) }
-                .labelStyle(.titleAndIcon)
-                .buttonStyle(.borderless)
-                .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("settings.addAisleButton")
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                TextField("New aisle, e.g. World foods", text: $newName)
+                    .submitLabel(.done)
+                    .onSubmit { add(to: order) }
+                    .accessibilityIdentifier("settings.newAisleField")
+                Button("Add", systemImage: "plus") { add(to: order) }
+                    .labelStyle(.titleAndIcon)
+                    .buttonStyle(.borderless)
+                    .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("settings.addAisleButton")
+            }
+            RefusalText(message: refusal?.message(at: nil))
         }
     }
 
@@ -95,7 +95,7 @@ struct SettingsScreen: View {
             newName = ""
             refusal = nil
         } catch {
-            refusal = message(for: error)
+            refusal = Refused(error, at: nil)
         }
     }
 
@@ -104,14 +104,37 @@ struct SettingsScreen: View {
             library.setAisles(try order.renaming(name, to: typed))
             refusal = nil
         } catch {
-            refusal = message(for: error)
+            refusal = Refused(error, at: name)
         }
     }
+}
 
-    private func message(for refusal: AisleOrder.Refusal) -> String? {
-        switch refusal {
-        case .empty: nil
-        case .taken(let other): "There's already an aisle called \(other)."
+/// A name that was not taken, worded, and the row that says so: an aisle's, or nil for the new aisle's.
+private struct Refused {
+    let aisle: String?
+    let message: String
+
+    /// An empty name needs no words: the row goes back to the name it had.
+    init?(_ refusal: AisleOrder.Refusal, at aisle: String?) {
+        guard case .taken(let other) = refusal else { return nil }
+        self.aisle = aisle
+        message = "There's already an aisle called \(other)."
+    }
+
+    func message(at row: String?) -> String? {
+        row == aisle ? message : nil
+    }
+}
+
+private struct RefusalText: View {
+    let message: String?
+
+    var body: some View {
+        if let message {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("settings.refusal")
         }
     }
 }
@@ -120,14 +143,16 @@ struct SettingsScreen: View {
 /// A rename is offered when Return is pressed or the field is left.
 private struct AisleRow: View {
     let name: String
+    let refusal: String?
     let onRename: (String) -> Void
     let onDelete: () -> Void
 
     @State private var text: String
     @FocusState private var isFocused: Bool
 
-    init(name: String, onRename: @escaping (String) -> Void, onDelete: @escaping () -> Void) {
+    init(name: String, refusal: String?, onRename: @escaping (String) -> Void, onDelete: @escaping () -> Void) {
         self.name = name
+        self.refusal = refusal
         self.onRename = onRename
         self.onDelete = onDelete
         _text = State(initialValue: name)
@@ -135,16 +160,19 @@ private struct AisleRow: View {
 
     var body: some View {
         HStack {
-            TextField("Aisle name", text: $text)
-                .submitLabel(.done)
-                .focused($isFocused)
-                .onChange(of: isFocused) {
-                    guard !isFocused, text != name else { return }
-                    onRename(text)
-                    // A name that was taken shows in a new row; this one is the old name's.
-                    text = name
-                }
-                .accessibilityIdentifier("settings.aisle.\(name)")
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Aisle name", text: $text)
+                    .submitLabel(.done)
+                    .focused($isFocused)
+                    .onChange(of: isFocused) {
+                        guard !isFocused, text != name else { return }
+                        onRename(text)
+                        // A name that was accepted shows in a new row; this one is the old name's.
+                        text = name
+                    }
+                    .accessibilityIdentifier("settings.aisle.\(name)")
+                RefusalText(message: refusal)
+            }
             Button("Delete \(name)", systemImage: "minus.circle.fill", role: .destructive, action: onDelete)
                 .labelStyle(.iconOnly)
                 .tint(.red)

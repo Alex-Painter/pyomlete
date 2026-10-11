@@ -12,5 +12,7 @@ struct SettingsCog: ToolbarContent {
             Button("Settings", systemImage: "gearshape") { navigation.push(.settings, on: tab) }
                 .accessibilityIdentifier("\(tab).settingsButton")
         }
+        // Keeps the cog a button of its own beside a screen's leading action, such as Discover's Clear all.
+        ToolbarSpacer(.fixed, placement: .topBarLeading)
     }
 }
