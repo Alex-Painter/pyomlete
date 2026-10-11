@@ -44,6 +44,7 @@ struct RootView: View {
         .task { intake.resume() }
         .onChange(of: scenePhase) {
             if scenePhase == .active {
+                undo.appCameToFront()
                 library.syncAll()
                 kitchen.resume()
                 intake.resume()
@@ -51,8 +52,7 @@ struct RootView: View {
                 Task { await library.refresh() }
                 Task { await chef.load() }
             } else {
-                // Leaving the app settles the banner, as closing the page does on the web.
-                undo.commitNow()
+                undo.appLeftFront()
             }
         }
     }

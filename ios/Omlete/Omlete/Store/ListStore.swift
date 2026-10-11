@@ -49,6 +49,8 @@ struct StoreDependencies {
     private(set) var isGone = false
     private var fetchFailed = false
     private var serverUnreachable = false
+    /// Recipes on their way onto the list: asked for, and not yet answered and fetched.
+    private(set) var mealsBeingAdded: Set<RecipeID> = []
 
     @ObservationIgnored private let deps: StoreDependencies
     @ObservationIgnored private let aisleOrder: () -> [String]
@@ -149,10 +151,12 @@ struct StoreDependencies {
             deps.undo.undoTapped()
             return .added
         }
+        mealsBeingAdded.insert(recipe)
         let result = await withCheckedContinuation { done in
             mealRequests.append(MealRequest(recipe: recipe, done: done))
             sync(refresh: true)
         }
+        mealsBeingAdded.remove(recipe)
         return try result.get()
     }
 

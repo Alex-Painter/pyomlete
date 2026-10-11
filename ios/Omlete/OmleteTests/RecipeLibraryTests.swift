@@ -34,6 +34,27 @@ import Testing
         phone.transport.calls.count(where: { $0 == call })
     }
 
+    /// The meal picker shows recipes and nothing else the library loads.
+    @Test func refreshingTheRecipesAloneAsksForNothingElse() async {
+        serverAnswers()
+
+        await phone.library.refreshRecipes()
+
+        #expect(phone.transport.calls == [Call(method: "GET", path: "/api/recipes/")])
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Curry"])
+        #expect(phone.library.recipesLoaded)
+    }
+
+    @Test func aRecipesRefreshThatFailsKeepsTheRecipesAlreadyLoaded() async {
+        serverAnswers()
+        await phone.library.refresh()
+        phone.serverIsUnreachable()
+
+        await phone.library.refreshRecipes()
+
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Curry"])
+    }
+
     @Test func addingToTheCurrentListSaysSoAndTheListAndItsHomeRowShowTheMeal() async {
         var added = false
         serverAnswers { [addToWeek] call in

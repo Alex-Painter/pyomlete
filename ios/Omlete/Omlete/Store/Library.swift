@@ -152,6 +152,22 @@ private struct HeldAisle {
         refreshing = nil
     }
 
+    /// Loads the recipes alone, for a screen that shows nothing else of what
+    /// `refresh()` loads. Joins a full refresh if one is running.
+    func refreshRecipes() async {
+        if let refreshing { return await refreshing.value }
+        guard case .success(let recipes) = await result({ () async throws(APIError) in try await deps.api.recipes() })
+        else { return }
+        take(recipes)
+        save()
+    }
+
+    private func take(_ recipes: [RecipeSummary]) {
+        index.recipes = recipes
+        recipesLoaded = true
+        index.deletingRecipes.formIntersection(recipes.map(\.id))
+    }
+
     private func load() async {
         let aisleSavesBefore = aisleSaveEvents
         async let lists = result { () async throws(APIError) in try await deps.api.lists() }
@@ -172,11 +188,7 @@ private struct HeldAisle {
             index.aisleOrder = aisles
             aislesLoaded = true
         }
-        if case .success(let recipes) = await recipes {
-            index.recipes = recipes
-            recipesLoaded = true
-            index.deletingRecipes.formIntersection(recipes.map(\.id))
-        }
+        if case .success(let recipes) = await recipes { take(recipes) }
         if case .success(let units) = await units { index.units = units }
         save()
     }
