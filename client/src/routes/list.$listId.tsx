@@ -70,7 +70,10 @@ type PlanView = 'week' | 'list'
 /** Everything Plan shows that isn't the list itself. */
 type PlanState = {
   view: PlanView
-  /** null until someone taps a day: then today, or the first day to plan. */
+  /**
+   * null until the week loads, then today or the first day to plan, held so
+   * that planning or marking days Out doesn't move it.
+   */
   selected: ISODate | null
 }
 
@@ -130,6 +133,12 @@ function PlanPage() {
     }
   }, [listId, router])
 
+  const firstDay =
+    list && list.week_start != null && list.days.length > 0 ? defaultDay(list.days, today) : null
+  useEffect(() => {
+    if (state.selected == null && firstDay) dispatch({ kind: 'select', date: firstDay })
+  }, [state.selected, firstDay])
+
   const categoryNames = useMemo(() => (categories ?? []).map((c) => c.name), [categories])
   const recipesById = useMemo(() => new Map((recipes ?? []).map((r) => [r.id, r])), [recipes])
 
@@ -157,7 +166,7 @@ function PlanPage() {
   const days = list.days
   const isWeek = list.week_start != null && days.length > 0
   const selectedDay = isWeek
-    ? days.find((d) => d.date === (state.selected ?? defaultDay(days, today))) ?? days[0]
+    ? days.find((d) => d.date === (state.selected ?? firstDay)) ?? days[0]
     : null
 
   const meals = list.recipes
