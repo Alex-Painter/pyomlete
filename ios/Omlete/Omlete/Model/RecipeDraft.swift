@@ -32,7 +32,17 @@ nonisolated struct RecipeEdit: Equatable, Sendable {
             edit.ingredients[place].group = now.group
             edit.ingredients[place].isOnList = now.isOnList
         }
+        edit.groupAddedIngredients()
         return edit
+    }
+
+    /// An added ingredient joins the group of the one before it. Worked out
+    /// from the rows as saved, so a row removed or regrouped since the
+    /// ingredient was added cannot leave it alone under a heading.
+    fileprivate mutating func groupAddedIngredients() {
+        for place in ingredients.indices where origins.indices.contains(place) && origins[place] == nil {
+            ingredients[place].group = place > 0 ? ingredients[place - 1].group : nil
+        }
     }
 }
 
@@ -57,8 +67,6 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         /// The ingredient this row began as, nil for an added row. Its note,
         /// group and on-list flag are not editable here and are saved as they were.
         fileprivate let origin: Recipe.Ingredient?
-        /// The heading an added row is saved under. Unused when there is an `origin`.
-        fileprivate var addedTo: String?
         /// Where `origin` sits in the recipe.
         fileprivate let originIndex: Int?
     }
@@ -115,14 +123,14 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
     }
 
     /// A blank row at the end, on the fallback aisle and on shopping lists, as
-    /// the web adds it. Unlike the web it joins the last ingredient's group:
-    /// with none, the recipe page shows it alone under a heading of its own.
+    /// the web adds it. Unlike the web it is saved in the group of the
+    /// ingredient before it (`groupAddedIngredients`): with none, the recipe
+    /// page shows it alone under a heading of its own.
     @discardableResult
     mutating func addIngredient() -> RowID {
         lastID += 1
         ingredients.append(IngredientRow(
-            id: lastID, name: "", quantity: "", unit: "", aisle: ListLayout.fallbackAisle, origin: nil,
-            addedTo: ingredients.last?.group, originIndex: nil))
+            id: lastID, name: "", quantity: "", unit: "", aisle: ListLayout.fallbackAisle, origin: nil, originIndex: nil))
         return lastID
     }
 
@@ -140,13 +148,15 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         let kept = ingredients.filter { !$0.name.trimmed.isEmpty }
         let unreadable = kept.filter { $0.amount == .unreadable }.map(\.id)
         guard unreadable.isEmpty else { return .fix(quantities: unreadable) }
-        return .save(RecipeEdit(
+        var edit = RecipeEdit(
             title: title.oneLine.isEmpty ? original.title : title.oneLine,
             steps: steps.map(\.text.trimmed).filter { !$0.isEmpty },
             ingredients: kept.map(\.saved),
             origins: kept.map { row in
                 row.originIndex.flatMap { index in row.origin.map { RecipeEdit.Origin(index: index, name: $0.name) } }
-            }))
+            })
+        edit.groupAddedIngredients()
+        return .save(edit)
     }
 
     /// Whether saving would change the recipe. Compared as outcomes, so a
@@ -182,12 +192,8 @@ nonisolated extension RecipeDraft.IngredientRow {
         return .number(number)
     }
 
-    fileprivate var group: String? {
-        origin.map(\.group) ?? addedTo
-    }
-
     fileprivate var saved: Recipe.Ingredient {
-        var ingredient = origin ?? Recipe.Ingredient(name: "", group: addedTo)
+        var ingredient = origin ?? Recipe.Ingredient(name: "")
         ingredient.name = name.trimmed
         ingredient.amount = if case .number(let number) = amount { number } else { nil }
         ingredient.unit = unit.trimmed.isEmpty ? nil : unit.trimmed

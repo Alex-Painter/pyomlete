@@ -184,7 +184,7 @@ import Testing
     }
 
     /// The refresh's answer is the library from before the edit. Not fixed here: issue #75 has the design.
-    @Test func aRefreshAskedForBeforeAnEditWasSavedDoesNotPutTheOldTitleBack() async {
+    @Test func aRefreshAskedForBeforeAnEditWasSavedStillPutsTheOldTitleBack() async {
         serverAnswers()
         await phone.library.refresh()
         var edited = Recipe.fixture()
@@ -198,8 +198,11 @@ import Testing
         phone.transport.release()
         await refreshing
 
+        // Only the title is excused: anything else wrong with the library fails here.
+        #expect(phone.library.recipes.map(\.title).first == "Soup")
+        #expect(phone.library.recipes.count == 2)
         withKnownIssue("a refresh already out puts the old title back until the next one (#75)") {
-            #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
+            #expect(phone.library.recipes.last?.title == "Green curry")
         }
     }
 

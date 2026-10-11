@@ -196,6 +196,32 @@ struct RecipeDraftTests {
         #expect(edit(draft)?.ingredients.last?.group == "For the traybake")
     }
 
+    /// Added while the dressing was last, saved after it was removed: not alone under "For the dressing".
+    @Test func anIngredientAddedBeforeTheLastGroupWasRemovedJoinsTheOneNowLast() {
+        var grouped = traybake
+        grouped.ingredients.removeLast()
+        var draft = RecipeDraft(grouped)
+
+        draft.addIngredient()
+        draft.ingredients[3].name = "capers"
+        draft.ingredients.remove(at: 2)
+
+        #expect(edit(draft)?.ingredients.last?.group == "For the traybake")
+    }
+
+    /// The group is the recipe's as it is at save time, like the other fields the editor does not touch.
+    @Test func anAddedIngredientFollowsAGroupRenamedSinceTheEditorOpened() {
+        var grouped = traybake
+        grouped.ingredients.removeLast()
+        var draft = RecipeDraft(grouped)
+        draft.addIngredient()
+        draft.ingredients[3].name = "capers"
+        var now = grouped
+        now.ingredients[2].group = "For the sauce"
+
+        #expect(edit(draft)?.carryingUntouched(from: now).ingredients.suffix(2).map(\.group) == ["For the sauce", "For the sauce"])
+    }
+
     /// Cancel then Undo offers the draft back when this holds.
     @Test func aDraftIsStillBasedOnARecipeWhoseUneditableFieldsChanged() {
         var draft = RecipeDraft(traybake)

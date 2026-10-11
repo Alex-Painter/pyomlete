@@ -451,6 +451,12 @@ cmd_expect_id() {
 cmd_tap() {
   local usage="usage: omlete-ios-verify tap <accessibility id> [then <accessibility id>]..."
   [ $# -ge 1 ] && [ $(($# % 2)) -eq 1 ] || die "$usage"
+  # Checked before the first tap, so a mistyped call taps nothing.
+  local place=2
+  while [ $place -lt $# ]; do
+    [ "${!place}" = then ] || die "$usage"
+    place=$((place + 2))
+  done
   require_up
   local ref; ref="$(ref_for "$1")"
   act "tap $1" ui-automation tap --simulator-id "$UDID" --element-ref "$ref"

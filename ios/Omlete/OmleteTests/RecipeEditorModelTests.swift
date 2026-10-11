@@ -33,7 +33,7 @@ import Testing
     private func editor(_ change: (inout RecipeDraft) -> Void = { $0.title = "Green curry" }) async -> RecipeEditorModel {
         await stove.store.load()
         var draft = RecipeDraft(.fixture())
-        if case .ready(let recipe) = stove.store.page { draft = RecipeDraft(recipe) }
+        if case .ready(let recipe) = stove.store.page { draft = RecipeDraft(recipe) } else { Issue.record("the recipe did not load") }
         change(&draft)
         return RecipeEditorModel(draft: draft, store: stove.store)
     }
@@ -91,10 +91,11 @@ import Testing
         async let first: Void = model.save()
         await eventually { puts == 1 }
         #expect(model.phase == .saving)
-        async let second: Void = model.save()
+        // Awaited before the first is let go, so this tap is one made while saving.
+        await model.save()
+        #expect(model.phase == .saving)
         stove.transport.release()
         await first
-        await second
 
         #expect(model.phase == .finished)
         #expect(puts == 1)
