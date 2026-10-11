@@ -11,8 +11,9 @@ The full plan, with the data model, the tool list and a diagram, is the [Chef pl
 | Grow Chef rather than add a second assistant | One named character for "the app suggests things" is already a decision in `DESIGN.md`. |
 | Pydantic AI for Chef only. Generate, extract and URL import stay on the Anthropic SDK | Chef needs an agent loop with typed output, injected database access and web search. The other pipelines work, and moving them would add risk and nothing a user notices. |
 | The weekly run only proposes. In chat, Chef acts at once, each step with Undo | Modes never switch on their own, so nothing changes without a tap. In chat the request is the tap, and Undo replaces asking first, as everywhere else in the app. |
-| Only chat runs get the tools that write. Chat has no tool that deletes a recipe or a list | A scheduled run cannot change anything. Removing a list item is allowed because Undo puts it back. |
-| Chat lives in a Chef tab, which replaces Add | Adding a recipe from a link, a description or photos becomes something you tell Chef. |
+| Only chat runs get the tools that write | A scheduled run cannot change anything. |
+| Chef can do anything the user can, deletes included, and a test fails when a route changes data with no matching Chef tool | The end goal is that Chef can control the whole app. Every delete already has Undo, and the test means a new feature reaches Chef the day it ships. |
+| Chef sits beside every screen: a right-hand sidebar on the web (a bottom sheet on a narrow window), and a sheet opened from each screen's header on iOS. Messages carry the current route and its ids | Chef should be with you wherever you are, and "put this on my list" should need no names. Revised on 11 Oct 2026 from a Chef tab of its own. |
 | Chat runs on Sonnet for now, the weekly plan on Opus | Chat needs to answer quickly. The weekly plan runs once and quality matters more. |
 | Notifications, iOS first: week ready, recipe ready, Cook timer done | The timer is a local notification. The others are APNs pushes from the server. Permission is asked the first time one is useful, not at launch. |
 
