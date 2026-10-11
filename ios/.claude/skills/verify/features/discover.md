@@ -31,7 +31,7 @@ Preconditions:
 - **Not for me.** `$V tap discover.notForMe.<card> then undo.button`, then `$V expect "<title>"`: the card is back and the API still has it as `new`. Without `then undo.button` the tap's `NN-tap.json` holds `Hid <title>. You'll see less like it.`, and seven seconds later `curl -s http://127.0.0.1:8765/api/suggestions/` no longer lists it and `.verify-run/api.log` has one `PATCH /api/suggestions/<card>`.
 - **Clear all.** `$V tap discover.clearAllButton`, then `$V expect "No ideas here yet"`. Seven seconds later the API lists no cards and the log has `POST /api/suggestions/clear`. `$V tap discover.clearAllButton then undo.button` keeps them.
 - **Get new ideas, failing.** `$V tap discover.getIdeasButton`. The tap's `NN-tap.json` holds `Couldn't get new ideas right now. Try again in a bit.` and the log has `POST /api/suggestions/refresh` answered 500.
-- **Tune.** `$V tap discover.tuneButton`, `$V tap tune.diet.vegan`, `$V tap tune.effort.quick`, `$V type tune.notesField "more fish"`, `$V tap tune.applyButton`. The log has `POST /api/suggestions/refresh`. Then `$V relaunch`, `$V tap tab.discover`, `$V tap discover.tuneButton`, `$V expect "more fish"`. The screenshot shows Vegan and Quick & easy still chosen.
+- **Tune.** `$V tap discover.tuneButton`, `$V tap tune.diet.vegan`, `$V tap tune.effort.quick`, `$V type tune.notesField "more fish"`, `$V tap tune.applyButton`. The log has `POST /api/suggestions/refresh`. Then `$V relaunch`, `$V tap tab.discover`, `$V tap discover.tuneButton`, `$V expect "More fish"` (the field capitalises the first letter as the keyboard would). The screenshot shows Vegan and Quick & easy still chosen.
 
 ## Gotchas
 
