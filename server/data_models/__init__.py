@@ -5,7 +5,7 @@ from uuid import uuid4
 from beanie import Document
 from pydantic import BaseModel, Field
 
-from lib.types import Ingredient, IngredientRecipe, Recipe, RecipeMetadata
+from lib.types import Ingredient, IngredientRecipe, Recipe, RecipeJob, RecipeMetadata
 
 
 class IngredientDocument(Document, Ingredient):
@@ -111,3 +111,15 @@ class SuggestionDocument(Document):
 
     class Settings:
         name = "suggestions"
+
+
+class RecipeJobDocument(Document, RecipeJob):
+    """A recipe being made in the background, so the client only keeps an id.
+
+    The task that does the work lives in the server's memory, and a restart
+    loses it without ending the job. Nothing here is trusted to say "working"
+    for ever: a read decides whether a job has been working too long.
+    """
+
+    class Settings:
+        name = "recipe_jobs"

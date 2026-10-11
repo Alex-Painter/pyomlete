@@ -1,4 +1,5 @@
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -78,6 +79,28 @@ class ImportFromUrlRequest(BaseModel):
     # Free text typed alongside the link, e.g. "but use quorn mince". Applied
     # to the imported recipe before it's saved.
     changes: Optional[str] = None
+
+
+RecipeJobKind = Literal["link", "describe", "photos"]
+RecipeJobStatus = Literal["working", "saved", "already_imported", "failed"]
+# The first three are a link's 400, 404 and 502 from import-from-url.
+RecipeJobFailure = Literal[
+    "link_blocked", "no_recipe_on_page", "site_did_not_respond", "other"
+]
+
+
+class RecipeJob(BaseModel):
+    """One recipe being made off the request path, and how it ended.
+
+    `recipe_id` is set when the status is saved or already_imported, and
+    `failure` when it is failed.
+    """
+
+    kind: RecipeJobKind
+    status: RecipeJobStatus = "working"
+    recipe_id: Optional[str] = None
+    failure: Optional[RecipeJobFailure] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class MealIdea(BaseModel):

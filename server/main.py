@@ -1,7 +1,10 @@
 import asyncio
 import base64
+import logging
 import re
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable, NamedTuple
 from urllib.parse import urlparse, urlunparse
 
 from anthropic import AsyncAnthropic, transform_schema
@@ -16,6 +19,7 @@ from data_models import (
     IngredientDocument,
     ListDocument,
     RecipeDocument,
+    RecipeJobDocument,
     SuggestionDocument,
     UserSettingsDocument,
 )
@@ -35,6 +39,7 @@ from lib.types import (
     ListUpdateRequest,
     MealSuggestions,
     RatingUpdate,
+    RecipeJobKind,
     RecipeMetadata,
     RecipeModelResponse,
     RecipePrompt,
@@ -52,6 +57,8 @@ from recipe_import import BlockedURL, FetchFailed, ScrapedRecipe, fetch_page, sc
 from tools import find_similar_ingredients
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 async_claude = AsyncAnthropic()
 
@@ -76,6 +83,7 @@ async def lifespan(app: FastAPI):
             ListDocument,
             UserSettingsDocument,
             SuggestionDocument,
+            RecipeJobDocument,
         ],
     )
     yield
@@ -208,15 +216,26 @@ async def suggest_meals(req: SuggestMealsRequest) -> MealSuggestions:
     return MealSuggestions.model_validate_json(message.content[0].text)
 
 
-async def _extract_and_save(files: list[UploadFile], categories_str: str) -> RecipeDocument:
+class RecipeImage(NamedTuple):
+    """An uploaded photo, read into memory: an upload is gone once its request ends."""
+
+    media_type: str | None
+    data: bytes
+
+
+async def _read_images(files: list[UploadFile]) -> list[RecipeImage]:
+    return [RecipeImage(f.content_type, await f.read()) for f in files]
+
+
+async def _extract_and_save(images: list[RecipeImage], categories_str: str) -> RecipeDocument:
     image_blocks = []
-    for file in files:
-        data = base64.standard_b64encode(await file.read()).decode("utf-8")
+    for image in images:
+        data = base64.standard_b64encode(image.data).decode("utf-8")
         image_blocks.append({
             "type": "image",
-            "source": {"type": "base64", "media_type": file.content_type, "data": data},
+            "source": {"type": "base64", "media_type": image.media_type, "data": data},
         })
-    image_word = "this image" if len(files) == 1 else "these images"
+    image_word = "this image" if len(images) == 1 else "these images"
     runner = async_claude.beta.messages.tool_runner(
         model="claude-opus-4-5",
         max_tokens=2048,
@@ -260,14 +279,14 @@ async def extract_recipes_from_images(files: list[UploadFile], group_sizes: list
             offset += size
         results = []
         for group in groups:
-            result = await _extract_and_save(group, categories_str)
+            result = await _extract_and_save(await _read_images(group), categories_str)
             results.append(result)
         return results
     else:
         # Backward compatible: each file is one recipe
         results = []
         for f in files:
-            result = await _extract_and_save([f], categories_str)
+            result = await _extract_and_save(await _read_images([f]), categories_str)
             results.append(result)
         return results
 
@@ -1137,6 +1156,120 @@ async def save_suggestion(suggestion_id: PydanticObjectId, body: SuggestionSaveR
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
     return _suggestion_out(s)
+
+
+# --- Recipe jobs ---
+# Making a recipe waits on a model for a minute or more, and a phone that
+# switches apps drops the request while the work carries on here. A job is the
+# same work started without waiting: the client keeps an id and asks how it
+# went. Each job calls the endpoint function a waiting client would have
+# called, so the two cannot drift apart.
+
+# Longer than any honest job: the slowest is a link with changes, which is a
+# page fetch and three model calls of a few thousand tokens. A job still
+# running after this is cancelled, so one called stale cannot go on to save.
+RECIPE_JOB_TIME_LIMIT = timedelta(minutes=5)
+# The limit plus time to write how the job ended. A job still "working" after
+# this lost its task, which is what a server restart does to it.
+RECIPE_JOB_STALE_AFTER = RECIPE_JOB_TIME_LIMIT + timedelta(minutes=1)
+
+_LINK_FAILURES = {
+    400: "link_blocked",
+    404: "no_recipe_on_page",
+    502: "site_did_not_respond",
+}
+
+
+def _recipe_job_out(job: RecipeJobDocument) -> dict:
+    status, failure = job.status, job.failure
+    created_at = job.created_at
+    if created_at.tzinfo is None:
+        # Mongo hands datetimes back without their zone; they were stored as UTC.
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    if (
+        status == "working"
+        and datetime.now(timezone.utc) - created_at > RECIPE_JOB_STALE_AFTER
+    ):
+        status, failure = "failed", "other"
+    return {
+        "id": str(job.id),
+        "kind": job.kind,
+        "status": status,
+        "recipe_id": job.recipe_id,
+        "failure": failure,
+    }
+
+
+async def _run_recipe_job(
+    job: RecipeJobDocument, make: Callable[[], Awaitable[RecipeDocument]]
+) -> None:
+    try:
+        async with asyncio.timeout(RECIPE_JOB_TIME_LIMIT.total_seconds()):
+            recipe = await make()
+        job.status, job.recipe_id = "saved", str(recipe.id)
+    except HTTPException as exc:
+        if job.kind == "link" and exc.status_code == 409:
+            job.status, job.recipe_id = "already_imported", exc.detail["recipe_id"]
+        else:
+            job.status = "failed"
+            job.failure = (
+                _LINK_FAILURES.get(exc.status_code, "other")
+                if job.kind == "link"
+                else "other"
+            )
+    except Exception:
+        # Nobody is waiting on this request, so the log is the only trace.
+        logger.exception("Recipe job %s failed", job.id)
+        job.status, job.failure = "failed", "other"
+    await job.save()
+
+
+async def _start_recipe_job(
+    kind: RecipeJobKind, make: Callable[[], Awaitable[RecipeDocument]]
+) -> dict:
+    job = RecipeJobDocument(kind=kind)
+    await job.insert()
+    task = asyncio.create_task(_run_recipe_job(job, make))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return _recipe_job_out(job)
+
+
+@router.post("/recipe-jobs/link", status_code=202)
+async def start_link_job(body: ImportFromUrlRequest):
+    """`POST /recipes/import-from-url/` as a job. Answers at once with its id."""
+    return await _start_recipe_job("link", lambda: import_recipe_from_url(body))
+
+
+@router.post("/recipe-jobs/describe", status_code=202)
+async def start_describe_job(prompt: RecipePrompt):
+    """`POST /recipes/generate/` as a job. Answers at once with its id."""
+    return await _start_recipe_job("describe", lambda: create_recipe(prompt))
+
+
+@router.post("/recipe-jobs/photos", status_code=202)
+async def start_photos_job(files: list[UploadFile]):
+    """One recipe read from every photo sent, as a job.
+
+    This is `POST /recipes/extract-from-images/` with a single group, since a
+    job ends in one recipe.
+    """
+    images = await _read_images(files)
+
+    async def make() -> RecipeDocument:
+        categories_str = ", ".join(await _get_category_names())
+        return await _extract_and_save(images, categories_str)
+
+    return await _start_recipe_job("photos", make)
+
+
+@router.get("/recipe-jobs/{job_id}")
+async def get_recipe_job(job_id: PydanticObjectId):
+    """How a job stands: working, saved, already_imported or failed."""
+    job = await RecipeJobDocument.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Recipe job not found")
+    return _recipe_job_out(job)
 
 
 app.include_router(router)
