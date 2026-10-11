@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeScreen: View {
     @Environment(Library.self) private var library
     @Environment(Kitchen.self) private var kitchen
+    @Environment(Chef.self) private var chef
     @Environment(AppNavigation.self) private var navigation
 
     @State private var renaming: ListSummary?
@@ -10,7 +11,9 @@ struct HomeScreen: View {
     @State private var actionFailure: APIError?
 
     var body: some View {
-        let rows = library.rows
+        let content = HomeContent(
+            lists: library.rows, listsLoaded: library.hasLoaded, loadFailure: library.loadFailure,
+            picks: chef.picks.shown, feedAnswered: chef.hasAnswered)
         List {
             if let actionFailure {
                 Label(message(for: actionFailure), systemImage: "exclamationmark.triangle")
@@ -20,17 +23,23 @@ struct HomeScreen: View {
             if let shelf = library.cookShelf {
                 cookSection(shelf)
             }
-            if !rows.isEmpty {
+            if case .sections(let lists, let picks) = content {
                 Section("Lists") {
-                    ForEach(rows) { row in
+                    if lists.isEmpty {
+                        Label("\(HomeContent.noListsTitle). \(HomeContent.noListsInvitation)", systemImage: "cart")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(lists) { row in
                         listRow(row)
                     }
                 }
+                if !picks.isEmpty {
+                    picksSection(picks)
+                }
             }
         }
-        .overlay {
-            if rows.isEmpty { emptyState }
-        }
+        .accessibilityIdentifier("home.list")
+        .overlay { cover(for: content) }
         .contentMargins(.bottom, 72, for: .scrollContent)
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Home")
@@ -49,19 +58,28 @@ struct HomeScreen: View {
                 .accessibilityIdentifier("home.newListButton")
             }
         }
-        .refreshable { await library.refresh() }
-        .task { await library.refresh() }
+        .refreshable { await refresh() }
+        .task { await refresh() }
         .sheet(item: $renaming) { row in
             RenameListSheet(name: row.name) { library.list(row.id).rename($0) }
         }
     }
 
-    @ViewBuilder private var emptyState: some View {
-        if library.hasLoaded {
+    /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.
+    private func refresh() async {
+        async let ideas: Void = chef.load()
+        await library.refresh()
+        await ideas
+    }
+
+    @ViewBuilder private func cover(for content: HomeContent) -> some View {
+        switch content {
+        case .sections:
+            EmptyView()
+        case .noLists:
             ContentUnavailableView(
-                "No lists yet", systemImage: "cart",
-                description: Text("Start one, add a few meals, and the ingredients collect themselves."))
-        } else if let failure = library.loadFailure {
+                HomeContent.noListsTitle, systemImage: "cart", description: Text(HomeContent.noListsInvitation))
+        case .unavailable(let failure):
             ContentUnavailableView {
                 Label(message(for: failure), systemImage: failure == .unreachable ? "wifi.slash" : "exclamationmark.circle")
                     .font(.headline)
@@ -71,7 +89,7 @@ struct HomeScreen: View {
                 }
                 .accessibilityIdentifier("home.retryButton")
             }
-        } else {
+        case .loading:
             ProgressView()
         }
     }
@@ -102,6 +120,50 @@ struct HomeScreen: View {
         }
         .task(id: shelf.meals.map(\.id)) {
             await kitchen.warm(shelf.meals.map(\.id))
+        }
+    }
+
+    /// New ideas find you without going looking. Every row leads to Discover,
+    /// where a card can be saved, added to a list or turned down.
+    private func picksSection(_ picks: [Suggestion]) -> some View {
+        Section {
+            ForEach(picks) { card in
+                Button {
+                    navigation.tab = .discover
+                } label: {
+                    PictureRow(picture: card.imageURL, title: card.title) {
+                        if let reason = card.reason {
+                            Text(reason)
+                                .lineLimit(2)
+                        }
+                    } mark: {
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home.pick.\(card.id.rawValue)")
+            }
+        } header: {
+            HStack(spacing: 16) {
+                // Laid out by hand: inside a List a Label takes the row style, with a wide icon gutter.
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .accessibilityHidden(true)
+                    Text("Chef's picks")
+                }
+                .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button("Clear") { chef.clearPicks() }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("home.picks.clearButton")
+                Button("See all") { navigation.tab = .discover }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("home.picks.seeAllButton")
+            }
         }
     }
 

@@ -46,6 +46,10 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | On iOS, adding a recipe that was sent and never answered says the recipe may still be on its way, and refreshes Recipes | The server usually finishes it, so "couldn't reach Omlete" would invite a second paid request and a duplicate. Only a link is deduplicated by the server. |
 | On iOS a card still saving after about five minutes is shown as failed | The server loses a save when it restarts and never clears the card, which would leave it undismissable. |
 | On iOS, Add a recipe takes photos from the library only | The camera needs a usage string in Info.plist, which is Alex's to add. |
+| On iOS, Home's Clear tidies only the picks nobody has acted on, and Discover's Clear all takes everything but a card still saving | A saved or failed card is never on Home, so clearing it from there would remove something the user did not see go. The web's Home Clear is the same. |
+| On iOS, Home with picks and no lists puts "No lists yet" in the Lists section instead of over the whole screen | The full-screen message would cover the picks, and the picks alone would hide the invitation to start a list. With no picks it keeps the screen to itself, as before. |
+| On iOS, Chef's picks wait for the lists to load, a feed that never loaded shows nothing on Home, and a refresh that fails keeps the picks already there | Picks under a spinner or a failure message would read as the screen being ready. Nobody asked for the section, so its failure is Discover's to report, and ideas already on screen are no worse for a failed refresh. |
+| On iOS, Home with no lists waits for the suggestions to answer before showing "No lists yet" | Otherwise the full-screen message shows on every launch and then rearranges itself around the picks. |
 | Settings behind a cog, Add as a plain tab | A profile icon promised more than it did, and a raised plus button looked out of place. |
 
 ## Home plus four modes

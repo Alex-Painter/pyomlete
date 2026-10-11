@@ -30,7 +30,7 @@ struct ChefDependencies {
 
     /// The feed as the server last gave it, newest first.
     private var cards: [Suggestion] = []
-    /// Cards taken off screen by "Not for me" or Clear all, until the server has been told.
+    /// Cards taken off screen by "Not for me" or a Clear, until the server has been told.
     private var hidden: Set<SuggestionID> = []
     private var loadFailure: APIError?
     private var hasLoaded = false
@@ -140,10 +140,29 @@ struct ChefDependencies {
         }
     }
 
+    /// What Home shows of the feed, and what its Clear covers.
+    /// The feed has loaded, or tried and failed: there is nothing more to wait for.
+    var hasAnswered: Bool { hasLoaded || loadFailure != nil }
+
+    var picks: ChefPicks {
+        ChefPicks(cards: visible)
+    }
+
     /// Tidies every card off the feed except those still saving. Not a taste
     /// signal: the server learns nothing from it.
     func clearAll() {
-        let ids = visible.filter { $0.stage != .saving }.map(\.id)
+        clear(visible.filter { $0.stage != .saving })
+    }
+
+    /// Home's Clear: only the ideas nobody has acted on. A saved or failed
+    /// card is not on Home, so clearing it from there would remove something
+    /// the user never saw go.
+    func clearPicks() {
+        clear(picks.fresh)
+    }
+
+    private func clear(_ cards: [Suggestion]) {
+        let ids = cards.map(\.id)
         guard !ids.isEmpty else { return }
         hide(ids, saying: "Cleared \(ids.count) suggestion\(ids.count == 1 ? "" : "s")") { [api = deps.api] in
             try await api.clearSuggestions(ids)
@@ -158,7 +177,11 @@ struct ChefDependencies {
             self?.hidden.subtract(ids)
         }, commit: { [weak self] in
             Task {
-                if (try? await tell()) != nil { self?.forget(ids) }
+                guard (try? await tell()) != nil else { return }
+                // A feed asked for before the server was told still lists these cards, so they
+                // stay hidden until one asked for afterwards has been adopted.
+                await self?.reload()
+                self?.forget(ids)
             }
         })
     }

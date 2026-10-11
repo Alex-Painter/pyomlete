@@ -75,7 +75,7 @@ struct MealsSheet: View {
             // Not tied to this sheet: the save carries on after Done.
             Task { await chef.addToList(card.id, to: .list(list.id)) }
         } label: {
-            row(picture: card.imageURL, title: card.title) {
+            PictureRow(picture: card.imageURL, title: card.title) {
                 if let reason = card.reason {
                     Text(reason)
                         .lineLimit(1)
@@ -105,7 +105,7 @@ struct MealsSheet: View {
                 add(recipe)
             }
         } label: {
-            row(picture: recipe.imageURL, title: recipe.title) {
+            PictureRow(picture: recipe.imageURL, title: recipe.title) {
                 HStack(spacing: 10) {
                     if let count = recipe.ingredientCount {
                         Text("\(count) ingredient\(count == 1 ? "" : "s")")
@@ -138,29 +138,6 @@ struct MealsSheet: View {
         .accessibilityValue(isAdding ? "Adding" : entry.isOnList ? "On the list" : "")
         .accessibilityAddTraits(entry.isOnList ? .isSelected : [])
         .accessibilityIdentifier("meals.recipe.\(recipe.id.rawValue)")
-    }
-
-    private func row(
-        picture: URL?, title: String, @ViewBuilder caption: () -> some View, @ViewBuilder mark: () -> some View
-    ) -> some View {
-        HStack(spacing: 12) {
-            RecipePicture(url: picture)
-                .frame(width: 48, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                caption()
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            mark()
-                .frame(width: 28)
-        }
-        .contentShape(Rectangle())
     }
 
     /// Both ways to fill the library are tabs, so each closes the sheet first.
