@@ -101,8 +101,13 @@ import Testing
     }
 
     @Test func aLoadMadeDuringAnotherJoinsIt() async {
+        // Held, so the first is still on its way when the second is made, whichever task runs first.
+        phone.transport.holding = true
         async let first: Void = chef.load()
+        await eventually { calls(getFeed) == 1 }
         async let second: Void = chef.load()
+        for _ in 0..<20 { await Task.yield() }
+        phone.transport.release()
         _ = await (first, second)
 
         #expect(calls(getFeed) == 1)

@@ -87,10 +87,10 @@ struct RecipeScreen: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu("More actions", systemImage: "ellipsis") {
-                    Button("Edit recipe", systemImage: "pencil") { editing = RecipeDraft(recipe) }
-                        // A save replaces the whole recipe, so an edit starts only from this launch's copy of it.
-                        .disabled(!store.hasServerCopy)
-                        .accessibilityIdentifier("recipe.editAction")
+                    Button("Edit recipe", systemImage: "pencil") {
+                        Task { await edit(in: store) }
+                    }
+                    .accessibilityIdentifier("recipe.editAction")
                     Button("Delete recipe", systemImage: "trash", role: .destructive) {
                         library.deleteRecipe(recipe.id, title: recipe.title)
                         dismiss()
@@ -114,6 +114,18 @@ struct RecipeScreen: View {
         // The Undo reopens the editor on this page, so it must not outlive it.
         .onDisappear {
             if discardOffered { undo.commitNow() }
+        }
+    }
+
+    /// A save replaces the whole recipe, so an edit starts only from this
+    /// launch's copy of it. If the page is showing the copy saved on the
+    /// phone, the server is asked first, and the tap says why if it cannot be reached.
+    private func edit(in store: CookStore) async {
+        if !store.hasServerCopy { await store.load() }
+        if store.hasServerCopy, case .ready(let recipe) = store.page {
+            editing = RecipeDraft(recipe)
+        } else if store.page != .gone {
+            undo.offer("Couldn't reach Omlete. Editing a recipe needs a connection.")
         }
     }
 
