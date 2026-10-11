@@ -53,6 +53,23 @@ import Testing
         phone.transport.calls.count(where: { $0 == call })
     }
 
+    /// Puts the phone's clock forward and lets the poll that was waiting look again.
+    private func pollAfter(_ seconds: TimeInterval) async {
+        await eventually { phone.ticker.isWaiting }
+        phone.now += seconds
+        phone.ticker.tick()
+    }
+
+    /// The server is out of reach from now until a card's time is up and for the polls after that.
+    private func theServerStaysAwayUntilPollingRests() async {
+        phone.serverIsUnreachable()
+        await pollAfter(Chef.giveUpAfter)
+        for _ in 1..<Chef.restAfterUnanswered { await pollAfter(0) }
+        // Joins the last poll's fetch if it is still on its way, so the poll has decided by the time this returns.
+        await chef.load()
+        await eventually { !phone.ticker.isWaiting }
+    }
+
     private func body(of call: Call) -> [String: Any]? {
         Array(zip(phone.transport.calls, phone.transport.bodies)).last { $0.0 == call }?.1
     }
@@ -161,19 +178,64 @@ import Testing
         server.cards = [card("a", "saving")]
         phone.transport.release()
 
-        await eventually { phone.ticker.isWaiting }
+        await eventually { calls(getFeed) == 3 && phone.ticker.isWaiting }
         #expect(stage("a") == .saving)
+    }
+
+    /// The feed asked for before the save was answered shows the card as it
+    /// was, fresh or failed. Adopted after the answer, it must not decide the card.
+    @Test(arguments: ["new", "failed"])
+    func aFeedAskedForBeforeASaveWasAnsweredDoesNotCostTheCardItsList(before: String) async {
+        server.cards = [card("a", before)]
+        await chef.load()
+        await phone.library.refresh()
+        let stale = server.json
+        let save = Call(method: "POST", path: "/api/suggestions/a/save")
+        let getList = Call(method: "GET", path: "/api/lists/list")
+        var feedsAsked = 0
+        serverAnswers { [server, getFeed] call in
+            if call == save { server.cards = [self.card("a", "saving")] }
+            guard call == getFeed else { return nil }
+            feedsAsked += 1
+            return feedsAsked == 1 ? .status(200, stale) : nil
+        }
+        phone.transport.holding = true
+        Task { await chef.load() }
+        await eventually { calls(getFeed) == 2 }
+        let adding = Task { await chef.addToList("a", to: .list("list")) }
+        await eventually { calls(save) == 1 }
+
+        phone.transport.release(only: save)
+        await eventually { phone.transport.answered.contains(save) }
+        phone.transport.release(only: getFeed)
+        await eventually { feedsAsked == 1 && phone.transport.answered.count(where: { $0 == getFeed }) == 2 }
+        let saidOfTheOlderFeed = phone.undo.banner?.message
+        phone.transport.release()
+        await adding.value
+
         #expect(calls(getFeed) == 3)
+        #expect(stage("a") == .saving)
+        #expect(saidOfTheOlderFeed == nil)
+        #expect(phone.undo.banner?.message == "Saving Card a. It goes on Week when it's ready.")
+        await eventually { phone.ticker.isWaiting }
+        let fetchesBefore = calls(getList)
+
+        server.cards = [card("a", "saved", recipe: "soup")]
+        phone.ticker.tick()
+
+        await eventually { calls(getList) == fetchesBefore + 1 }
+        #expect(stage("a") == .saved("soup"))
     }
 
     @Test func aSaveTheServerNeverFinishesIsGivenUpOnSoTheCardCanBeDismissed() async {
         server.cards = [card("a", "saving")]
         await chef.load()
 
-        for _ in 0..<Chef.mostPolls {
-            await eventually { phone.ticker.isWaiting }
-            phone.ticker.tick()
-        }
+        await pollAfter(Chef.giveUpAfter - 1)
+        await eventually { phone.ticker.isWaiting }
+        #expect(stage("a") == .saving)
+
+        await pollAfter(1)
         await eventually { stage("a") == .failed }
         #expect(!phone.ticker.isWaiting)
 
@@ -181,6 +243,212 @@ import Testing
         #expect(stage("a") == .failed)
         chef.dismiss("a")
         #expect(shown.isEmpty)
+    }
+
+    /// A fetch that fails has heard nothing, so it decides nothing about a card.
+    @Test func aServerThatCannotBeReachedIsNotTakenForAFailedSaveAndPollingRests() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        phone.undo.commitNow()
+        phone.serverIsUnreachable()
+
+        for _ in 0...Chef.restAfterUnanswered { await pollAfter(1) }
+        await eventually { phone.ticker.isWaiting }
+
+        await theServerStaysAwayUntilPollingRests()
+
+        #expect(!phone.ticker.isWaiting)
+        #expect(stage("a") == .saving)
+        #expect(phone.undo.banner == nil)
+    }
+
+    @Test func theLoadAfterPollingRestedHearsThatTheSaveLanded() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        phone.undo.commitNow()
+        await theServerStaysAwayUntilPollingRests()
+        let getList = Call(method: "GET", path: "/api/lists/list")
+        let lists = calls(getList)
+
+        serverAnswers()
+        server.cards = [card("a", "saved", recipe: "soup")]
+        await chef.load()
+
+        #expect(stage("a") == .saved("soup"))
+        #expect(phone.undo.banner == nil)
+        await eventually { calls(getList) == lists + 1 }
+    }
+
+    @Test func theLoadAfterPollingRestedGivesUpOnASaveTheServerStillCallsSaving() async {
+        server.cards = [card("a", "saving")]
+        await chef.load()
+        await theServerStaysAwayUntilPollingRests()
+        #expect(stage("a") == .saving)
+
+        serverAnswers()
+        await chef.load()
+
+        #expect(stage("a") == .failed)
+        #expect(!phone.ticker.isWaiting)
+    }
+
+    @Test func aClockPutBackFailsNoCardAndTheCardIsStillGivenUpOnInTime() async {
+        server.cards = [card("a", "saving")]
+        await chef.load()
+
+        await pollAfter(-Chef.giveUpAfter)
+        await eventually { phone.ticker.isWaiting }
+        #expect(stage("a") == .saving)
+
+        await pollAfter(Chef.giveUpAfter - 1)
+        await eventually { phone.ticker.isWaiting }
+        #expect(stage("a") == .saving)
+
+        await pollAfter(1)
+        await eventually { stage("a") == .failed }
+        #expect(!phone.ticker.isWaiting)
+    }
+
+    /// Each card has its own clock: one saved late is not failed with one saved long before.
+    @Test func aCardSavedWhileAnotherIsNearlyGivenUpOnKeepsItsOwnTime() async {
+        server.cards = [card("a", "saving"), card("b")]
+        await chef.load()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/b/save" { server.cards = [self.card("a", "saving"), self.card("b", "saving")] }
+            return nil
+        }
+        await pollAfter(Chef.giveUpAfter - 10)
+        await eventually { phone.ticker.isWaiting }
+        chef.save("b")
+        await eventually { stage("b") == .saving }
+
+        await pollAfter(10)
+        await eventually { stage("a") == .failed }
+        #expect(stage("b") == .saving)
+
+        await pollAfter(Chef.giveUpAfter - 11)
+        await eventually { phone.ticker.isWaiting }
+        #expect(stage("b") == .saving)
+
+        await pollAfter(1)
+        await eventually { stage("b") == .failed }
+        #expect(!phone.ticker.isWaiting)
+    }
+
+    @Test func aCardGivenUpOnThatTheServerThenFinishesIsASaveThatLanded() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        await pollAfter(Chef.giveUpAfter)
+        await eventually { stage("a") == .failed }
+        let getList = Call(method: "GET", path: "/api/lists/list")
+        let getRecipes = Call(method: "GET", path: "/api/recipes/")
+        let (lists, recipes) = (calls(getList), calls(getRecipes))
+
+        server.cards = [card("a", "saved", recipe: "soup")]
+        await chef.load()
+
+        #expect(stage("a") == .saved("soup"))
+        await eventually { calls(getList) == lists + 1 && calls(getRecipes) == recipes + 1 }
+
+        server.cards = [card("a", "saving")]
+        await chef.load()
+        #expect(stage("a") == .saving)
+    }
+
+    @Test func aCardGivenUpOnThatTheServerThenFailsIsNotSaidTwice() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        await pollAfter(Chef.giveUpAfter)
+        await eventually { stage("a") == .failed }
+        phone.undo.commitNow()
+        #expect(phone.undo.banner == nil)
+
+        server.cards = [card("a", "failed")]
+        await chef.load()
+
+        #expect(stage("a") == .failed)
+        #expect(phone.undo.banner == nil)
+    }
+
+    @Test func tryAgainOnACardGivenUpOnSavesItAgainWithATimeOfItsOwn() async {
+        server.cards = [card("a", "saving")]
+        await chef.load()
+        await pollAfter(Chef.giveUpAfter)
+        await eventually { stage("a") == .failed }
+        let save = Call(method: "POST", path: "/api/suggestions/a/save")
+
+        chef.save("a")
+        await eventually { calls(save) == 1 && phone.ticker.isWaiting }
+        #expect(stage("a") == .saving)
+
+        await pollAfter(Chef.giveUpAfter - 1)
+        await eventually { phone.ticker.isWaiting }
+        #expect(stage("a") == .saving)
+
+        server.cards = [card("a", "saved", recipe: "soup")]
+        await pollAfter(1)
+        await eventually { stage("a") == .saved("soup") }
+    }
+
+    @Test func tryAgainOnACardThatFailedOnItsWayToAListSendsItToThatListAgain() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        let save = Call(method: "POST", path: "/api/suggestions/a/save")
+        let getList = Call(method: "GET", path: "/api/lists/list")
+        serverAnswers { [server] call in
+            if call == save { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        await eventually { phone.ticker.isWaiting }
+        server.cards = [card("a", "failed")]
+        phone.ticker.tick()
+        await eventually { stage("a") == .failed }
+
+        chef.save("a")
+        await eventually { calls(save) == 2 && phone.ticker.isWaiting }
+
+        #expect(body(of: save) as? [String: String] == ["list_id": "list"])
+        let fetchesBefore = calls(getList)
+        server.cards = [card("a", "saved", recipe: "soup")]
+        phone.ticker.tick()
+        await eventually { calls(getList) == fetchesBefore + 1 }
+    }
+
+    @Test func tryAgainOnACardThatWasOnlySavedSendsNoList() async {
+        server.cards = [card("a", "failed")]
+        await chef.load()
+        let save = Call(method: "POST", path: "/api/suggestions/a/save")
+
+        chef.save("a")
+        await eventually { calls(save) == 1 }
+
+        #expect(body(of: save)?["list_id"] == nil)
     }
 
     @Test func aFeedLoadedWithACardAlreadySavingIsPolledToo() async {
@@ -484,10 +752,7 @@ import Testing
         }
         await chef.addToList("a", to: .list("list"))
 
-        for _ in 0..<Chef.mostPolls {
-            await eventually { phone.ticker.isWaiting }
-            phone.ticker.tick()
-        }
+        await pollAfter(Chef.giveUpAfter)
 
         await eventually { stage("a") == .failed }
         #expect(phone.undo.banner?.message == "Couldn't save Card a, so it isn't on your list.")

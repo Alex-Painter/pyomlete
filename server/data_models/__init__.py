@@ -108,6 +108,11 @@ class SuggestionDocument(Document):
     origin: str = "suggest"
     recipe_id: Optional[str] = None
     error: Optional[str] = None
+    # When the latest save was started. The task doing it lives in the
+    # server's memory, so a read decides from this whether it can still be
+    # running. It also names that save: a save ends a card only while the card
+    # still carries the start it was given.
+    saving_since: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:

@@ -64,7 +64,7 @@ def jobs():
     # The cap's own state, so a test that dies mid-start cannot shrink the cap for the next.
     main._recipe_jobs_starting.clear()
     main._recipe_job_tasks.clear()
-    with patch.multiple(main, RecipeJobDocument=FakeJobDocument, RECIPE_JOB_WRITE_PAUSES=(0, 0, 0)):
+    with patch.multiple(main, RecipeJobDocument=FakeJobDocument, END_WRITE_PAUSES=(0, 0, 0)):
         yield FakeJobDocument.store
 
 
@@ -299,7 +299,7 @@ class TestStartingAJob:
             again = await describe(api)
             # The key is the job, whatever a later start says it wants.
             other = await api.put(f"/api/recipe-jobs/{KEY}/link", json={"url": URL})
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         assert (first.status_code, again.status_code, other.status_code) == (202, 200, 200)
         assert again.json() == first.json() == {
@@ -355,7 +355,7 @@ class TestStartingAJob:
             refused = await describe(api, keys[-1])
             # A job already running is still answered for, however busy it is.
             repeat = await describe(api, keys[0])
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         assert [r.status_code for r in started] == [202] * main.MAX_WORKING_RECIPE_JOBS
         assert refused.status_code == 429
@@ -370,7 +370,7 @@ class TestStartingAJob:
 
         with a_model(async_claude=claude):
             answers = await asyncio.gather(*(describe(api, key) for key in keys))
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         statuses = sorted(r.status_code for r in answers)
         assert statuses == [202] * main.MAX_WORKING_RECIPE_JOBS + [429] * main.MAX_WORKING_RECIPE_JOBS
@@ -397,7 +397,7 @@ class TestStartingAJob:
                 await describe(api, key)
             # The last place is taken by a start and its repeat arriving together.
             first, repeat = await asyncio.gather(describe(api, keys[-1]), describe(api, keys[-1]))
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         assert sorted([first.status_code, repeat.status_code]) == [200, 202]
         assert claude.beta.messages.tool_runner.call_count == main.MAX_WORKING_RECIPE_JOBS
@@ -476,8 +476,8 @@ class TestHowAJobEndsIsWritten:
         assert refusals == [f"Recipe job {KEY} ended saved (recipe {RECIPE_ID}) and that could not be written"] * 2
 
     async def test_a_write_that_hangs_is_given_up_on_and_tried_again(self, api, jobs, monkeypatch):
-        monkeypatch.setattr(main, "RECIPE_JOB_WRITE_TIMEOUT", 0.01)
-        monkeypatch.setattr(main, "RECIPE_JOB_WRITE_PAUSES", (0, 0, 0))
+        monkeypatch.setattr(main, "END_WRITE_TIMEOUT", 0.01)
+        monkeypatch.setattr(main, "END_WRITE_PAUSES", (0, 0, 0))
         FakeJobDocument.hanging_saves = 1
 
         with a_model():
@@ -486,7 +486,7 @@ class TestHowAJobEndsIsWritten:
         assert (job["status"], job["recipe_id"]) == ("saved", RECIPE_ID)
 
     async def test_a_write_that_never_lands_leaves_the_job_working_for_the_stale_rule(self, api, jobs):
-        FakeJobDocument.failing_saves = len(main.RECIPE_JOB_WRITE_PAUSES)
+        FakeJobDocument.failing_saves = len(main.END_WRITE_PAUSES)
 
         with a_model():
             job = await finished(api, await describe(api))
@@ -498,7 +498,7 @@ class TestHowAJobEndsIsWritten:
         FakeJobDocument.failing_saves = 2
         limit = timedelta(seconds=0.05)
 
-        with a_model(RECIPE_JOB_TIME_LIMIT=limit, RECIPE_JOB_WRITE_PAUSES=(0.05,) * 3):
+        with a_model(BACKGROUND_WORK_TIME_LIMIT=limit, END_WRITE_PAUSES=(0.05,) * 3):
             job = await finished(api, await describe(api))
 
         assert job["status"] == "saved"
@@ -510,7 +510,7 @@ class TestHowAJobEndsIsWritten:
         with a_model(async_claude=a_model_that_never_answers(reached), _save_recipe=save):
             started = await describe(api)
             await reached.wait()
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
             job = (await api.get(f"/api/recipe-jobs/{KEY}")).json()
 
         assert started.status_code == 202
@@ -531,7 +531,7 @@ class TestHowAJobEndsIsWritten:
         with a_model(), patch.object(FakeJobDocument, "save", slow_save):
             await describe(api)
             await writing.wait()
-            ending = asyncio.create_task(main._end_running_recipe_jobs())
+            ending = asyncio.create_task(main._end_running_work())
             await asyncio.sleep(0.01)
             still_waiting = not ending.done()
             release.set()
@@ -569,11 +569,11 @@ class TestReadingAJob:
         job = FakeJobDocument(id=KEY, kind="describe")
         jobs[KEY] = job
 
-        job.created_at = datetime.now(timezone.utc) - main.RECIPE_JOB_STALE_AFTER * 0.9
+        job.created_at = datetime.now(timezone.utc) - main.BACKGROUND_WORK_STALE_AFTER * 0.9
         fresh = (await api.get(f"/api/recipe-jobs/{job.id}")).json()
         # As Mongo returns it: the same instant with its zone dropped.
         job.created_at = (
-            datetime.now(timezone.utc) - main.RECIPE_JOB_STALE_AFTER * 1.1
+            datetime.now(timezone.utc) - main.BACKGROUND_WORK_STALE_AFTER * 1.1
         ).replace(tzinfo=None)
         stale = (await api.get(f"/api/recipe-jobs/{job.id}")).json()
 
@@ -582,7 +582,7 @@ class TestReadingAJob:
         # Decided when read, not written: a task that does finish still has the last word.
         assert jobs[job.id].status == "working"
 
-    async def test_a_job_that_runs_past_the_time_limit_is_cancelled_and_fails(self, api):
+    async def test_a_job_that_runs_past_the_time_limit_is_cancelled_and_fails(self, api, caplog):
         cancelled = asyncio.Event()
 
         async def never_answers(*_args, **_kwargs):
@@ -598,10 +598,19 @@ class TestReadingAJob:
         with a_model(
             async_claude=claude,
             _save_recipe=save,
-            RECIPE_JOB_TIME_LIMIT=main.RECIPE_JOB_TIME_LIMIT * 0,
-        ):
+            BACKGROUND_WORK_TIME_LIMIT=main.BACKGROUND_WORK_TIME_LIMIT * 0,
+        ), caplog.at_level(logging.WARNING, logger="main"):
             job = await finished(api, await describe(api))
 
         assert (job["status"], job["failure"]) == ("failed", "other")
         assert cancelled.is_set()
+        assert [r.getMessage() for r in caplog.records] == [f"Recipe job {KEY} ran past its time limit"]
         save.assert_not_called()
+
+    async def test_a_timeout_inside_the_making_is_logged_as_that_making_s_failure(self, api, caplog):
+        with a_model(TimeoutError("the model did not answer")), caplog.at_level(logging.WARNING, logger="main"):
+            job = await finished(api, await describe(api))
+
+        assert (job["status"], job["failure"]) == ("failed", "other")
+        assert [(r.levelname, r.getMessage()) for r in caplog.records] == [("ERROR", f"Recipe job {KEY} failed")]
+        assert "the model did not answer" in caplog.text

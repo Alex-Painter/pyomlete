@@ -31,12 +31,20 @@ import Testing
     var reply: (Call) -> Reply = { _ in .status(200) }
     /// While set, every request waits here until `release()`.
     var holding = false
-    private var held: [CheckedContinuation<Void, Never>] = []
+    private var held: [(call: Call, resume: CheckedContinuation<Void, Never>)] = []
+    /// Requests that have been answered, in the order their answers went back.
+    private(set) var answered: [Call] = []
 
     func release() {
         holding = false
-        held.forEach { $0.resume() }
+        held.forEach { $0.resume.resume() }
         held = []
+    }
+
+    /// Answers the held requests for `call` and keeps holding the rest, so a test chooses which answer arrives first.
+    func release(only call: Call) {
+        held.filter { $0.call == call }.forEach { $0.resume.resume() }
+        held.removeAll { $0.call == call }
     }
 
     nonisolated func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -53,8 +61,11 @@ import Testing
             inFlight += 1
             peakInFlight = max(peakInFlight, inFlight)
         }
-        defer { if isListRequest { inFlight -= 1 } }
-        if holding { await withCheckedContinuation { held.append($0) } }
+        defer {
+            if isListRequest { inFlight -= 1 }
+            answered.append(call)
+        }
+        if holding { await withCheckedContinuation { held.append((call, $0)) } }
         switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
@@ -138,7 +149,9 @@ import Testing
             api: api,
             disk: storage, undo: undo, connectivity: Connectivity(), retryDelay: nil))
         chef = Chef(deps: ChefDependencies(
-            api: api, undo: undo, library: library, defaults: defaults, pause: { [ticker] _ in try await ticker.pause() }))
+            api: api, undo: undo, library: library, defaults: defaults,
+            // Weak, because a poll still running when a test ends outlives the phone.
+            now: { [weak self] in self?.now ?? .distantPast }, pause: { [ticker] _ in try await ticker.pause() }))
         intake = RecipeIntake(deps: IntakeDependencies(
             api: api, library: library, defaults: defaults, pause: { [pulse] in try await pulse.pause($0) },
             now: { [unowned self] in now },
