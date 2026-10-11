@@ -101,14 +101,15 @@ import Testing
     }
 
     @Test func aLoadMadeDuringAnotherJoinsIt() async {
-        // Held, so the first is still on its way when the second is made, whichever task runs first.
+        // Held, so the first is still on its way when the second is made. Both
+        // are made on the main actor, so the second runs before anything the release resumes.
         phone.transport.holding = true
-        async let first: Void = chef.load()
+        let first = Task { await chef.load() }
         await eventually { calls(getFeed) == 1 }
-        async let second: Void = chef.load()
-        for _ in 0..<20 { await Task.yield() }
+        let second = Task { await chef.load() }
         phone.transport.release()
-        _ = await (first, second)
+        await first.value
+        await second.value
 
         #expect(calls(getFeed) == 1)
     }

@@ -339,6 +339,13 @@ import Testing
     }
 }
 
+private extension RecipePage {
+    /// The start an edit would be given from this page, for a page that is ready.
+    var editable: EditStart? {
+        if case .ready(let recipe) = self { .ready(recipe) } else { nil }
+    }
+}
+
 /// The recipe page's view of a recipe, which shares its store with Cook.
 @MainActor struct RecipePageTests {
     private typealias Call = ScriptedTransport.Call
@@ -557,6 +564,40 @@ import Testing
         await stove.store.load()
         #expect(stove.store.page != .loading)
         #expect(!stove.store.hasServerCopy)
+        #expect(await stove.store.recipeToEdit() == .unavailable(.unreachable))
+    }
+
+    @Test func anEditFromACopySavedOnThePhoneAsksTheServerFirstAndStartsFromItsAnswer() async {
+        await store.load()
+        stove.relaunch()
+        stove.serverIsUnreachable()
+        await stove.store.load()
+        stove.serverAnswers { $0.method == "GET" ? .status(200, Self.greenCurryJSON) : nil }
+
+        guard case .ready(let recipe) = await stove.store.recipeToEdit() else {
+            Issue.record("the edit did not start")
+            return
+        }
+        #expect(recipe.title == "Green curry")
+        #expect(stove.store.hasServerCopy)
+    }
+
+    @Test func anEditFromACopyTheServerAlreadyGaveAsksNothingMore() async {
+        await store.load()
+        let asked = stove.transport.calls.count
+
+        #expect(await store.recipeToEdit() == store.page.editable)
+        #expect(stove.transport.calls.count == asked)
+    }
+
+    @Test func anEditDoesNotStartForARecipeDeletedOnTheServerOrOneTheServerFailsToGive() async {
+        await store.load()
+        stove.relaunch()
+        stove.serverAnswers { $0.method == "GET" ? .status(500) : nil }
+        #expect(await stove.store.recipeToEdit() == .unavailable(.serverFault(500)))
+
+        stove.serverAnswers { $0.method == "GET" ? .status(404) : nil }
+        #expect(await stove.store.recipeToEdit() == .gone)
     }
 
     @Test func takingAnIngredientOffListsShowsAtOnceAndTellsTheServer() async {

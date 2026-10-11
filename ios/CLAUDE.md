@@ -37,7 +37,7 @@ npx -y xcodebuildmcp@latest simulator build-and-run
 npx -y xcodebuildmcp@latest simulator test
 ```
 
-Run a single test with `test_sim` and `extraArgs: ["-only-testing:OmleteTests/SomeSuite/someTest"]`. The UI tests are slow (about three minutes for the template set), so run only the unit target while iterating: `-only-testing:OmleteTests`.
+Run one suite with `test_sim` and `extraArgs: ["-only-testing:OmleteTests/SomeSuite"]`. Filter by suite, not by test: a filter naming one Swift Testing function (`OmleteTests/SomeSuite/someTest`) has been seen to run nothing and still report success. The UI tests are slow (about three minutes for the template set), so run only the unit target while iterating: `-only-testing:OmleteTests`.
 
 A change is not done until it builds, the tests pass, and you have looked at a screenshot of the screen you changed. To prove a change on the running app, use the `verify` skill (`ios/.claude/skills/verify/`): it builds, launches, drives the app by accessibility identifier and saves the evidence.
 

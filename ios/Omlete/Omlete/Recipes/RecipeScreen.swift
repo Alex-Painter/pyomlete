@@ -14,6 +14,8 @@ struct RecipeScreen: View {
 
     /// The edit in progress, which is what puts the editor up.
     @State private var editing: RecipeDraft?
+    /// Edit was tapped and the recipe store is being asked what it may start from.
+    @State private var isStartingEdit = false
     /// The banner offering a discarded edit back is up.
     @State private var discardOffered = false
 
@@ -43,6 +45,9 @@ struct RecipeScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .undoBanner(isCovered: navigation.immersive != nil)
         .task { await store.load() }
+        .task(id: isStartingEdit) {
+            if isStartingEdit { await startEdit(in: store) }
+        }
     }
 
     private func page(_ recipe: Recipe, in store: CookStore) -> some View {
@@ -87,10 +92,9 @@ struct RecipeScreen: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu("More actions", systemImage: "ellipsis") {
-                    Button("Edit recipe", systemImage: "pencil") {
-                        Task { await edit(in: store) }
-                    }
-                    .accessibilityIdentifier("recipe.editAction")
+                    Button("Edit recipe", systemImage: "pencil") { isStartingEdit = true }
+                        .disabled(isStartingEdit)
+                        .accessibilityIdentifier("recipe.editAction")
                     Button("Delete recipe", systemImage: "trash", role: .destructive) {
                         library.deleteRecipe(recipe.id, title: recipe.title)
                         dismiss()
@@ -117,15 +121,22 @@ struct RecipeScreen: View {
         }
     }
 
-    /// A save replaces the whole recipe, so an edit starts only from this
-    /// launch's copy of it. If the page is showing the copy saved on the
-    /// phone, the server is asked first, and the tap says why if it cannot be reached.
-    private func edit(in store: CookStore) async {
-        if !store.hasServerCopy { await store.load() }
-        if store.hasServerCopy, case .ready(let recipe) = store.page {
+    /// Runs under `.task(id:)`, so asking the server ends with the page. The
+    /// refusal is news that may arrive seconds after the tap, so it waits
+    /// its turn behind a banner that still offers Undo.
+    private func startEdit(in store: CookStore) async {
+        defer { isStartingEdit = false }
+        let start = await store.recipeToEdit()
+        guard !Task.isCancelled else { return }
+        switch start {
+        case .ready(let recipe):
             editing = RecipeDraft(recipe)
-        } else if store.page != .gone {
-            undo.offer("Couldn't reach Omlete. Editing a recipe needs a connection.")
+        case .gone:
+            break
+        case .unavailable(.unreachable):
+            undo.inform("Couldn't reach Omlete. Editing a recipe needs a connection.")
+        case .unavailable:
+            undo.inform("Couldn't load this recipe to edit. Try again.")
         }
     }
 
