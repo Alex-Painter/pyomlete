@@ -246,6 +246,22 @@ import Testing
         #expect(log == ["commit"])
     }
 
+    @Test func theSameNewsIsSaidOnce() async {
+        let undo = UndoCenter(duration: .milliseconds(20))
+        undo.offer("Removed", undo: {})
+        undo.inform("Couldn't reach Omlete")
+        undo.inform("Couldn't reach Omlete")
+        undo.undoTapped()
+        #expect(undo.banner?.message == "Couldn't reach Omlete")
+
+        undo.inform("Couldn't reach Omlete")
+        let said = undo.banner?.id
+
+        // The next banner would take its place the moment its time is up.
+        await eventually { undo.banner?.id != said }
+        #expect(undo.banner == nil)
+    }
+
     @Test func newsWaitsBehindAnUndoAndIsSaidInOrderOnceItHasSettled() async {
         let undo = UndoCenter(duration: .milliseconds(20))
         undo.offer("Removed", undo: {})

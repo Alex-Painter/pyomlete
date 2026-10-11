@@ -462,6 +462,16 @@ import Testing
         await eventually { stage("a") == .failed }
     }
 
+    @Test func aSaveTheServerRefusesIsFailedNotUnsent() async {
+        server.cards = [card("a")]
+        await chef.load()
+        serverAnswers { $0.method == "POST" ? .status(404, "{}") : nil }
+
+        chef.save("a")
+
+        await eventually { stage("a") == .failed }
+    }
+
     @Test func aSaveThatCannotBeSentIsMarkedUnsentAndCanBeTriedAgain() async {
         server.cards = [card("a")]
         await chef.load()

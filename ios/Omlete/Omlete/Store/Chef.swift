@@ -238,7 +238,8 @@ struct ChefDependencies {
         } catch {
             posting.remove(id)
             saves[id] = nil
-            setStage(of: id, to: .unsent)
+            // A refusal, such as a card cleared elsewhere, would be refused again.
+            setStage(of: id, to: error.isRetryable ? .unsent : .failed)
             return false
         }
         posting.remove(id)

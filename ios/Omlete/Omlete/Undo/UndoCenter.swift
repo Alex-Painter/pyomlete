@@ -46,6 +46,7 @@ import Observation
         banner = Banner(id: lastID, message: message, canUndo: undo != nil)
         self.undo = undo
         self.commit = commit
+        timer?.cancel()
         timer = Task { [weak self, duration] in
             try? await Task.sleep(for: duration)
             if !Task.isCancelled { self?.commitNow() }
@@ -58,6 +59,8 @@ import Observation
     /// behind earlier news too, and for the app to be in front, where it can
     /// be read. Only a message with nothing to undo gives way to it.
     func inform(_ message: String) {
+        // Said once: the same failure met four times is still one thing to read.
+        guard message != news, !waiting.contains(message) else { return }
         waiting.append(message)
         if banner?.canUndo == false, news == nil { settle(committing: true) }
         sayWhatWaited()
