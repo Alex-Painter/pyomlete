@@ -73,7 +73,18 @@ export function longDate(date: ISODate): string {
   return `${dayOfMonth(date)} ${MONTH_LONG[toUTC(date).getUTCMonth()]}`
 }
 
-export const isOpenEmpty = (day: PlanDay) => day.status === 'open' && day.recipe_id == null
+/**
+ * What an evening shows. A meal wins over Out: putting a meal on an out day
+ * plans it, as the server does.
+ */
+export type DayKind = 'planned' | 'open' | 'out'
+
+export function dayKind(day: PlanDay): DayKind {
+  if (day.recipe_id != null) return 'planned'
+  return day.status === 'out' ? 'out' : 'open'
+}
+
+export const isOpenEmpty = (day: PlanDay) => dayKind(day) === 'open'
 
 /** Today when it's in the week, else the first evening still to plan. */
 export function defaultDay(days: PlanDay[], today: ISODate): ISODate | null {
