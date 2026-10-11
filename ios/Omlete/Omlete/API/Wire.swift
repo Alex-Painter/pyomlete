@@ -136,8 +136,9 @@ nonisolated enum Wire {
         try encode(["status": "dismissed"])
     }
 
-    static func clearing(_ ids: [SuggestionID]) throws(APIError) -> Data {
-        try encode(["ids": ids.map(\.rawValue)])
+    /// `onlyNew` is left out when false, which is the request older servers and the web know.
+    static func clearing(_ ids: [SuggestionID], onlyNew: Bool) throws(APIError) -> Data {
+        try encode(ClearSuggestionsDTO(ids: ids.map(\.rawValue), only_new: onlyNew ? true : nil))
     }
 
     struct Upload {
@@ -351,6 +352,11 @@ nonisolated private struct TuneDTO: Encodable {
 
 nonisolated private struct SaveSuggestionDTO: Encodable {
     let list_id: String?
+}
+
+nonisolated private struct ClearSuggestionsDTO: Encodable {
+    let ids: [String]
+    let only_new: Bool?
 }
 
 nonisolated private struct NewItemDTO: Encodable {

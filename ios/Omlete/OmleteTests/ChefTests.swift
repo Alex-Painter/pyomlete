@@ -125,8 +125,8 @@ import Testing
         await eventually { calls(getFeed) == 1 }
         let second = Task { await chef.load() }
         phone.transport.release()
-        await first.value
-        await second.value
+        _ = await first.value
+        _ = await second.value
 
         #expect(calls(getFeed) == 1)
     }
@@ -545,7 +545,7 @@ import Testing
         await chef.load()
         let clear = Call(method: "POST", path: "/api/suggestions/clear")
 
-        chef.clearAll()
+        chef.clear(.everything)
         #expect(shown == ["b"])
         #expect(phone.undo.banner?.message == "Cleared 3 suggestions")
 
@@ -553,21 +553,23 @@ import Testing
         #expect(shown == ["a", "b", "c", "d"])
         #expect(calls(clear) == 0)
 
-        chef.clearAll()
+        chef.clear(.everything)
         phone.undo.commitNow()
         await eventually { calls(clear) == 1 }
         #expect(body(of: clear)?["ids"] as? [String] == ["a", "c", "d"])
+        // The request the web sends, which takes a named card whatever its answer.
+        #expect(body(of: clear)?["only_new"] == nil)
     }
 
     @Test func clearingOneCardSaysOneAndClearingNoneSaysNothing() async {
         server.cards = [card("a")]
         await chef.load()
-        chef.clearAll()
+        chef.clear(.everything)
         #expect(phone.undo.banner?.message == "Cleared 1 suggestion")
         phone.undo.commitNow()
         await eventually { shown.isEmpty && chef.feed == .empty }
 
-        chef.clearAll()
+        chef.clear(.everything)
         #expect(phone.undo.banner == nil)
     }
 
@@ -580,7 +582,7 @@ import Testing
         let clear = Call(method: "POST", path: "/api/suggestions/clear")
         #expect(chef.picks.shown.map(\.id) == ["a", "e", "f"])
 
-        chef.clearPicks()
+        chef.clear(.picks)
         #expect(chef.picks.shown.isEmpty)
         #expect(shown == ["b", "c", "d"])
         #expect(phone.undo.banner?.message == "Cleared 4 suggestions")
@@ -589,17 +591,49 @@ import Testing
         #expect(chef.picks.shown.map(\.id) == ["a", "e", "f"])
         #expect(calls(clear) == 0)
 
-        chef.clearPicks()
+        chef.clear(.picks)
         phone.undo.commitNow()
         await eventually { calls(clear) == 1 }
         #expect(body(of: clear)?["ids"] as? [String] == ["a", "e", "f", "g"])
+        #expect(body(of: clear)?["only_new"] as? Bool == true)
+    }
+
+    @Test func aPickSavedElsewhereSinceThePhoneReadItIsBackOnDiscoverOnceTheServerHasKeptIt() async {
+        server.cards = [card("a"), card("b")]
+        await chef.load()
+        serverAnswers { [server, card] call in
+            if call.path == "/api/suggestions/clear" { server.cards = [card("b", "saved", nil, "r")] }
+            return nil
+        }
+
+        chef.clear(.picks)
+        #expect(shown.isEmpty)
+        phone.undo.commitNow()
+
+        await eventually { shown == ["b"] }
+        #expect(stage("b") == .saved("r"))
+        #expect(chef.picks.shown.isEmpty)
+    }
+
+    @Test func clearedCardsStayGoneWhenTheFeedCannotBeReadAfterwards() async {
+        server.cards = [card("a"), card("b", "saving")]
+        await chef.load()
+        serverAnswers { [getFeed] in $0 == getFeed ? .unreachable : nil }
+
+        chef.clear(.picks)
+        phone.undo.commitNow()
+        await eventually { calls(Call(method: "POST", path: "/api/suggestions/clear")) == 1 }
+        await eventually { calls(getFeed) >= 2 }
+        await chef.load()
+
+        #expect(shown == ["b"])
     }
 
     @Test func clearingPicksWhenNoneIsFreshSaysNothing() async {
         server.cards = [card("c", "saved", recipe: "r"), card("d", "failed")]
         await chef.load()
 
-        chef.clearPicks()
+        chef.clear(.picks)
 
         #expect(phone.undo.banner == nil)
         #expect(shown == ["c", "d"])
@@ -629,7 +663,7 @@ import Testing
         server.cards = [card("a"), card("b")]
         await chef.load()
         let stale = server.json
-        chef.clearPicks()
+        chef.clear(.picks)
         var feedsAsked = 0
         serverAnswers { [server, getFeed] call in
             if call.path == "/api/suggestions/clear" { server.cards = [] }

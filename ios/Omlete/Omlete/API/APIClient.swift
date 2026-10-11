@@ -216,9 +216,10 @@ nonisolated struct APIClient: Sendable {
         _ = try await call("PATCH", "suggestions/\(id.rawValue)", body: try Wire.dismissal())
     }
 
-    /// Tidying only: the server learns nothing about taste from it.
-    func clearSuggestions(_ ids: [SuggestionID]) async throws(APIError) {
-        _ = try await call("POST", "suggestions/clear", body: try Wire.clearing(ids))
+    /// Tidying only: the server learns nothing about taste from it. With
+    /// `onlyNew` it leaves a card that has been saved or has failed since the phone read it.
+    func clearSuggestions(_ ids: [SuggestionID], onlyNew: Bool) async throws(APIError) {
+        _ = try await call("POST", "suggestions/clear", body: try Wire.clearing(ids, onlyNew: onlyNew))
     }
 
     private enum Patience {

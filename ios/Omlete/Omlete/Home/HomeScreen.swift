@@ -68,9 +68,9 @@ struct HomeScreen: View {
 
     /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.
     private func refresh() async {
-        async let ideas: Void = chef.load()
+        async let ideas: Bool = chef.load()
         await library.refresh()
-        await ideas
+        _ = await ideas
     }
 
     @ViewBuilder private func cover(for content: HomeContent) -> some View {
@@ -156,7 +156,7 @@ struct HomeScreen: View {
                 }
                 .accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button("Clear") { chef.clearPicks() }
+                Button("Clear") { chef.clear(.picks) }
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
                     .accessibilityIdentifier("home.picks.clearButton")

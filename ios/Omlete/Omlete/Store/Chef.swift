@@ -50,7 +50,7 @@ struct ChefDependencies {
     private(set) var tune: TuneSettings
 
     @ObservationIgnored private let deps: ChefDependencies
-    @ObservationIgnored private var loading: Task<Void, Never>?
+    @ObservationIgnored private var loading: Task<Bool, Never>?
     @ObservationIgnored private var polling: Task<Void, Never>?
     /// Cards whose save request is on the wire: a feed fetched meanwhile may not know yet.
     @ObservationIgnored private var posting: Set<SuggestionID> = []
@@ -95,16 +95,18 @@ struct ChefDependencies {
         cards.filter { !hidden.contains($0.id) }
     }
 
-    /// Fetches the feed. A call made while one is running joins it.
-    func load() async {
+    /// Fetches the feed, and returns whether the server answered. A call made
+    /// while one is running joins it.
+    @discardableResult func load() async -> Bool {
         if let loading { return await loading.value }
         let task = Task {
-            await fetch()
+            let answered = await fetch()
             // Cleared here, not by the caller: a waiter that resumes first must not join a fetch that is over.
             loading = nil
+            return answered
         }
         loading = task
-        await task.value
+        return await task.value
     }
 
     /// Asks for a new batch of cards, which takes a model a while. `tuned`
@@ -183,24 +185,13 @@ struct ChefDependencies {
         ChefPicks(cards: visible)
     }
 
-    /// Tidies every card off the feed except those still saving. Not a taste
-    /// signal: the server learns nothing from it.
-    func clearAll() {
-        clear(visible.filter { $0.stage != .saving })
-    }
-
-    /// Home's Clear: only the ideas nobody has acted on. A saved or failed
-    /// card is not on Home, so clearing it from there would remove something
-    /// the user never saw go.
-    func clearPicks() {
-        clear(picks.fresh)
-    }
-
-    private func clear(_ cards: [Suggestion]) {
-        let ids = cards.map(\.id)
+    /// Tidies cards off the feed. Which ones is the scope's to say. Not a
+    /// taste signal: the server learns nothing from it.
+    func clear(_ scope: ClearScope) {
+        let ids = scope.cards(of: visible).map(\.id)
         guard !ids.isEmpty else { return }
         hide(ids, saying: "Cleared \(ids.count) suggestion\(ids.count == 1 ? "" : "s")") { [api = deps.api] in
-            try await api.clearSuggestions(ids)
+            try await api.clearSuggestions(ids, onlyNew: scope.onlyNewOnServer)
         }
     }
 
@@ -215,14 +206,16 @@ struct ChefDependencies {
                 guard (try? await tell()) != nil else { return }
                 // A feed asked for before the server was told still lists these cards, so they
                 // stay hidden until one asked for afterwards has been adopted.
-                await self?.reload()
-                self?.forget(ids)
+                let heard = await self?.reload() ?? false
+                self?.unhide(ids, feedIsNewer: heard)
             }
         })
     }
 
-    private func forget(_ ids: [SuggestionID]) {
-        cards.removeAll { ids.contains($0.id) }
+    /// A feed fetched since the server was told is the truth, and shows any
+    /// card the server chose to keep. Without one the cards are taken as gone.
+    private func unhide(_ ids: [SuggestionID], feedIsNewer: Bool) {
+        if !feedIsNewer { cards.removeAll { ids.contains($0.id) } }
         hidden.subtract(ids)
     }
 
@@ -249,24 +242,26 @@ struct ChefDependencies {
     }
 
     /// A fetch that began before the request just made may not show its effect, so wait it out and fetch again.
-    private func reload() async {
-        await loading?.value
-        await load()
+    @discardableResult private func reload() async -> Bool {
+        _ = await loading?.value
+        return await load()
     }
 
-    private func fetch() async {
+    private func fetch() async -> Bool {
         fetchesBegun += 1
         let number = fetchesBegun
+        defer { poll() }
         do {
             let fresh = try await deps.api.suggestions()
             adopt(fresh, fetch: number, at: timeNow())
             (hasLoaded, loadFailure, unanswered) = (true, nil, 0)
+            return true
         } catch {
             loadFailure = error
             let now = timeNow()
             if saves.values.contains(where: { !$0.givenUp && isOverdue($0, at: now) }) { unanswered += 1 }
+            return false
         }
-        poll()
     }
 
     /// The clock's reading. A save first seen later than this was seen before

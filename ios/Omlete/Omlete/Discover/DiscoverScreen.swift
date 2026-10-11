@@ -43,7 +43,7 @@ struct DiscoverScreen: View {
             SettingsCog(tab: .discover)
             if case .shelves = feed {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Clear all") { chef.clearAll() }
+                    Button("Clear all") { chef.clear(.everything) }
                         .accessibilityIdentifier("discover.clearAllButton")
                 }
             }
