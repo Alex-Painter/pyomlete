@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   addDays,
   defaultDay,
   longDate,
   nextOpenDay,
   shortLabel,
+  todayISO,
   weekStartFor,
   weekToPlan,
 } from './week'
@@ -28,9 +29,23 @@ describe('weekStartFor', () => {
     expect(weekStartFor('2026-10-20', 0)).toBe('2026-10-19')
   })
 
-  it('crosses the October clocks change and a year end', () => {
-    expect(addDays('2026-10-24', 2)).toBe('2026-10-26')
+  it('crosses a year end', () => {
     expect(weekStartFor('2027-01-01', 5)).toBe('2026-12-26')
+  })
+})
+
+describe('todayISO', () => {
+  const tz = process.env.TZ
+  afterEach(() => {
+    if (tz === undefined) delete process.env.TZ
+    else process.env.TZ = tz
+  })
+
+  it("follows this device's midnight, not UTC's", () => {
+    // In London on the night the clocks go back, 00:30 is still 23:30 UTC.
+    process.env.TZ = 'Europe/London'
+    expect(todayISO(new Date(2026, 9, 24, 23, 59))).toBe('2026-10-24')
+    expect(todayISO(new Date(2026, 9, 25, 0, 30))).toBe('2026-10-25')
   })
 })
 
