@@ -236,8 +236,8 @@ async function send(op: QueuedOp, keepalive: boolean): Promise<Response> {
 }
 
 let flushing: Promise<number> | null = null
-/** Asked to flush while a flush was running, which may have read the queue already. */
-let flushAgain = false
+/** Flushes asked for while one was running, which may have read the queue already. */
+let flushRequests = 0
 
 /**
  * Send every op that is due, in order. Stops at the first network failure and
@@ -245,16 +245,17 @@ let flushAgain = false
  */
 export function flushQueue(opts: { keepalive?: boolean } = {}): Promise<number> {
   if (flushing) {
-    flushAgain = true
+    flushRequests++
     return flushing
   }
   flushing = (async () => {
     let sent = 0
     try {
-      do {
-        flushAgain = false
+      for (;;) {
+        const requests = flushRequests
         sent += await sendDue(opts.keepalive ?? false)
-      } while (flushAgain)
+        if (flushRequests === requests) break
+      }
     } finally {
       // After an await, so `flushing` has been assigned, and with none after
       // the last check, so no caller can slip in between.
