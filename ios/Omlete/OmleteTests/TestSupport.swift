@@ -69,18 +69,18 @@ import Testing
             answered.append(call)
         }
         if holding { await withCheckedContinuation { held.append((call, $0)) } }
-        var reply = reply(call)
-        if case .answering(let body) = reply { reply = .status(200, body(sent)) }
-        switch reply {
-        case .answering:
-            fatalError("replaced above")
+        func response(_ status: Int, _ body: String) -> (Data, HTTPURLResponse) {
+            (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+        }
+        switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
         case .lost:
             throw URLError(.timedOut)
         case .status(let status, let body):
-            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), response)
+            return response(status, body)
+        case .answering(let body):
+            return response(200, body(sent))
         }
     }
 }
