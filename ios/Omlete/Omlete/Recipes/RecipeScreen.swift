@@ -9,7 +9,11 @@ struct RecipeScreen: View {
     @Environment(Kitchen.self) private var kitchen
     @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
+    @Environment(UndoCenter.self) private var undo
     @Environment(\.dismiss) private var dismiss
+
+    /// The edit in progress, which is what puts the editor up.
+    @State private var editing: RecipeDraft?
 
     var body: some View {
         let store = kitchen.cook(recipeID)
@@ -81,6 +85,8 @@ struct RecipeScreen: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu("More actions", systemImage: "ellipsis") {
+                    Button("Edit recipe", systemImage: "pencil") { editing = RecipeDraft(recipe) }
+                        .accessibilityIdentifier("recipe.editAction")
                     Button("Delete recipe", systemImage: "trash", role: .destructive) {
                         library.deleteRecipe(recipe.id, title: recipe.title)
                         dismiss()
@@ -88,6 +94,11 @@ struct RecipeScreen: View {
                     .accessibilityIdentifier("recipe.deleteAction")
                 }
                 .accessibilityIdentifier("recipe.moreMenu")
+            }
+        }
+        .sheet(item: $editing) { draft in
+            RecipeEditor(draft: draft, store: store, aisles: library.aisleOrder, units: library.units) { discarded in
+                undo.offer("Discarded your changes to \(recipe.title)", undo: { editing = discarded })
             }
         }
     }
