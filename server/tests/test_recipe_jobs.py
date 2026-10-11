@@ -30,6 +30,7 @@ class FakeJobDocument(RecipeJob):
     store: ClassVar[dict] = {}
     #: Saves that fail before one is let through.
     failing_saves: ClassVar[int] = 0
+    hanging_saves: ClassVar[int] = 0
 
     id: str
 
@@ -41,6 +42,9 @@ class FakeJobDocument(RecipeJob):
 
     async def save(self):
         await asyncio.sleep(0)
+        if type(self).hanging_saves > 0:
+            type(self).hanging_saves -= 1
+            await asyncio.sleep(3600)
         if type(self).failing_saves > 0:
             type(self).failing_saves -= 1
             raise ConnectionError("mongo is away")
@@ -51,19 +55,15 @@ class FakeJobDocument(RecipeJob):
         await asyncio.sleep(0)
         return cls.store.get(job_id)
 
-    @classmethod
-    async def count_working_since(cls, started_after):
-        await asyncio.sleep(0)
-        return sum(
-            job.status == "working" and job.created_at > started_after
-            for job in cls.store.values()
-        )
-
 
 @pytest.fixture(autouse=True)
 def jobs():
     FakeJobDocument.store = {}
     FakeJobDocument.failing_saves = 0
+    FakeJobDocument.hanging_saves = 0
+    # The cap's own state, so a test that dies mid-start cannot shrink the cap for the next.
+    main._recipe_jobs_starting.clear()
+    main._recipe_job_tasks.clear()
     with patch.multiple(main, RecipeJobDocument=FakeJobDocument, RECIPE_JOB_WRITE_PAUSES=(0, 0, 0)):
         yield FakeJobDocument.store
 
@@ -364,17 +364,44 @@ class TestStartingAJob:
         assert keys[-1] not in jobs
         assert claude.beta.messages.tool_runner.call_count == main.MAX_WORKING_RECIPE_JOBS
 
-    async def test_jobs_that_ended_or_went_stale_do_not_count_towards_the_limit(self, api, jobs):
+    async def test_starts_that_arrive_together_cannot_pass_the_limit_together(self, api, jobs):
+        claude = a_model_that_never_answers()
+        keys = [str(uuid4()) for _ in range(main.MAX_WORKING_RECIPE_JOBS * 2)]
+
+        with a_model(async_claude=claude):
+            answers = await asyncio.gather(*(describe(api, key) for key in keys))
+            await main._end_running_recipe_jobs()
+
+        statuses = sorted(r.status_code for r in answers)
+        assert statuses == [202] * main.MAX_WORKING_RECIPE_JOBS + [429] * main.MAX_WORKING_RECIPE_JOBS
+        assert len(jobs) == main.MAX_WORKING_RECIPE_JOBS
+        assert main._recipe_jobs_starting == set()
+
+    async def test_a_job_whose_task_died_with_its_server_holds_no_place(self, api, jobs):
         for _ in range(main.MAX_WORKING_RECIPE_JOBS):
-            ended = FakeJobDocument(id=str(uuid4()), kind="describe", status="failed", failure="other")
-            lost = FakeJobDocument(id=str(uuid4()), kind="describe")
-            lost.created_at = datetime.now(timezone.utc) - main.RECIPE_JOB_STALE_AFTER * 1.1
-            jobs[ended.id], jobs[lost.id] = ended, lost
+            orphan = FakeJobDocument(id=str(uuid4()), kind="describe")
+            jobs[orphan.id] = orphan
 
         with a_model():
-            job = await finished(api, await describe(api))
+            response = await describe(api, str(uuid4()))
+            await asyncio.gather(*list(main._recipe_job_tasks))
 
-        assert job["status"] == "saved"
+        assert response.status_code == 202
+
+    async def test_a_repeat_of_a_key_still_being_started_is_not_refused_as_busy(self, api, jobs):
+        claude = a_model_that_never_answers()
+        keys = [str(uuid4()) for _ in range(main.MAX_WORKING_RECIPE_JOBS)]
+
+        with a_model(async_claude=claude):
+            for key in keys[:-1]:
+                await describe(api, key)
+            # The last place is taken by a start and its repeat arriving together.
+            first, repeat = await asyncio.gather(describe(api, keys[-1]), describe(api, keys[-1]))
+            await main._end_running_recipe_jobs()
+
+        assert sorted([first.status_code, repeat.status_code]) == [200, 202]
+        assert claude.beta.messages.tool_runner.call_count == main.MAX_WORKING_RECIPE_JOBS
+        assert main._recipe_jobs_starting == set()
 
     @pytest.mark.parametrize(
         "photos",
@@ -402,8 +429,9 @@ class TestStartingAJob:
         [
             [("files", ("page.jpg", b"", "image/jpeg"))],
             [("files", ("notes.txt", b"not a photo", "text/plain"))],
+            [("files", ("page.heic", b"page", "image/heic"))],
         ],
-        ids=["empty", "not an image"],
+        ids=["empty", "not an image", "an image the model does not read"],
     )
     async def test_a_photo_that_is_empty_or_not_an_image_starts_nothing(self, api, jobs, files):
         claude = model_answering(SOUP)
@@ -414,6 +442,16 @@ class TestStartingAJob:
         assert response.status_code == 422
         assert jobs == {}
         claude.beta.messages.tool_runner.assert_not_called()
+
+    @pytest.mark.parametrize("media_type", sorted(main.JOB_PHOTO_TYPES))
+    async def test_each_type_the_model_reads_is_taken(self, api, media_type):
+        with a_model():
+            response = await api.put(
+                f"/api/recipe-jobs/{KEY}/photos", files=[("files", ("page", b"page", media_type))]
+            )
+            await asyncio.gather(*list(main._recipe_job_tasks))
+
+        assert response.status_code == 202
 
     async def test_photos_at_the_bounds_are_taken(self, api):
         with a_model():
@@ -436,6 +474,16 @@ class TestHowAJobEndsIsWritten:
         assert (job["status"], job["recipe_id"]) == ("saved", RECIPE_ID)
         refusals = [r.getMessage() for r in caplog.records if "could not be written" in r.getMessage()]
         assert refusals == [f"Recipe job {KEY} ended saved (recipe {RECIPE_ID}) and that could not be written"] * 2
+
+    async def test_a_write_that_hangs_is_given_up_on_and_tried_again(self, api, jobs, monkeypatch):
+        monkeypatch.setattr(main, "RECIPE_JOB_WRITE_TIMEOUT", 0.01)
+        monkeypatch.setattr(main, "RECIPE_JOB_WRITE_PAUSES", (0, 0, 0))
+        FakeJobDocument.hanging_saves = 1
+
+        with a_model():
+            job = await finished(api, await describe(api))
+
+        assert (job["status"], job["recipe_id"]) == ("saved", RECIPE_ID)
 
     async def test_a_write_that_never_lands_leaves_the_job_working_for_the_stale_rule(self, api, jobs):
         FakeJobDocument.failing_saves = len(main.RECIPE_JOB_WRITE_PAUSES)

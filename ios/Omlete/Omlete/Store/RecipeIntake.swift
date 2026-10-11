@@ -96,12 +96,13 @@ struct IntakeDependencies {
     /// Tries unanswered in a row.
     @ObservationIgnored private var misses = 0
     /// A start for the outstanding job may have reached the server. False only
-    /// from a tap until a start goes unanswered: a job restored at launch may
-    /// have been sent by the app that was killed.
+    /// from a tap until its first send is answered, goes unanswered, or the
+    /// task making it is replaced: a job restored at launch may have been sent
+    /// by the app that was killed.
     @ObservationIgnored private var startMayHaveArrived = false
 
     /// Restores an outstanding job and sends nothing: `resume()` does that,
-    /// when the scene becomes active.
+    /// from the root view at launch and whenever the scene becomes active.
     init(deps: IntakeDependencies) {
         self.deps = deps
         let saved = deps.defaults.data(forKey: Self.jobKey)
@@ -182,6 +183,8 @@ struct IntakeDependencies {
 
     /// Replaces whatever task was following the job, so there is never more than one.
     private func follow(_ job: RecipeJob, first: Move) {
+        // The task this replaces may have a start out whose answer it will now never take.
+        if polling != nil { startMayHaveArrived = true }
         polling?.cancel()
         // What a start would send. nil for photos after a relaunch, which are gone.
         let request = request.flatMap { $0.kind == job.kind ? $0 : nil }
