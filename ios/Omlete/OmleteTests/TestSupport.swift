@@ -31,12 +31,20 @@ import Testing
     var reply: (Call) -> Reply = { _ in .status(200) }
     /// While set, every request waits here until `release()`.
     var holding = false
-    private var held: [CheckedContinuation<Void, Never>] = []
+    private var held: [(call: Call, resume: CheckedContinuation<Void, Never>)] = []
+    /// Requests that have been answered, in the order their answers went back.
+    private(set) var answered: [Call] = []
 
     func release() {
         holding = false
-        held.forEach { $0.resume() }
+        held.forEach { $0.resume.resume() }
         held = []
+    }
+
+    /// Answers the held requests for `call` and keeps holding the rest, so a test chooses which answer arrives first.
+    func release(only call: Call) {
+        held.filter { $0.call == call }.forEach { $0.resume.resume() }
+        held.removeAll { $0.call == call }
     }
 
     nonisolated func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -53,8 +61,11 @@ import Testing
             inFlight += 1
             peakInFlight = max(peakInFlight, inFlight)
         }
-        defer { if isListRequest { inFlight -= 1 } }
-        if holding { await withCheckedContinuation { held.append($0) } }
+        defer {
+            if isListRequest { inFlight -= 1 }
+            answered.append(call)
+        }
+        if holding { await withCheckedContinuation { held.append((call, $0)) } }
         switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
