@@ -28,7 +28,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 
 ## Features
 
-- [Home](./home.md): your lists. Open one, start a new one, rename, duplicate, delete with Undo.
+- [Home](./home.md): meals to cook, your lists and Chef's picks. Open a list, start a new one, rename, duplicate, delete with Undo. Picks lead to Discover and clear with Undo.
 - [Plan](./plan.md): one list. Quick add, check off, edit, delete with Undo, reorder, meals, Add meals, Start shopping.
 - [Shop](./shop.md): the list full screen in aisle order. Check with Undo, quick add, works with the API stopped.
 - [Cook](./cook.md): one recipe full screen, a step at a time. Scale servings, start timers, rate it at the end. Resumes where you left off.
@@ -42,7 +42,6 @@ Each follows a web route (`client/src/routes`, the spec named in `ios/CLAUDE.md`
 
 | Screen | Web route that specifies it |
 |---|---|
-| Home's Chef's picks | `/` |
 | Editing a recipe | `/recipe/$recipeId` (Edit recipe in the More menu) |
 | Taking a photo in Add a recipe | `/create` (Take photo) |
 | Settings | `/settings` |

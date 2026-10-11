@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeScreen: View {
     @Environment(Library.self) private var library
     @Environment(Kitchen.self) private var kitchen
+    @Environment(Chef.self) private var chef
     @Environment(AppNavigation.self) private var navigation
 
     @State private var renaming: ListSummary?
@@ -11,6 +12,8 @@ struct HomeScreen: View {
 
     var body: some View {
         let rows = library.rows
+        // Not under the spinner or the failure message, which have the screen to themselves.
+        let picks = library.hasLoaded ? chef.picks.shown : []
         List {
             if let actionFailure {
                 Label(message(for: actionFailure), systemImage: "exclamationmark.triangle")
@@ -26,10 +29,23 @@ struct HomeScreen: View {
                         listRow(row)
                     }
                 }
+            } else if !picks.isEmpty {
+                // The overlay would cover the picks, so the invitation takes the lists' place instead.
+                Section("Lists") {
+                    Label(
+                        "No lists yet. Start one, add a few meals, and the ingredients collect themselves.",
+                        systemImage: "cart"
+                    )
+                    .foregroundStyle(.secondary)
+                }
+            }
+            if !picks.isEmpty {
+                picksSection(picks)
             }
         }
+        .accessibilityIdentifier("home.list")
         .overlay {
-            if rows.isEmpty { emptyState }
+            if rows.isEmpty, picks.isEmpty { emptyState }
         }
         .contentMargins(.bottom, 72, for: .scrollContent)
         .undoBanner(isCovered: navigation.immersive != nil)
@@ -49,8 +65,14 @@ struct HomeScreen: View {
                 .accessibilityIdentifier("home.newListButton")
             }
         }
-        .refreshable { await library.refresh() }
+        .refreshable {
+            async let ideas: Void = chef.load()
+            await library.refresh()
+            await ideas
+        }
         .task { await library.refresh() }
+        // Home asks for the feed itself, so the picks do not wait for a visit to Discover.
+        .task { await chef.load() }
         .sheet(item: $renaming) { row in
             RenameListSheet(name: row.name) { library.list(row.id).rename($0) }
         }
@@ -102,6 +124,45 @@ struct HomeScreen: View {
         }
         .task(id: shelf.meals.map(\.id)) {
             await kitchen.warm(shelf.meals.map(\.id))
+        }
+    }
+
+    /// New ideas find you without going looking. Every row leads to Discover,
+    /// where a card can be saved, added to a list or turned down.
+    private func picksSection(_ picks: [Suggestion]) -> some View {
+        Section {
+            ForEach(picks) { card in
+                Button {
+                    navigation.tab = .discover
+                } label: {
+                    PictureRow(picture: card.imageURL, title: card.title) {
+                        if let reason = card.reason {
+                            Text(reason)
+                                .lineLimit(2)
+                        }
+                    } mark: {
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home.pick.\(card.id.rawValue)")
+            }
+        } header: {
+            HStack(spacing: 16) {
+                // Laid out by hand: inside a List a Label takes the row style, with a wide icon gutter.
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .accessibilityHidden(true)
+                    Text("Chef's picks")
+                }
+                Spacer()
+                Button("Clear") { chef.clearPicks() }
+                    .accessibilityIdentifier("home.picks.clearButton")
+                Button("See all") { navigation.tab = .discover }
+                    .accessibilityIdentifier("home.picks.seeAllButton")
+            }
         }
     }
 
