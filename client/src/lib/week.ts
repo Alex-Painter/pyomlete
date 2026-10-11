@@ -59,6 +59,21 @@ export function weekStartFor(today: ISODate, weekday: number): ISODate {
   return addDays(today, -((weekdayOf(today) - weekday + 7) % 7))
 }
 
+/**
+ * The week "Plan a week" opens: this one, or next week on its last day, when
+ * this week is all but over. An existing list for that week is opened rather
+ * than a second one made.
+ */
+export function weekToPlan(
+  today: ISODate,
+  weekday: number,
+  lists: { id: string; week_start: ISODate | null }[],
+): { weekStart: ISODate; listId: string | null } {
+  const current = weekStartFor(today, weekday)
+  const weekStart = daysBetween(current, today) === 6 ? addDays(current, 7) : current
+  return { weekStart, listId: lists.find((l) => l.week_start === weekStart)?.id ?? null }
+}
+
 export const dayShort = (date: ISODate) => DAY_SHORT[weekdayOf(date)]
 export const dayLong = (date: ISODate) => DAY_LONG[weekdayOf(date)]
 export const dayOfMonth = (date: ISODate) => toUTC(date).getUTCDate()

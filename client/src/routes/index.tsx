@@ -13,7 +13,7 @@ import { createList, useCurrentList } from '@/hooks/useAddToList'
 import { apiFetch, apiJson } from '@/lib/api'
 import { useSuggestionActions } from '@/hooks/useSuggestionActions'
 import { useLists, usePlanSettings, useRecipes, useSuggestions } from '@/lib/queries'
-import { todayISO, weekStartFor } from '@/lib/week'
+import { todayISO, weekToPlan } from '@/lib/week'
 import type { ListSummary } from '@/lib/types'
 
 export const Route = createFileRoute('/')({ component: HomePage })
@@ -38,10 +38,14 @@ function HomePage() {
   // The week runs from one shop to the next, so it starts on the most recent
   // shop day rather than on Monday.
   const newList = useMutation({
-    mutationFn: () =>
-      createList({
-        week_start: weekStartFor(todayISO(), planSettings?.week_start_weekday ?? 5),
-      }),
+    mutationFn: async () => {
+      const { weekStart, listId } = weekToPlan(
+        todayISO(),
+        planSettings?.week_start_weekday ?? 5,
+        (lists ?? []).filter((l) => !hidden.has(l.id)),
+      )
+      return listId ? { id: listId } : createList({ week_start: weekStart })
+    },
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ['lists'] })
       void navigate({ to: '/list/$listId', params: { listId: data.id } })
@@ -90,7 +94,7 @@ function HomePage() {
           <Button
             variant={visible && visible.length === 0 ? 'default' : 'outline'}
             onClick={() => newList.mutate()}
-            disabled={newList.isPending}
+            disabled={newList.isPending || !lists}
             className="min-h-[44px] font-semibold"
           >
             {newList.isPending ? (

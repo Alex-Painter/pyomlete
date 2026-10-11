@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, defaultDay, longDate, nextOpenDay, shortLabel, weekStartFor } from './week'
+import {
+  addDays,
+  defaultDay,
+  longDate,
+  nextOpenDay,
+  shortLabel,
+  weekStartFor,
+  weekToPlan,
+} from './week'
 import type { PlanDay } from './types'
 
 const week = (start: string, overrides: Partial<PlanDay>[] = []): PlanDay[] =>
@@ -23,6 +31,28 @@ describe('weekStartFor', () => {
   it('crosses the October clocks change and a year end', () => {
     expect(addDays('2026-10-24', 2)).toBe('2026-10-26')
     expect(weekStartFor('2027-01-01', 5)).toBe('2026-12-26')
+  })
+})
+
+describe('weekToPlan', () => {
+  // Weeks start on Saturday (5); 2026-10-17 is a Saturday.
+  it('plans the week under way', () => {
+    expect(weekToPlan('2026-10-17', 5, [])).toEqual({ weekStart: '2026-10-17', listId: null })
+    expect(weekToPlan('2026-10-22', 5, [])).toEqual({ weekStart: '2026-10-17', listId: null })
+  })
+
+  it('plans next week on the last day of this one', () => {
+    expect(weekToPlan('2026-10-23', 5, [])).toEqual({ weekStart: '2026-10-24', listId: null })
+  })
+
+  it('opens the list already made for that week', () => {
+    const lists = [
+      { id: 'plain', week_start: null },
+      { id: 'last', week_start: '2026-10-10' },
+      { id: 'this', week_start: '2026-10-17' },
+    ]
+    expect(weekToPlan('2026-10-20', 5, lists)).toEqual({ weekStart: '2026-10-17', listId: 'this' })
+    expect(weekToPlan('2026-10-23', 5, lists).listId).toBeNull()
   })
 })
 
