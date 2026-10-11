@@ -7,7 +7,6 @@ import {
   enqueue,
   flushQueue,
   newId,
-  pendingOpsFor,
   pendingRemoval,
 } from '@/lib/offline'
 import type { NewOp, QueuedOp } from '@/lib/offline'
@@ -41,30 +40,14 @@ export function useListActions(listId: string) {
     [queryClient, listId],
   )
 
-  const sync = useCallback(async () => {
-    const touchesDays = (o: QueuedOp) => o.kind === 'setDay' || o.kind === 'removeRecipe'
-    const hadDayWrites = pendingOpsFor(listId).some(touchesDays)
-    const sent = await flushQueue()
-    const pending = pendingOpsFor(listId)
-    if (sent > 0 && pending.length === 0) {
-      void queryClient.invalidateQueries({ queryKey: ['list', listId] })
-    }
-    if (sent > 0) void queryClient.invalidateQueries({ queryKey: ['lists'] })
-    // The library's "Last had" line is the server's last_planned_on, which
-    // only it can work out once a day has been cleared.
-    if (hadDayWrites && !pending.some(touchesDays)) {
-      void queryClient.invalidateQueries({ queryKey: ['recipes'] })
-    }
-  }, [queryClient, listId])
-
   const apply = useCallback(
     (op: NewOp) => {
       const opId = enqueue(op)
       setList((l) => applyOps(l, [{ ...op, opId } as QueuedOp]))
-      void sync()
+      void flushQueue()
       return opId
     },
-    [setList, sync],
+    [setList],
   )
 
   const restore = useCallback(
@@ -269,6 +252,5 @@ export function useListActions(listId: string) {
     markOut,
     clearDay,
     reorder,
-    sync,
   }
 }

@@ -235,6 +235,17 @@ async function send(op: QueuedOp, keepalive: boolean): Promise<Response> {
   }
 }
 
+type SentListener = (ops: QueuedOp[]) => void
+const sentListeners = new Set<SentListener>()
+
+/** Hear about ops that reached the server, after each flush that sent any. */
+export function onSent(fn: SentListener) {
+  sentListeners.add(fn)
+  return () => {
+    sentListeners.delete(fn)
+  }
+}
+
 let flushing: Promise<number> | null = null
 /** Flushes asked for while one was running, which may have read the queue already. */
 let flushRequests = 0
@@ -249,11 +260,11 @@ export function flushQueue(opts: { keepalive?: boolean } = {}): Promise<number> 
     return flushing
   }
   flushing = (async () => {
-    let sent = 0
+    const sent: QueuedOp[] = []
     try {
       for (;;) {
         const requests = flushRequests
-        sent += await sendDue(opts.keepalive ?? false)
+        await sendDue(opts.keepalive ?? false, sent)
         if (flushRequests === requests) break
       }
     } finally {
@@ -261,7 +272,8 @@ export function flushQueue(opts: { keepalive?: boolean } = {}): Promise<number> 
       // the last check, so no caller can slip in between.
       flushing = null
     }
-    return sent
+    if (sent.length > 0) sentListeners.forEach((fn) => fn(sent))
+    return sent.length
   })()
   return flushing
 }
@@ -279,8 +291,7 @@ function nextDue(queue: QueuedOp[], now: number): QueuedOp | undefined {
   })
 }
 
-async function sendDue(keepalive: boolean): Promise<number> {
-  let sent = 0
+async function sendDue(keepalive: boolean, sent: QueuedOp[]) {
   for (;;) {
     const op = nextDue(readQueue(), Date.now())
     if (!op) break
@@ -296,9 +307,8 @@ async function sendDue(keepalive: boolean): Promise<number> {
     if (res.status >= 500) break
     // 2xx, or a 4xx that retrying can't fix (the item or list is gone).
     cancelOp(op.opId)
-    sent++
+    sent.push(op)
   }
-  return sent
 }
 
 // --- applying pending ops on top of a list ---
