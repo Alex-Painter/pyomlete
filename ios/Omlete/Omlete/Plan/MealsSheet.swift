@@ -31,7 +31,7 @@ struct MealsSheet: View {
                     Section {
                         ForEach(menu.picks, content: pickRow)
                     } header: {
-                        Label("Discover picks", systemImage: "sparkles")
+                        IconHeader(title: "Discover picks", systemImage: "sparkles")
                     }
                 }
 

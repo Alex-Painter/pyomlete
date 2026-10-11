@@ -154,13 +154,7 @@ struct HomeScreen: View {
             }
         } header: {
             HStack(spacing: 16) {
-                // Laid out by hand: inside a List a Label takes the row style, with a wide icon gutter.
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .accessibilityHidden(true)
-                    Text("Chef's picks")
-                }
-                .accessibilityAddTraits(.isHeader)
+                IconHeader(title: "Chef's picks", systemImage: "sparkles")
                 Spacer()
                 Button("Clear") { chef.clear(.picks) }
                     .frame(minHeight: 44)
