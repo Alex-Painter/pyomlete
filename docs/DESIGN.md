@@ -23,6 +23,7 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | Modes are entry points, not stages; the UI never changes because a step finished | People forget to tick things and shops have no signal. Cook can't wait on a "complete" list, and nothing should move or disappear on its own. |
 | Shop works offline | Many shops have no reception, so a list must open and accept changes with no network. |
 | Undo instead of confirm dialogs | Fewer decisions and taps; a mistake is one tap to reverse. |
+| In Plan a tap on a list row opens the edit sheet and only the circle checks it off, Got it rows included; in Shop a tap anywhere on the row checks it. Web and iOS | Alex's rule: in Plan you are building the list, so a tap edits. Checking off is what you do in the shop, so only Shop checks on a tap. |
 | The suggest-meals sheet moved off the list page into Discover | Suggestions on the list page got in the way of building the list. |
 | Lists live on Home, with New list above the fold | Lists are opened most and New list is the most common action, so a separate Lists tab would add a hop. |
 | Home leads with meals to cook from the current list | Opening the app to cook shouldn't mean opening the list first. |
