@@ -16,15 +16,14 @@ struct SettingsScreen: View {
     @State private var isLoading = false
 
     var body: some View {
-        let order = AisleOrder(library.aisleOrder)
         List {
+            if !library.aislesLoaded {
+                Section { waiting }
+            }
             Section {
-                if !library.aislesLoaded {
-                    waiting
-                }
-                ForEach(order.names, id: \.self) { name in
+                ForEach(aisles.names, id: \.self) { name in
                     AisleRow(name: name, refusal: refusal?.message(at: name)) {
-                        rename(name, to: $0, in: order)
+                        rename(name, to: $0)
                     } onDelete: {
                         refusal = nil
                         library.deleteAisle(name)
@@ -32,9 +31,10 @@ struct SettingsScreen: View {
                 }
                 .onMove { offsets, destination in
                     refusal = nil
-                    library.setAisles(order.moving(offsets, to: destination))
+                    library.setAisles(aisles.moving(offsets, to: destination))
                 }
-                newAisle(in: order)
+                .moveDisabled(!library.aislesLoaded)
+                newAisle
             } header: {
                 Text("Aisles")
             } footer: {
@@ -53,11 +53,13 @@ struct SettingsScreen: View {
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Settings")
         .refreshable { await library.refresh() }
-        .task {
-            isLoading = true
-            await library.refresh()
-            isLoading = false
-        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        await library.refresh()
+        isLoading = false
     }
 
     /// Shown until the server has answered for the aisles this launch.
@@ -68,18 +70,24 @@ struct SettingsScreen: View {
         } else {
             Label("Couldn't reach Omlete. Aisles can be changed once it answers.", systemImage: "wifi.slash")
                 .foregroundStyle(.secondary)
-                .accessibilityIdentifier("settings.unavailable")
+            Button("Try again") {
+                Task { await load() }
+            }
+            .accessibilityIdentifier("settings.retryButton")
         }
     }
 
-    private func newAisle(in order: AisleOrder) -> some View {
+    /// Read afresh by every gesture, so none acts on the order as it was when a row was drawn.
+    private var aisles: AisleOrder { AisleOrder(library.aisleOrder) }
+
+    private var newAisle: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 TextField("New aisle, e.g. World foods", text: $newName)
                     .submitLabel(.done)
-                    .onSubmit { add(to: order) }
+                    .onSubmit(add)
                     .accessibilityIdentifier("settings.newAisleField")
-                Button("Add", systemImage: "plus") { add(to: order) }
+                Button("Add", systemImage: "plus", action: add)
                     .labelStyle(.titleAndIcon)
                     .buttonStyle(.borderless)
                     .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -89,9 +97,9 @@ struct SettingsScreen: View {
         }
     }
 
-    private func add(to order: AisleOrder) {
+    private func add() {
         do {
-            library.setAisles(try order.adding(newName))
+            library.setAisles(try aisles.adding(newName))
             newName = ""
             refusal = nil
         } catch {
@@ -99,9 +107,9 @@ struct SettingsScreen: View {
         }
     }
 
-    private func rename(_ name: String, to typed: String, in order: AisleOrder) {
+    private func rename(_ name: String, to typed: String) {
         do {
-            library.setAisles(try order.renaming(name, to: typed))
+            library.setAisles(try aisles.renaming(name, to: typed))
             refusal = nil
         } catch {
             refusal = Refused(error, at: name)
@@ -140,7 +148,8 @@ private struct RefusalText: View {
 }
 
 /// One aisle: its name, editable where it stands, and a button to delete it.
-/// A rename is offered when Return is pressed or the field is left.
+/// A rename is offered when Return is pressed, the field is left, or the row
+/// goes away with something typed, as it does when Back is tapped.
 private struct AisleRow: View {
     let name: String
     let refusal: String?
@@ -165,11 +174,9 @@ private struct AisleRow: View {
                     .submitLabel(.done)
                     .focused($isFocused)
                     .onChange(of: isFocused) {
-                        guard !isFocused, text != name else { return }
-                        onRename(text)
-                        // A name that was accepted shows in a new row; this one is the old name's.
-                        text = name
+                        if !isFocused { offerRename() }
                     }
+                    .onDisappear(perform: offerRename)
                     .accessibilityIdentifier("settings.aisle.\(name)")
                 RefusalText(message: refusal)
             }
@@ -179,5 +186,12 @@ private struct AisleRow: View {
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("settings.deleteAisle.\(name)")
         }
+    }
+
+    private func offerRename() {
+        guard text != name else { return }
+        onRename(text)
+        // A name that was accepted shows in a new row; this one is the old name's.
+        text = name
     }
 }
