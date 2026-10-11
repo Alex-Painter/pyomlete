@@ -54,6 +54,20 @@ nonisolated enum Wire {
         try JSONDecoder().decode(RecipeDetailDTO.self, from: data).recipe()
     }
 
+    /// The body of the PUT that replaces a recipe's title, method and
+    /// ingredients. The server requires a unit and an aisle to be strings, so
+    /// no unit goes as "" and no aisle is left out, which the server reads as
+    /// its own fallback. A missing quantity is left out too, which it reads as null.
+    static func recipeUpdate(_ edit: RecipeEdit) throws(APIError) -> Data {
+        try encode(RecipeUpdateDTO(
+            title: edit.title, instructions: edit.steps,
+            ingredients: edit.ingredients.map {
+                RecipeUpdateDTO.Ingredient(
+                    name: $0.name, unit: $0.unit ?? "", amount: $0.amount, note: $0.note, group: $0.group,
+                    category: $0.category, excluded_from_list: !$0.isOnList)
+            }))
+    }
+
     /// A link or a description answers with one recipe; photos answer with a list, of which the first is ours.
     static func createdRecipe(_ data: Data) throws -> Recipe {
         if let one = try? JSONDecoder().decode(RecipeDetailDTO.self, from: data) { return try one.recipe() }
@@ -267,6 +281,22 @@ nonisolated private struct RecipeDetailDTO: Decodable {
             imageURL: image_url.flatMap(URL.init(string:)), totalMinutes: total_minutes ?? cook_minutes,
             source: Wire.source(source_name, source_url), createdAt: Wire.date(created_at))
     }
+}
+
+nonisolated private struct RecipeUpdateDTO: Encodable {
+    struct Ingredient: Encodable {
+        let name: String
+        let unit: String
+        let amount: Double?
+        let note: String?
+        let group: String?
+        let category: String?
+        let excluded_from_list: Bool
+    }
+
+    let title: String
+    let instructions: [String]
+    let ingredients: [Ingredient]
 }
 
 nonisolated private struct AlreadyImportedDTO: Decodable {
