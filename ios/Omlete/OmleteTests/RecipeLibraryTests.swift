@@ -171,7 +171,7 @@ import Testing
         edited.title = "Green curry"
         edited.ingredients.removeLast()
 
-        phone.library.adopt(edited)
+        phone.library.recipeEdited(edited)
 
         #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
         #expect(phone.library.recipes[1].ingredientCount == 2)
@@ -181,6 +181,29 @@ import Testing
 
         phone.relaunch()
         #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
+    }
+
+    /// The refresh's answer is the library from before the edit. Not fixed here: issue #75 has the design.
+    @Test func aRefreshAskedForBeforeAnEditWasSavedStillPutsTheOldTitleBack() async {
+        serverAnswers()
+        await phone.library.refresh()
+        var edited = Recipe.fixture()
+        edited.title = "Green curry"
+        phone.transport.holding = true
+
+        async let refreshing: Void = phone.library.refresh()
+        await eventually { calls(Call(method: "GET", path: "/api/recipes/")) == 2 }
+        phone.library.recipeEdited(edited)
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
+        phone.transport.release()
+        await refreshing
+
+        // Only the title is excused: anything else wrong with the library fails here.
+        #expect(phone.library.recipes.map(\.title).first == "Soup")
+        #expect(phone.library.recipes.count == 2)
+        withKnownIssue("a refresh already out puts the old title back until the next one (#75)") {
+            #expect(phone.library.recipes.last?.title == "Green curry")
+        }
     }
 
     @Test func aSettledRecipeDeleteIsSentAndTheRecipeForgotten() async {
@@ -360,6 +383,27 @@ private extension RecipePage {
         #expect(page?.title == "Curry")
         #expect(stove.session?.recipe.title == "Curry")
         #expect(stove.reportedSaves.isEmpty)
+    }
+
+    /// The answer to a fetch that an edit overtook is the recipe from before the edit.
+    @Test func aFetchAskedForBeforeAnEditWasSavedDoesNotPutTheOldRecipeBack() async throws {
+        await store.load()
+        serverSavesEdits()
+        let get = Call(method: "GET", path: "/api/recipes/curry")
+        stove.transport.holding = true
+
+        async let loading: Void = store.load()
+        await eventually { stove.transport.calls.count(where: { $0 == get }) == 2 }
+        async let saving: Void = store.save(greenCurry)
+        await eventually { stove.transport.calls.last == put }
+        stove.transport.release(only: put)
+        try await saving
+        #expect(page?.title == "Green curry")
+        stove.transport.release()
+        await loading
+
+        #expect(stove.transport.answered.suffix(2) == [put, get])
+        #expect(page?.title == "Green curry")
     }
 
     @Test func anEditWaitsForAnOnListChangeStillOnItsWayBecauseThatNamesItsIngredientByPosition() async throws {

@@ -76,7 +76,7 @@ The last column is the control's `accessibilityIdentifier`. Every interactive co
 | `$V gone <text>` | wait until `<text>` is no longer on screen |
 | `$V expect-id <id>` | wait until a control with that identifier exists |
 | `$V tap <id>` | tap a button, row, tab or toggle |
-| `$V tap <id> then <id2>` | tap, then tap a second control at once with no capture in between |
+| `$V tap <id> then <id2>` | tap, then tap a second control at once with no capture in between. More can follow (`then <id3>`); all of them must be on screen straight after the first tap |
 | `$V type <id> <text>` | replace a text field's contents with `<text>` |
 | `$V swipe <id> up\|down\|left\|right` | swipe inside a scrollable element (`up` scrolls the content down) |
 
