@@ -33,7 +33,11 @@ function HomePage() {
   const [actionsFor, setActionsFor] = useState<ListSummary | null>(null)
   const [renaming, setRenaming] = useState<ListSummary | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
-  const { data: planSettings } = usePlanSettings()
+  const {
+    data: planSettings,
+    isPlaceholderData: settingsLoading,
+    isError: settingsFailed,
+  } = usePlanSettings()
 
   // The week runs from one shop to the next, so it starts on the most recent
   // shop day rather than on Monday.
@@ -94,7 +98,7 @@ function HomePage() {
           <Button
             variant={visible && visible.length === 0 ? 'default' : 'outline'}
             onClick={() => newList.mutate()}
-            disabled={newList.isPending || !lists}
+            disabled={newList.isPending || !lists || (settingsLoading && !settingsFailed)}
             className="min-h-[44px] font-semibold"
           >
             {newList.isPending ? (

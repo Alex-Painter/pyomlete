@@ -7,6 +7,7 @@ import {
   enqueue,
   flushQueue,
   newId,
+  pendingOpsFor,
   pendingRemoval,
 } from '@/lib/offline'
 import type { NewOp, QueuedOp } from '@/lib/offline'
@@ -54,7 +55,7 @@ export function useListActions(listId: string) {
     (opIds: string[], previous: ListDetail | undefined) => {
       opIds.forEach(cancelOp)
       if (previous) {
-        queryClient.setQueryData<ListDetail>(['list', listId], applyOps(previous, []))
+        queryClient.setQueryData<ListDetail>(['list', listId], applyOps(previous, pendingOpsFor(listId)))
       }
       void queryClient.invalidateQueries({ queryKey: ['list', listId] })
     },

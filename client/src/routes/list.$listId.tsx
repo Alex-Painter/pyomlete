@@ -178,6 +178,7 @@ function PlanPage() {
   const removeMeal = (r: RecipeSummary) => actions.removeRecipe(r.id, r.title)
 
   const planOn = (day: PlanDay, r: RecipeSummary) => {
+    if (day.recipe_id === r.id) return actions.clearDay(day, r.title)
     actions.setDay({ date: day.date, recipeId: r.id })
     dispatch({ kind: 'planned', date: day.date, days })
   }

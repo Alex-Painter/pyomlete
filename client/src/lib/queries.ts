@@ -63,8 +63,7 @@ const DEFAULT_PLAN_SETTINGS: PlanSettings = { week_start_weekday: 5 }
 export function usePlanSettings() {
   return useQuery({
     queryKey: ['settings', 'plan'],
-    queryFn: () =>
-      apiJson<PlanSettings>('/api/settings/plan').catch(() => DEFAULT_PLAN_SETTINGS),
+    queryFn: () => apiJson<PlanSettings>('/api/settings/plan'),
     placeholderData: DEFAULT_PLAN_SETTINGS,
     staleTime: 60 * 60 * 1000,
   })

@@ -215,3 +215,33 @@ describe('useListActions', () => {
     })
   })
 })
+
+describe('undoing a removal by planning the meal', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => {
+    fetchMock.mockReset()
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps changes made since the removal on screen', () => {
+    const anyDay = {
+      ...week,
+      recipes: ['r1', 'x'],
+      days: [day('2026-10-17', null), day('2026-10-20', 'r1'), day('2026-10-21', null)],
+    }
+    saveListSnapshot(anyDay)
+    serve(anyDay)
+    const { result, list } = setup(anyDay)
+    act(() => result.current.removeRecipe('x', 'X'))
+    act(() => result.current.setDay({ date: '2026-10-17', recipeId: 'r2' }))
+    act(() => result.current.setDay({ date: '2026-10-21', recipeId: 'x' }))
+    expect(dinners(list())).toEqual([
+      ['2026-10-17', 'r2'],
+      ['2026-10-20', 'r1'],
+      ['2026-10-21', 'x'],
+    ])
+  })
+})
