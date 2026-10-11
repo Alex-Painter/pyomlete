@@ -144,13 +144,17 @@ struct ChefDependencies {
             await deps.library.addMeal(recipe, title: card.title, to: target)
         case .saving:
             return
-        case .fresh, .failed:
+        case .fresh, .failed, .unsent:
             // Saving from this moment, so a second tap while the list is found is the `.saving` case above.
             setStage(of: id, to: .saving)
-            guard let list = try? await deps.library.resolve(target), await send(id, onto: list.id) else {
-                if cards.first(where: { $0.id == id })?.stage == .saving, !posting.contains(id) {
-                    setStage(of: id, to: .failed)
-                }
+            let list = try? await deps.library.resolve(target)
+            if posting.contains(id) {
+                // A plain save went out while the list was being found. It is not a failure, and it is not this add.
+                deps.undo.offer("Already saving \(card.title).")
+                return
+            }
+            guard let list, await send(id, onto: list.id) else {
+                if cards.first(where: { $0.id == id })?.stage == .saving { setStage(of: id, to: .unsent) }
                 deps.undo.offer("Couldn't add \(card.title). Try again.")
                 return
             }
@@ -234,7 +238,7 @@ struct ChefDependencies {
         } catch {
             posting.remove(id)
             saves[id] = nil
-            setStage(of: id, to: .failed)
+            setStage(of: id, to: .unsent)
             return false
         }
         posting.remove(id)
@@ -305,7 +309,7 @@ struct ChefDependencies {
                 lists[card.id] = sentTo[card.id]
             case .saved:
                 if let save { landed.append(save) }
-            case .fresh:
+            case .fresh, .unsent:
                 break
             }
             return card

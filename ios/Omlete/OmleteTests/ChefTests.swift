@@ -462,13 +462,13 @@ import Testing
         await eventually { stage("a") == .failed }
     }
 
-    @Test func aSaveThatCannotBeSentFailsTheCardAndCanBeTriedAgain() async {
+    @Test func aSaveThatCannotBeSentIsMarkedUnsentAndCanBeTriedAgain() async {
         server.cards = [card("a")]
         await chef.load()
         serverAnswers { $0.method == "POST" ? .unreachable : nil }
 
         chef.save("a")
-        await eventually { stage("a") == .failed }
+        await eventually { stage("a") == .unsent }
 
         serverAnswers()
         server.cards = [card("a", "saving")]
@@ -842,6 +842,65 @@ import Testing
         await chef.addToList("a", to: .current)
 
         #expect(phone.undo.banner?.message == "Couldn't add Card a. Try again.")
-        #expect(stage("a") == .failed)
+        #expect(stage("a") == .unsent)
+    }
+
+    private var picks: [SuggestionID] {
+        MealMenu(recipes: [], cards: chef.visible, onList: [], search: "").picks.map(\.id)
+    }
+
+    /// The web's picker keeps a card whose request could not be sent, so it is tapped again there.
+    @Test func aPickWhoseSaveCouldNotBeSentIsStillAPickAndASecondTapSendsIt() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { $0.method == "POST" ? .unreachable : nil }
+
+        await chef.addToList("a", to: .list("list"))
+        #expect(picks == ["a"])
+
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        #expect(phone.undo.banner?.message == "Saving Card a. It goes on Week when it's ready.")
+        #expect(picks == ["a"])
+    }
+
+    /// The picker has no way to send a save again, so a card the server could not make a recipe of leaves it.
+    @Test func aPickTheServerCouldNotSaveLeavesThePicker() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "failed")] }
+            return nil
+        }
+
+        await chef.addToList("a", to: .list("list"))
+
+        #expect(picks == [])
+    }
+
+    @Test func addingACardWhoseSaveIsAlreadyOnTheWireNeverSaysItFailed() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        let newList = Call(method: "POST", path: "/api/lists/")
+        let save = Call(method: "POST", path: "/api/suggestions/a/save")
+        serverAnswers { $0 == newList ? .status(200, #"{"id":"new","name":"10th October","created_at":null}"#) : nil }
+        phone.transport.holding = true
+        let adding = Task { await chef.addToList("a", to: .new) }
+        await eventually { phone.transport.calls.contains(newList) }
+        chef.save("a")
+        await eventually { phone.transport.calls.contains(save) }
+
+        phone.transport.release(only: newList)
+        await adding.value
+
+        #expect(phone.undo.banner?.message == "Already saving Card a.")
+        #expect(stage("a") == .saving)
+        phone.transport.release()
     }
 }

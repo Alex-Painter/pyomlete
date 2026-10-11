@@ -26,7 +26,10 @@ nonisolated struct Suggestion: Identifiable, Equatable, Sendable {
         case fresh
         case saving
         case saved(RecipeID)
+        /// The server took the save and could not make the recipe.
         case failed
+        /// The save never got as far as the server, so the card is still the idea it was.
+        case unsent
     }
 
     let id: SuggestionID

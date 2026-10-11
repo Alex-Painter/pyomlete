@@ -99,7 +99,7 @@ struct SuggestionCard: View {
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
-        case .failed:
+        case .failed, .unsent:
             Label("Couldn't save this one.", systemImage: "exclamationmark.circle")
                 .font(.subheadline)
                 .foregroundStyle(.red)
@@ -115,7 +115,7 @@ struct SuggestionCard: View {
             }
             .accessibilityIdentifier("discover.saved.\(id)")
         } else {
-            Button(card.stage == .failed ? "Try again" : "Save", systemImage: "bookmark") { chef.save(card.id) }
+            Button(card.stage == .failed || card.stage == .unsent ? "Try again" : "Save", systemImage: "bookmark") { chef.save(card.id) }
                 .disabled(card.stage == .saving)
                 .accessibilityIdentifier("discover.save.\(id)")
         }

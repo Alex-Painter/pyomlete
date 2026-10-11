@@ -13,9 +13,10 @@ nonisolated struct MealMenu: Equatable, Sendable {
 
     static let mostPicks = 4
 
-    /// Each fresh or saving, in feed order, never more than `mostPicks`. A
-    /// card that is saved is in the library below, and one that failed is
-    /// Discover's to retry.
+    /// Each card that is not yet a recipe and can still become one from here,
+    /// in feed order, never more than `mostPicks`. A card that is saved is in
+    /// the library below, and one the server failed to save is Discover's to
+    /// retry. One whose save was never sent stays, to be tapped again.
     let picks: [Suggestion]
     /// Library order, newest first.
     let recipes: [Row]
@@ -33,10 +34,19 @@ nonisolated struct MealMenu: Equatable, Sendable {
         let recipes = recipes ?? []
         picks = Array(
             cards.lazy
-                .filter { ($0.stage == .fresh || $0.stage == .saving) && $0.title.matches(search: search) }
+                .filter { $0.stage.isPick && $0.title.matches(search: search) }
                 .prefix(Self.mostPicks))
         self.recipes = recipes
             .filter { $0.title.matches(search: search) }
             .map { Row(recipe: $0, isOnList: onList.contains($0.id)) }
+    }
+}
+
+private nonisolated extension Suggestion.Stage {
+    var isPick: Bool {
+        switch self {
+        case .fresh, .saving, .unsent: true
+        case .saved, .failed: false
+        }
     }
 }
