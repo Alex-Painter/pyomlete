@@ -29,13 +29,13 @@ nonisolated enum Wire {
         return ListDetail(id: ListID(dto.id), name: dto.name, recipes: dto.recipes.map { RecipeID($0) }, items: items)
     }
 
-    static func aisleOrder(_ data: Data) throws -> [String] {
-        AisleOrder(try JSONDecoder().decode([CategoryDTO].self, from: data).sorted { $0.order < $1.order }.map(\.name)).names
+    static func aisleOrder(_ data: Data) throws -> AisleOrder {
+        AisleOrder(try JSONDecoder().decode([CategoryDTO].self, from: data).sorted { $0.order < $1.order }.map(\.name))
     }
 
     /// The whole list, each aisle numbered by its place: the PUT replaces every aisle the server has.
-    static func aisleOrder(_ names: [String]) throws(APIError) -> Data {
-        try encode(CategoriesDTO(categories: names.enumerated().map { CategoryDTO(name: $1, order: $0) }))
+    static func aisleOrderBody(_ order: AisleOrder) throws(APIError) -> Data {
+        try encode(CategoriesDTO(categories: order.names.enumerated().map { CategoryDTO(name: $1, order: $0) }))
     }
 
     static func category(_ data: Data) throws -> String {

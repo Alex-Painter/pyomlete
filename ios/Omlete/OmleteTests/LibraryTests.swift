@@ -38,9 +38,10 @@ import Testing
         serverAnswers()
 
         await phone.library.refresh()
+        await phone.aislesSettle()
 
         #expect(phone.library.rows.map(\.name) == ["Week", "Party"])
-        #expect(phone.library.aisleOrder == ["Bakery", "Dairy"])
+        #expect(phone.library.aisles.order.names == ["Bakery", "Dairy"])
         #expect(phone.library.units == ["g", "tin"])
         #expect(phone.library.meal("curry") == RecipeSummary(
             id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg"), totalMinutes: 35))
@@ -49,7 +50,7 @@ import Testing
         phone.relaunch()
 
         #expect(phone.library.rows.map(\.name) == ["Week", "Party"])
-        #expect(phone.library.aisleOrder == ["Bakery", "Dairy"])
+        #expect(phone.library.aisles.order.names == ["Bakery", "Dairy"])
     }
 
     @Test func aRefreshMadeDuringAnotherJoinsIt() async {
