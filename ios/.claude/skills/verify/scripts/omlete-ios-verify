@@ -166,8 +166,9 @@ release_api() {
 #
 # Also leaves "Verify Fixture Traybake", a recipe in the shape a link import
 # saves (source, time, rating, ingredient groups, no picture), and five
-# Discover cards across four shelves. The last card's link is the Traybake's
-# source, so saving it finds that recipe without asking a model.
+# Discover cards across four shelves, in a fixed feed order. The Traybake
+# card's link is the Traybake's source, so saving it finds that recipe without
+# asking a model.
 # Only ever runs against the disposable database.
 seed() {
   local py="$ROOT/server/.venv/bin/python"
@@ -222,6 +223,20 @@ PY
     {title: "Verify Card Miso Aubergine", reason: "Uses the eggs on your list.", section: "For this week", total_minutes: 35,
      source_name: "Chef"}
   ]}')" >/dev/null
+  # The server stamps a batch within a millisecond, which leaves the feed's order, and so
+  # Home's three picks, to chance. A minute apart, newest first in shelf order.
+  "$py" - "$DB_URI_LOCAL" <<'PY'
+import sys
+from datetime import datetime, timedelta, timezone
+from pymongo import MongoClient
+db = MongoClient(sys.argv[1], serverSelectionTimeoutMS=5000)["omlete"]
+now = datetime.now(timezone.utc)
+newest_first = ["Bean Chilli", "Miso Aubergine", "Quick Noodles", "Imported Traybake", "Loose Idea"]
+for age, name in enumerate(newest_first):
+    found = db.suggestions.update_one(
+        {"title": f"Verify Card {name}"}, {"$set": {"created_at": now - timedelta(minutes=age)}})
+    assert found.matched_count == 1, name
+PY
   local id
   for id in $(api "$API/api/lists/" | jq -r '.[].id'); do api -X DELETE "$API/api/lists/$id" >/dev/null; done
   id="$(api -X POST "$API/api/lists/" | jq -r .id)"
