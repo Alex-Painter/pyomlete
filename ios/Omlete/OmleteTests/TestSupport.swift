@@ -138,7 +138,9 @@ import Testing
             api: api,
             disk: storage, undo: undo, connectivity: Connectivity(), retryDelay: nil))
         chef = Chef(deps: ChefDependencies(
-            api: api, undo: undo, library: library, defaults: defaults, pause: { [ticker] _ in try await ticker.pause() }))
+            api: api, undo: undo, library: library, defaults: defaults,
+            // Weak, because a poll still running when a test ends outlives the phone.
+            now: { [weak self] in self?.now ?? .distantPast }, pause: { [ticker] _ in try await ticker.pause() }))
         intake = RecipeIntake(deps: IntakeDependencies(
             api: api, library: library, defaults: defaults, pause: { [pulse] in try await pulse.pause($0) },
             now: { [unowned self] in now },

@@ -8,6 +8,7 @@ struct ChefDependencies {
     let library: Library
     /// Where the Tune settings are remembered.
     var defaults: UserDefaults = .standard
+    var now: () -> Date = { .now }
     var pause: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 }
 
@@ -20,12 +21,15 @@ struct ChefDependencies {
 /// Chef owns, so leaving Discover cannot cancel it.
 ///
 /// Invariant: while any card is saving, exactly one task is polling the feed.
-/// It stops when none is, or after `mostPolls`, when the cards still saving
-/// are shown as failed so they can be tried again, dismissed or cleared.
+/// It stops when none is, which always comes: the server answers a save it
+/// lost as failed, and a card the phone has seen saving for `giveUpAfter` is
+/// shown as failed whatever the server says, or if it says nothing.
 @Observable final class Chef {
     static let pollEvery: Duration = .seconds(3)
-    /// About five minutes. A save still unfinished by then was lost by the server.
-    static let mostPolls = 100
+    /// How long after the phone first saw a card saving it stops believing so.
+    /// Longer than the server's own bound, so the server's answer comes first
+    /// and this only ends a save for a server that never says.
+    static let giveUpAfter = RecipeIntake.serverGivesUpAfter + 2 * 60
     private static let tuneKey = "discover.tune"
 
     /// The feed as the server last gave it, newest first.
@@ -42,10 +46,17 @@ struct ChefDependencies {
     @ObservationIgnored private var polling: Task<Void, Never>?
     /// Cards whose save request is on the wire: a feed fetched meanwhile may not know yet.
     @ObservationIgnored private var posting: Set<SuggestionID> = []
-    /// The list each saving card was sent to, so it can be refreshed when the recipe lands.
-    @ObservationIgnored private var destinations: [SuggestionID: ListID] = [:]
-    /// Cards the poll gave up on: the server still says saving, and the phone no longer believes it.
-    @ObservationIgnored private var abandoned: Set<SuggestionID> = []
+    /// A save the phone is waiting on, from when it first saw the card saving.
+    private struct Save {
+        let seen: Date
+        /// The list the card was sent to, which is refreshed when the recipe lands.
+        var list: ListID?
+        /// The server still says saving and the phone no longer believes it, so the card shows as failed.
+        var givenUp = false
+    }
+
+    /// Every card the server has yet to answer for, each with its own clock.
+    @ObservationIgnored private var saves: [SuggestionID: Save] = [:]
 
     init(deps: ChefDependencies) {
         self.deps = deps
@@ -195,14 +206,13 @@ struct ChefDependencies {
     private func send(_ id: SuggestionID, onto list: ListID?) async -> Bool {
         guard !posting.contains(id) else { return false }
         posting.insert(id)
-        abandoned.remove(id)
-        destinations[id] = list
+        saves[id] = Save(seen: deps.now(), list: list)
         setStage(of: id, to: .saving)
         do {
             try await deps.api.saveSuggestion(id, onto: list)
         } catch {
             posting.remove(id)
-            destinations[id] = nil
+            saves[id] = nil
             setStage(of: id, to: .failed)
             return false
         }
@@ -224,63 +234,71 @@ struct ChefDependencies {
         } catch {
             loadFailure = error
         }
+        // Here and not in `adopt`, so a server that cannot be reached is given up on too.
+        giveUpOnOverdueSaves()
         poll()
     }
 
     private func adopt(_ fresh: [Suggestion]) {
-        let wasSaving = Set(cards.filter { $0.stage == .saving }.map(\.id))
+        var waiting: [SuggestionID: Save] = [:]
+        var failed: [SuggestionID] = []
+        var landed: [Save] = []
         cards = fresh.map { card in
             var card = card
             if posting.contains(card.id) { card.stage = .saving }
-            if card.stage != .saving { abandoned.remove(card.id) }
-            if abandoned.contains(card.id) { card.stage = .failed }
+            let save = saves[card.id]
+            switch card.stage {
+            case .saving:
+                // With no save of the phone's own, this is the first it has seen of one made elsewhere.
+                let save = save ?? Save(seen: deps.now())
+                waiting[card.id] = save
+                if save.givenUp { card.stage = .failed }
+            case .failed:
+                // A save given up on has already been said.
+                if let save, !save.givenUp { failed.append(card.id) }
+            case .saved:
+                if let save { landed.append(save) }
+            case .fresh:
+                break
+            }
             return card
         }
-        sayNotComing(cards.filter { $0.stage == .failed && wasSaving.contains($0.id) }.map(\.id))
-        let landed = cards.filter { card in
-            if case .saved = card.stage { wasSaving.contains(card.id) } else { false }
-        }
+        sayNotComing(failed)
+        saves = waiting
         guard !landed.isEmpty else { return }
         // A recipe exists that the library has not seen, perhaps on a list too.
-        for card in landed {
-            if let list = destinations.removeValue(forKey: card.id) { deps.library.list(list).sync(refresh: true) }
-        }
+        for list in landed.compactMap(\.list) { deps.library.list(list).sync(refresh: true) }
         Task { await deps.library.refresh() }
     }
 
     private func poll() {
         guard polling == nil, cards.contains(where: { $0.stage == .saving }) else { return }
         polling = Task { [weak self, pause = deps.pause] in
-            var polls = 0
             while (try? await pause(Self.pollEvery)) != nil, let self {
                 await load()
-                polls += 1
                 if !cards.contains(where: { $0.stage == .saving }) { break }
-                if polls == Self.mostPolls {
-                    giveUpOnSaves()
-                    break
-                }
             }
             self?.polling = nil
         }
     }
 
-    /// The server makes the recipe in a task that a restart loses, leaving the
-    /// card saving for ever. Held until the next launch, like `hidden`.
-    private func giveUpOnSaves() {
-        let stalled = cards.filter { $0.stage == .saving }.map(\.id)
-        abandoned.formUnion(stalled)
-        for id in stalled { setStage(of: id, to: .failed) }
-        sayNotComing(stalled)
+    /// The backstop for a server that never says how a save ended. The save
+    /// is kept, so a recipe that does land later is still taken as landed.
+    private func giveUpOnOverdueSaves() {
+        let now = deps.now()
+        let overdue = saves.filter { !$0.value.givenUp && abs(now.timeIntervalSince($0.value.seen)) >= Self.giveUpAfter }.map(\.key)
+        sayNotComing(overdue)
+        for id in overdue {
+            saves[id]?.givenUp = true
+            setStage(of: id, to: .failed)
+        }
     }
 
     /// Every way a save ends in failure after the server took it comes
     /// through here. A meal promised to a list is not coming, and its row has
     /// left the picker in Plan, so only the banner can say so.
     private func sayNotComing(_ failed: [SuggestionID]) {
-        let titles = failed.compactMap { id in
-            destinations.removeValue(forKey: id) == nil ? nil : cards.first { $0.id == id }?.title
-        }
+        let titles = cards.filter { failed.contains($0.id) && saves[$0.id]?.list != nil }.map(\.title)
         guard let first = titles.first else { return }
         deps.undo.inform(
             titles.count == 1
