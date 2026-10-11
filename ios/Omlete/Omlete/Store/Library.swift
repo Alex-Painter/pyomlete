@@ -24,6 +24,8 @@ struct CookShelf: Equatable {
     /// The last attempt to load the lists failed. Home shows it only when it has nothing saved.
     private(set) var loadFailure: APIError?
     private(set) var hasLoaded: Bool
+    /// The recipes have been loaded once, now or by an earlier launch: an empty library is known to be empty.
+    private(set) var recipesLoaded: Bool
 
     @ObservationIgnored private let deps: StoreDependencies
     @ObservationIgnored private var stores: [ListID: ListStore] = [:]
@@ -34,6 +36,7 @@ struct CookShelf: Equatable {
         let saved = deps.disk.loadIndex()
         index = saved ?? LibraryIndex()
         hasLoaded = saved != nil
+        recipesLoaded = saved != nil
         for var replica in deps.disk.loadAll() {
             replica.releaseAll()
             deps.disk.save(replica)
@@ -135,6 +138,7 @@ struct CookShelf: Equatable {
         if case .success(let aisles) = await aisles { index.aisleOrder = aisles }
         if case .success(let recipes) = await recipes {
             index.recipes = recipes
+            recipesLoaded = true
             index.deletingRecipes.formIntersection(recipes.map(\.id))
         }
         if case .success(let units) = await units { index.units = units }

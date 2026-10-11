@@ -389,6 +389,82 @@ import Testing
         #expect(phone.undo.banner?.message == "Couldn't save Card a, so it isn't on your list.")
     }
 
+    @Test func aCardSentToAListThatIsGivenUpOnSaysSoToo() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+
+        for _ in 0..<Chef.mostPolls {
+            await eventually { phone.ticker.isWaiting }
+            phone.ticker.tick()
+        }
+
+        await eventually { stage("a") == .failed }
+        #expect(phone.undo.banner?.message == "Couldn't save Card a, so it isn't on your list.")
+    }
+
+    @Test func severalCardsFailingTogetherAreSaidInOneBanner() async {
+        server.cards = [card("a"), card("b")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving"), self.card("b")] }
+            if call.path == "/api/suggestions/b/save" { server.cards = [self.card("a", "saving"), self.card("b", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        await chef.addToList("b", to: .list("list"))
+        await eventually { phone.ticker.isWaiting }
+
+        server.cards = [card("a", "failed"), card("b", "failed")]
+        phone.ticker.tick()
+
+        await eventually { stage("b") == .failed }
+        #expect(phone.undo.banner?.message == "Couldn't save 2 meals, so they aren't on your list.")
+    }
+
+    @Test func aSaveThatHasFailedByTheTimeItIsAnsweredIsNotPromised() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "failed")] }
+            return nil
+        }
+
+        await chef.addToList("a", to: .list("list"))
+
+        #expect(phone.undo.banner?.message == "Couldn't save Card a, so it isn't on your list.")
+    }
+
+    @Test func aFailedSaveNeverCostsAnUndoThatIsStillOnOffer() async {
+        server.cards = [card("a")]
+        await chef.load()
+        await phone.library.refresh()
+        serverAnswers { [server] call in
+            if call.path == "/api/suggestions/a/save" { server.cards = [self.card("a", "saving")] }
+            return nil
+        }
+        await chef.addToList("a", to: .list("list"))
+        await eventually { phone.ticker.isWaiting }
+        phone.store.removeMeal("curry", title: "Curry")
+
+        server.cards = [card("a", "failed")]
+        phone.ticker.tick()
+        await eventually { stage("a") == .failed }
+        #expect(phone.undo.banner?.message == "Removed Curry and its ingredients")
+        #expect(phone.undo.banner?.canUndo == true)
+
+        phone.undo.undoTapped()
+        #expect(phone.store.replica.current?.recipes == ["curry"])
+        #expect(phone.undo.banner?.message == "Couldn't save Card a, so it isn't on your list.")
+    }
+
     /// A save with no list behind it fails on its card, which is on screen.
     @Test func aPlainSaveThatFailsLeavesTheBannerAlone() async {
         server.cards = [card("a")]

@@ -64,8 +64,16 @@ struct MealMenuTests {
     @Test func aSearchThatFindsNothingIsNotAnEmptyLibrary() {
         let nothing = menu(search: "pizza")
         #expect(nothing.recipes.isEmpty)
-        #expect(!nothing.libraryIsEmpty)
+        #expect(nothing.library == .stocked)
 
-        #expect(menu(recipes: [], cards: [card("a", "Idea")]).libraryIsEmpty)
+        #expect(menu(recipes: [], cards: [card("a", "Idea")]).library == .empty)
+    }
+
+    @Test func aLibraryNotYetLoadedIsNotAnEmptyOne() {
+        let unknown = MealMenu(recipes: nil, cards: [card("a", "Idea")], onList: [], search: "")
+
+        #expect(unknown.library == .loading)
+        #expect(unknown.recipes.isEmpty)
+        #expect(unknown.picks.map(\.id) == ["a"])
     }
 }

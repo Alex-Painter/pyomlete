@@ -143,6 +143,12 @@ struct StoreDependencies {
     /// inside the sync task after the queue has drained, then refetches.
     @discardableResult
     func addMeal(_ recipe: RecipeID) async throws(APIError) -> MealAdd {
+        if replica.pending.contains(where: { $0.held && $0.op == .removeRecipe(recipe) }) {
+            // Its removal is still behind the Undo banner, so the server has the meal and asking
+            // would answer "already there" and then commit the removal. Putting it back is that Undo.
+            deps.undo.undoTapped()
+            return .added
+        }
         let result = await withCheckedContinuation { done in
             mealRequests.append(MealRequest(recipe: recipe, done: done))
             sync(refresh: true)
@@ -180,8 +186,10 @@ struct StoreDependencies {
                 failMealRequests(with: failure)
                 return
             }
-            await sendMealRequests()
+            let answered = await sendMealRequests()
             if wantsRefresh { await fetch() }
+            // After the fetch, so whoever asked finds the meal already on the list.
+            for answer in answered { answer() }
         }
     }
 
@@ -223,15 +231,19 @@ struct StoreDependencies {
         }
     }
 
-    private func sendMealRequests() async {
+    private func sendMealRequests() async -> [() -> Void] {
+        var answered: [() -> Void] = []
         while !mealRequests.isEmpty {
             let request = mealRequests.removeFirst()
+            let result: Result<MealAdd, APIError>
             do {
-                request.done.resume(returning: .success(try await deps.api.addRecipe(request.recipe, to: id)))
+                result = .success(try await deps.api.addRecipe(request.recipe, to: id))
             } catch {
-                request.done.resume(returning: .failure(error))
+                result = .failure(error)
             }
+            answered.append { request.done.resume(returning: result) }
         }
+        return answered
     }
 
     private func failMealRequests(with failure: APIError) {

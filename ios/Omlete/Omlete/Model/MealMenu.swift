@@ -19,10 +19,18 @@ nonisolated struct MealMenu: Equatable, Sendable {
     let picks: [Suggestion]
     /// Library order, newest first.
     let recipes: [Row]
-    /// Nothing is saved at all, which is not the same as nothing matching the search.
-    let libraryIsEmpty: Bool
+    let library: LibraryState
 
-    init(recipes: [RecipeSummary], cards: [Suggestion], onList: Set<RecipeID>, search: String) {
+    /// Nothing loaded yet, nothing saved at all, and something saved are three
+    /// things; "nothing matches the search" is a fourth, told by `recipes`.
+    enum LibraryState: Equatable, Sendable {
+        case loading, empty, stocked
+    }
+
+    /// `recipes` is nil until the library has loaded once.
+    init(recipes: [RecipeSummary]?, cards: [Suggestion], onList: Set<RecipeID>, search: String) {
+        library = recipes.map { $0.isEmpty ? .empty : .stocked } ?? .loading
+        let recipes = recipes ?? []
         picks = Array(
             cards.lazy
                 .filter { ($0.stage == .fresh || $0.stage == .saving) && $0.title.matches(search: search) }
@@ -30,6 +38,5 @@ nonisolated struct MealMenu: Equatable, Sendable {
         self.recipes = recipes
             .filter { $0.title.matches(search: search) }
             .map { Row(recipe: $0, isOnList: onList.contains($0.id)) }
-        libraryIsEmpty = recipes.isEmpty
     }
 }

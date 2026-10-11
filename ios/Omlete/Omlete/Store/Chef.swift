@@ -60,7 +60,7 @@ struct ChefDependencies {
         return loadFailure.map { .unavailable($0) } ?? .loading
     }
 
-    /// The cards on screen, newest first: what `feed` shelves and the meal picker picks from.
+    /// The cards on screen, in feed order: what `feed` shelves and the meal picker picks from.
     var visible: [Suggestion] {
         cards.filter { !hidden.contains($0.id) }
     }
@@ -114,11 +114,18 @@ struct ChefDependencies {
         case .saving:
             return
         case .fresh, .failed:
+            // Saving from this moment, so a second tap while the list is found is the `.saving` case above.
+            setStage(of: id, to: .saving)
             guard let list = try? await deps.library.resolve(target), await send(id, onto: list.id) else {
+                if cards.first(where: { $0.id == id })?.stage == .saving, !posting.contains(id) {
+                    setStage(of: id, to: .failed)
+                }
                 deps.undo.offer("Couldn't add \(card.title). Try again.")
                 return
             }
             deps.library.markCurrent(list.id)
+            // The save can fail before `send` returns, and then the banner has already said so.
+            if cards.first(where: { $0.id == id })?.stage == .failed { return }
             deps.undo.offer("Saving \(card.title). It goes on \(list.name) when it's ready.")
         }
     }
@@ -206,12 +213,7 @@ struct ChefDependencies {
             if abandoned.contains(card.id) { card.stage = .failed }
             return card
         }
-        // A meal promised to a list is not coming. Its row has left the picker in Plan, so only the banner can say so.
-        for card in cards where card.stage == .failed && wasSaving.contains(card.id) {
-            if destinations.removeValue(forKey: card.id) != nil {
-                deps.undo.offer("Couldn't save \(card.title), so it isn't on your list.")
-            }
-        }
+        sayNotComing(cards.filter { $0.stage == .failed && wasSaving.contains($0.id) }.map(\.id))
         let landed = cards.filter { card in
             if case .saved = card.stage { wasSaving.contains(card.id) } else { false }
         }
@@ -245,10 +247,22 @@ struct ChefDependencies {
     private func giveUpOnSaves() {
         let stalled = cards.filter { $0.stage == .saving }.map(\.id)
         abandoned.formUnion(stalled)
-        for id in stalled {
-            destinations[id] = nil
-            setStage(of: id, to: .failed)
+        for id in stalled { setStage(of: id, to: .failed) }
+        sayNotComing(stalled)
+    }
+
+    /// Every way a save ends in failure after the server took it comes
+    /// through here. A meal promised to a list is not coming, and its row has
+    /// left the picker in Plan, so only the banner can say so.
+    private func sayNotComing(_ failed: [SuggestionID]) {
+        let titles = failed.compactMap { id in
+            destinations.removeValue(forKey: id) == nil ? nil : cards.first { $0.id == id }?.title
         }
+        guard let first = titles.first else { return }
+        deps.undo.inform(
+            titles.count == 1
+                ? "Couldn't save \(first), so it isn't on your list."
+                : "Couldn't save \(titles.count) meals, so they aren't on your list.")
     }
 
     private func setStage(of id: SuggestionID, to stage: Suggestion.Stage) {

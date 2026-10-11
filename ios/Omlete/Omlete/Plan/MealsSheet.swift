@@ -18,7 +18,7 @@ struct MealsSheet: View {
 
     var body: some View {
         let menu = MealMenu(
-            recipes: library.recipes, cards: chef.visible, onList: Set(list.recipes), search: search)
+            recipes: library.recipesLoaded ? library.recipes : nil, cards: chef.visible, onList: Set(list.recipes), search: search)
         NavigationStack {
             List {
                 Section {
@@ -37,11 +37,17 @@ struct MealsSheet: View {
                 }
 
                 Section("Your recipes") {
-                    if menu.libraryIsEmpty {
+                    switch menu.library {
+                    case .loading:
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    case .empty:
                         emptyLibrary
-                    } else if menu.recipes.isEmpty {
+                    case .stocked where menu.recipes.isEmpty:
                         Text("No recipe matches.")
                             .foregroundStyle(.secondary)
+                    case .stocked:
+                        EmptyView()
                     }
                     ForEach(menu.recipes, content: recipeRow)
                 }
@@ -184,8 +190,6 @@ struct MealsSheet: View {
         adding.insert(recipe.id)
         Task {
             await library.addMeal(recipe.id, title: recipe.title, to: .list(list.id))
-            // The meal is on the list only once the list has been fetched again, so the row stays busy until then.
-            await store.refresh()
             adding.remove(recipe.id)
         }
     }
