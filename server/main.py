@@ -1226,11 +1226,10 @@ async def clear_suggestions(body: SuggestionsClearRequest):
         {"status": {"$in": clearable}, **named}
     ).update({"$set": {"status": "cleared"}})
     cleared = getattr(result, "modified_count", 0)
-    if body.only_new:
-        return {"cleared": cleared}
-    for s in await SuggestionDocument.find({"status": "saving", **named}).to_list():
-        if not _save_may_be_running(s) and await _write_if_unchanged(s, {"status": "cleared"}):
-            cleared += 1
+    if not body.only_new:
+        for s in await SuggestionDocument.find({"status": "saving", **named}).to_list():
+            if not _save_may_be_running(s) and await _write_if_unchanged(s, {"status": "cleared"}):
+                cleared += 1
     return {"cleared": cleared}
 
 

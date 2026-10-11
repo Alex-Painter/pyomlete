@@ -615,6 +615,7 @@ import Testing
         #expect(chef.picks.shown.isEmpty)
     }
 
+    /// Gone while the feed cannot be read, and not hidden for ever: the next feed read decides.
     @Test func clearedCardsStayGoneWhenTheFeedCannotBeReadAfterwards() async {
         server.cards = [card("a"), card("b", "saving")]
         await chef.load()
@@ -625,8 +626,14 @@ import Testing
         await eventually { calls(Call(method: "POST", path: "/api/suggestions/clear")) == 1 }
         await eventually { calls(getFeed) >= 2 }
         await chef.load()
-
         #expect(shown == ["b"])
+
+        serverAnswers()
+        for _ in 0..<50 where shown != ["a", "b"] {
+            await chef.load()
+            await Task.yield()
+        }
+        #expect(shown == ["a", "b"])
     }
 
     @Test func aScreenThatOnlyShowsTheFeedAsksOnceAndAgainOnlyAfterAFailure() async {

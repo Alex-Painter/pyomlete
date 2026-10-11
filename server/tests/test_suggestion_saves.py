@@ -540,6 +540,15 @@ class TestClearingOnlyNewCards:
         assert answer.json() == {"cleared": 1}
         assert [stored(cards, c).status for c in (new, saved, failed, unnamed)] == ["cleared", "saved", "failed", "new"]
 
+    async def test_with_no_cards_named_every_new_card_goes_and_no_other(self, api, cards):
+        new, other_new = a_card(cards), a_card(cards)
+        saved = a_card(cards, "saved", recipe_id=RECIPE_ID)
+
+        answer = await api.post("/api/suggestions/clear", json={"only_new": True})
+
+        assert answer.json() == {"cleared": 2}
+        assert [stored(cards, c).status for c in (new, other_new, saved)] == ["cleared", "cleared", "saved"]
+
     async def test_without_it_the_cards_named_go_whatever_their_answer(self, api, cards):
         new = a_card(cards)
         saved = a_card(cards, "saved", recipe_id=RECIPE_ID)
