@@ -299,7 +299,7 @@ class TestStartingAJob:
             again = await describe(api)
             # The key is the job, whatever a later start says it wants.
             other = await api.put(f"/api/recipe-jobs/{KEY}/link", json={"url": URL})
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         assert (first.status_code, again.status_code, other.status_code) == (202, 200, 200)
         assert again.json() == first.json() == {
@@ -355,7 +355,7 @@ class TestStartingAJob:
             refused = await describe(api, keys[-1])
             # A job already running is still answered for, however busy it is.
             repeat = await describe(api, keys[0])
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         assert [r.status_code for r in started] == [202] * main.MAX_WORKING_RECIPE_JOBS
         assert refused.status_code == 429
@@ -370,7 +370,7 @@ class TestStartingAJob:
 
         with a_model(async_claude=claude):
             answers = await asyncio.gather(*(describe(api, key) for key in keys))
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         statuses = sorted(r.status_code for r in answers)
         assert statuses == [202] * main.MAX_WORKING_RECIPE_JOBS + [429] * main.MAX_WORKING_RECIPE_JOBS
@@ -397,7 +397,7 @@ class TestStartingAJob:
                 await describe(api, key)
             # The last place is taken by a start and its repeat arriving together.
             first, repeat = await asyncio.gather(describe(api, keys[-1]), describe(api, keys[-1]))
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
 
         assert sorted([first.status_code, repeat.status_code]) == [200, 202]
         assert claude.beta.messages.tool_runner.call_count == main.MAX_WORKING_RECIPE_JOBS
@@ -510,7 +510,7 @@ class TestHowAJobEndsIsWritten:
         with a_model(async_claude=a_model_that_never_answers(reached), _save_recipe=save):
             started = await describe(api)
             await reached.wait()
-            await main._end_running_recipe_jobs()
+            await main._end_running_work()
             job = (await api.get(f"/api/recipe-jobs/{KEY}")).json()
 
         assert started.status_code == 202
@@ -531,7 +531,7 @@ class TestHowAJobEndsIsWritten:
         with a_model(), patch.object(FakeJobDocument, "save", slow_save):
             await describe(api)
             await writing.wait()
-            ending = asyncio.create_task(main._end_running_recipe_jobs())
+            ending = asyncio.create_task(main._end_running_work())
             await asyncio.sleep(0.01)
             still_waiting = not ending.done()
             release.set()

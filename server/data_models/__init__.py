@@ -108,6 +108,9 @@ class SuggestionDocument(Document):
     origin: str = "suggest"
     recipe_id: Optional[str] = None
     error: Optional[str] = None
+    # When the save under way was started. The task doing it lives in the
+    # server's memory, so a read decides from this whether it can still be running.
+    saving_since: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
