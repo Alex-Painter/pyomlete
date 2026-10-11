@@ -206,6 +206,12 @@ struct ChefDependencies {
             if abandoned.contains(card.id) { card.stage = .failed }
             return card
         }
+        // A meal promised to a list is not coming. Its row has left the picker in Plan, so only the banner can say so.
+        for card in cards where card.stage == .failed && wasSaving.contains(card.id) {
+            if destinations.removeValue(forKey: card.id) != nil {
+                deps.undo.offer("Couldn't save \(card.title), so it isn't on your list.")
+            }
+        }
         let landed = cards.filter { card in
             if case .saved = card.stage { wasSaving.contains(card.id) } else { false }
         }
