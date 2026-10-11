@@ -118,6 +118,7 @@ struct PlanScreen: View {
         .accessibilityIdentifier("plan.list")
         .animation(.default, value: layout)
         .contentMargins(.bottom, 72, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle(list.name)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
