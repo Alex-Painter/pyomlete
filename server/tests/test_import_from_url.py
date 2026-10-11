@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 import main
+from services import lists, recipes
 from data_models import ItemSource
 from lib.types import ImportFromUrlRequest, IngredientModelResponse
 from recipe_import import BlockedURL, FetchFailed, IngredientGroup, ScrapedRecipe
@@ -58,13 +59,13 @@ def patch_pipeline(
 
     return (
         patch.multiple(
-            main,
+            recipes,
             RecipeDocument=recipe_doc,
             fetch_page=fetch,
             scrape=MagicMock(return_value=scraped),
             structure_ingredients=structurer,
-            _save_recipe=save,
-            _get_category_names=AsyncMock(return_value=["Fresh Produce", "Other"]),
+            save=save,
+            category_names=AsyncMock(return_value=["Fresh Produce", "Other"]),
         ),
         {"find_one": recipe_doc.find_one, "fetch": fetch, "structurer": structurer, "save": save},
     )
@@ -121,14 +122,14 @@ class TestImportFromUrl:
 
     async def test_applies_changes_typed_with_the_link(self):
         ctx, mocks = patch_pipeline(scraped=make_scraped())
-        adapted = main.RecipeModelResponse(
+        adapted = recipes.RecipeModelResponse(
             title="Classic Lasagne",
             instructions=["Fry the onions.", "Bake for 45 mins."],
             ingredients=[structured(), structured(name="quorn mince", amount=500.0, unit="g")],
         )
         apply = AsyncMock(return_value=adapted)
 
-        with ctx, patch.object(main, "_apply_changes", apply):
+        with ctx, patch.object(recipes, "_apply_changes", apply):
             await main.import_recipe_from_url(
                 ImportFromUrlRequest(url=URL, changes="  but use quorn mince ")
             )
@@ -146,7 +147,7 @@ class TestImportFromUrl:
         ctx, mocks = patch_pipeline(existing=existing, scraped=make_scraped())
         apply = AsyncMock(side_effect=lambda recipe, *_: recipe)
 
-        with ctx, patch.object(main, "_apply_changes", apply):
+        with ctx, patch.object(recipes, "_apply_changes", apply):
             await main.import_recipe_from_url(
                 ImportFromUrlRequest(url=URL, changes="double it")
             )
@@ -158,7 +159,7 @@ class TestImportFromUrl:
         ctx, mocks = patch_pipeline(scraped=make_scraped())
         apply = AsyncMock()
 
-        with ctx, patch.object(main, "_apply_changes", apply):
+        with ctx, patch.object(recipes, "_apply_changes", apply):
             await main.import_recipe_from_url(ImportFromUrlRequest(url=URL, changes="   "))
 
         apply.assert_not_called()
@@ -184,12 +185,12 @@ class TestImportFromUrl:
 
     async def test_falls_back_to_the_model_when_nothing_is_published(self):
         ctx, mocks = patch_pipeline(scraped=None, html="<html><body>a blog</body></html>")
-        fallback = main.RecipeModelResponse(
+        fallback = recipes.RecipeModelResponse(
             title="Blog Lasagne", instructions=["Cook it."], ingredients=[structured()]
         )
 
         with ctx, patch.object(
-            main, "_recipe_from_page_text", AsyncMock(return_value=fallback)
+            recipes, "_recipe_from_page_text", AsyncMock(return_value=fallback)
         ) as model:
             await main.import_recipe_from_url(ImportFromUrlRequest(url=URL))
 
@@ -206,7 +207,7 @@ class TestImportFromUrl:
         ctx, mocks = patch_pipeline(scraped=None)
 
         with ctx, patch.object(
-            main, "_recipe_from_page_text", AsyncMock(return_value=None)
+            recipes, "_recipe_from_page_text", AsyncMock(return_value=None)
         ), pytest.raises(HTTPException) as exc:
             await main.import_recipe_from_url(ImportFromUrlRequest(url=URL))
 
@@ -240,12 +241,12 @@ class TestEndToEndAgainstAFixture:
         save = AsyncMock(return_value={"saved": True})
 
         with patch.multiple(
-            main,
+            recipes,
             RecipeDocument=recipe_doc,
             fetch_page=AsyncMock(return_value=html),
             structure_ingredients=structurer,
-            _save_recipe=save,
-            _get_category_names=AsyncMock(return_value=["Fresh Produce", "Other"]),
+            save=save,
+            category_names=AsyncMock(return_value=["Fresh Produce", "Other"]),
         ):
             await main.import_recipe_from_url(ImportFromUrlRequest(url=URL))
 
@@ -262,16 +263,16 @@ class TestEndToEndAgainstAFixture:
 
 class TestCanonicalUrl:
     def test_drops_the_fragment(self):
-        assert main._canonical_url(f"{URL}#ingredients") == URL
+        assert recipes._canonical_url(f"{URL}#ingredients") == URL
 
     def test_trims_whitespace(self):
-        assert main._canonical_url(f"  {URL}  ") == URL
+        assert recipes._canonical_url(f"  {URL}  ") == URL
 
     def test_keeps_the_query_string(self):
         """Plenty of sites carry the recipe id in the query."""
         url = "https://example.com/print?recipe=1234"
 
-        assert main._canonical_url(url) == url
+        assert recipes._canonical_url(url) == url
 
 
 class TestPageText:
@@ -282,7 +283,7 @@ class TestPageText:
             "<body><h1>Lasagne</h1><p>Fry the onions.</p></body></html>"
         )
 
-        text = main._page_text(html)
+        text = recipes._page_text(html)
 
         assert "Lasagne" in text
         assert "Fry the onions." in text
@@ -290,14 +291,14 @@ class TestPageText:
         assert "color:red" not in text
 
     def test_drops_blank_lines(self):
-        text = main._page_text("<p>one</p>\n\n\n<p>two</p>")
+        text = recipes._page_text("<p>one</p>\n\n\n<p>two</p>")
 
         assert text == "one\ntwo"
 
     def test_truncates_a_long_page(self):
         html = "<p>" + ("word " * 20000) + "</p>"
 
-        assert len(main._page_text(html)) == main._FALLBACK_TEXT_CHARS
+        assert len(recipes._page_text(html)) == recipes._FALLBACK_TEXT_CHARS
 
 
 class TestTotalAmount:
@@ -306,17 +307,17 @@ class TestTotalAmount:
     def test_sums_quantified_sources(self):
         sources = [ItemSource(amount=200.0), ItemSource(amount=100.5)]
 
-        assert main._total_amount(sources) == 300.5
+        assert lists.total_amount(sources) == 300.5
 
     def test_ignores_unquantified_sources(self):
         sources = [ItemSource(amount=200.0), ItemSource(amount=None)]
 
-        assert main._total_amount(sources) == 200.0
+        assert lists.total_amount(sources) == 200.0
 
     def test_stays_unquantified_when_no_source_has_an_amount(self):
         sources = [ItemSource(amount=None), ItemSource(amount=None)]
 
-        assert main._total_amount(sources) is None
+        assert lists.total_amount(sources) is None
 
     def test_handles_an_empty_source_list(self):
-        assert main._total_amount([]) is None
+        assert lists.total_amount([]) is None

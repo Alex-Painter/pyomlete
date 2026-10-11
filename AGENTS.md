@@ -55,7 +55,8 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
 - Route tree auto-generated at `src/routeTree.gen.ts` — do not edit manually
 
 ### Backend (`/server/`)
-- **FastAPI**, all routes under an `/api` prefix in `main.py`. Three ways to create a recipe: `POST /recipes/generate/` (from an ingredient list), `POST /recipes/extract-from-images/` (from photos), and `POST /recipes/import-from-url/` (from a link). The rest of the file is CRUD for recipes, lists, list items and categories, plus Discover suggestions: `POST /suggestions/` is where an agent drops suggestion cards, `POST /suggestions/refresh` asks Claude for new ones from the user's taste (ratings, dismissals, recent lists), `POST /suggestions/{id}/save` turns one into a recipe in the background, and `POST /suggestions/clear` hides cards without it counting as a dismissal.
+- **FastAPI**, all routes under an `/api` prefix in `main.py`. Three ways to create a recipe: `POST /recipes/generate/` (from an ingredient list), `POST /recipes/extract-from-images/` (from photos), and `POST /recipes/import-from-url/` (from a link). The rest is CRUD for recipes, lists, list items and categories, plus Discover suggestions: `POST /suggestions/` is where an agent drops suggestion cards, `POST /suggestions/refresh` asks Claude for new ones from the user's taste (ratings, dismissals, recent lists), `POST /suggestions/{id}/save` turns one into a recipe in the background, and `POST /suggestions/clear` hides cards without it counting as a dismissal. Routes stay thin: they shape requests and responses and call `services/`.
+- `services/` — what the routes do, shared with Chef's tools: `recipes.py` (generate, from photos, URL import, edits), `lists.py` (lists, the recipe-to-items merge, items) and `settings.py` (aisle order, categorize). Errors are `HTTPException` subclasses in `services/errors.py` (`NotFound`, `Invalid`, `AlreadyImported`…), so routes pass them through and tools can tell them apart
 - **Beanie** (async MongoDB ODM) with five document types in `data_models/`: `IngredientDocument` (with 2048-dim Voyage-4 embeddings), `RecipeDocument`, `ListDocument`, `UserSettingsDocument` and `SuggestionDocument`
 - `chef/` — Chef, the suggestions agent, on Pydantic AI. `chef/discover.py` builds the taste profile and runs Refresh. See `docs/PRD_CHEF.md` for where it is going
 - `tools.py` — defines the `find_similar_ingredients` Claude tool, which runs a MongoDB `$vectorSearch` to find semantically similar existing ingredients (threshold ≥ 0.9)
@@ -76,7 +77,7 @@ URL import is two stages, and the cheap one does most of the work:
 1. `recipe_import.fetch_page()` fetches the page behind an SSRF guard, `scrape()` reads its schema.org data — title, instructions, image, times, servings. No tokens.
 2. `ingredient_structurer.structure_ingredients()` splits the free-text ingredient lines into name/amount/unit on Haiku, calling `find_similar_ingredients` to canonicalise
 3. Pages that publish no structured data fall back to Opus over the page text
-4. Saved via the same `_save_recipe()` path as everything else, plus a `RecipeMetadata` carrying the provenance
+4. Saved via the same `services.recipes.save()` path as everything else, plus a `RecipeMetadata` carrying the provenance
 
 See `docs/PRD_URL_IMPORT.md` for the design and what's still outstanding.
 

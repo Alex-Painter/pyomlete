@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from mongomock_motor import AsyncMongoMockClient
 
 import main
+from services import recipes
 from data_models import (
     IngredientDocument,
     ListDocument,
@@ -180,7 +181,7 @@ async def test_recipe_routes(api):
 
     vo = MagicMock()
     vo.embed.return_value.embeddings = [[0.0]]
-    with patch.object(main, "vo", vo):
+    with patch.object(recipes, "vo", vo):
         r = await api.put(
             f"/api/recipes/{rid}",
             json={
@@ -225,4 +226,43 @@ async def test_save_of_a_saved_card_puts_its_recipe_on_the_list(api):
 
     r = await api.post(f"/api/suggestions/{card.id}/save", json={"list_id": lid})
     assert r.json()["status"] == "saved"
+    assert (await api.get(f"/api/lists/{lid}")).json()["recipes"] == [str(dal.id)]
+
+
+async def test_photos_are_grouped_into_recipes(api):
+    seen = []
+
+    async def from_images(images):
+        seen.append(images)
+        return {"title": f"Recipe {len(seen)}"}
+
+    files = [("files", (f"p{i}.jpg", f"img{i}".encode(), "image/jpeg")) for i in range(3)]
+    with patch.object(recipes, "from_images", from_images):
+        grouped = await api.post(
+            "/api/recipes/extract-from-images/", files=files, data={"group_sizes": ["2", "1"]}
+        )
+        assert [len(g) for g in seen] == [2, 1]
+        assert seen[0] == [(b"img0", "image/jpeg"), (b"img1", "image/jpeg")]
+        seen.clear()
+        await api.post("/api/recipes/extract-from-images/", files=files)
+        assert [len(g) for g in seen] == [1, 1, 1]
+    assert grouped.json() == [{"title": "Recipe 1"}, {"title": "Recipe 2"}]
+
+
+async def test_saving_a_card_whose_page_is_already_imported_reuses_that_recipe(api):
+    from services.errors import AlreadyImported
+
+    dal = await make_recipe()
+    card = SuggestionDocument(title="Dal", source_url="https://example.com/dal")
+    await card.insert()
+    lid = (await api.post("/api/lists/")).json()["id"]
+
+    async def already(url, changes=None):
+        raise AlreadyImported(str(dal.id))
+
+    with patch.object(recipes, "import_url", already):
+        await main._realise_suggestion(card.id, lid)
+
+    saved = await SuggestionDocument.get(card.id)
+    assert (saved.status, saved.recipe_id) == ("saved", str(dal.id))
     assert (await api.get(f"/api/lists/{lid}")).json()["recipes"] == [str(dal.id)]
