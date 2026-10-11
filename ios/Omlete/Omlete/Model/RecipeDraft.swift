@@ -74,9 +74,6 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         case fix(quantities: [RowID])
     }
 
-    /// The units the web's editor offers on top of the ones recipes already use.
-    static let extraUnits = ["to taste", "whole", "pinch"]
-
     var title: String
     var ingredients: [IngredientRow]
     var steps: [StepRow]
@@ -139,13 +136,12 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
     /// Whether saving would change the recipe. Compared as outcomes, so a
     /// blank row added and left empty, or a field retyped as it was, is no change.
     var hasChanges: Bool {
-        outcome != RecipeDraft(original).outcome
+        outcome != untouchedOutcome
     }
 
-    /// The units to offer: the server's, then the web's extra three, each once.
-    static func unitChoices(server: [String]) -> [String] {
-        var seen: Set<String> = []
-        return (server + extraUnits).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+    /// What Save would send had nothing been edited.
+    var untouchedOutcome: Outcome {
+        RecipeDraft(original).outcome
     }
 
     fileprivate static func text(_ amount: Double?) -> String {

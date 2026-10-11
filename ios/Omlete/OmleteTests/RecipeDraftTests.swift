@@ -239,7 +239,7 @@ struct RecipeDraftTests {
     }
 
     @Test func unitsOfferedAreTheServersThenTheWebsThreeEachOnce() {
-        #expect(RecipeDraft.unitChoices(server: ["g", "", "Whole", "tbsp"]) == ["g", "Whole", "tbsp", "to taste", "pinch"])
-        #expect(RecipeDraft.unitChoices(server: []) == ["to taste", "whole", "pinch"])
+        #expect(RecipeEditor.unitChoices(server: ["g", "", "Whole", "tbsp"]) == ["g", "Whole", "tbsp", "to taste", "pinch"])
+        #expect(RecipeEditor.unitChoices(server: []) == ["to taste", "whole", "pinch"])
     }
 }
