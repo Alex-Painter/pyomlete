@@ -137,8 +137,15 @@ struct AddScreen: View {
         switch intake.phase {
         case .editing:
             EmptyView()
-        case .working(let kind):
+        case .starting(let kind):
             WorkingLine(kind: kind)
+        case .working(let job, .inTouch):
+            WorkingLine(kind: job.kind)
+        case .working(_, .waitingForConnection):
+            notice(systemImage: "wifi.slash", tint: .secondary) {
+                Text("Waiting for a connection. Your recipe will show here once Omlete can be reached.")
+                    .accessibilityIdentifier("add.waiting")
+            }
         case .finished(.alreadySaved(let id)):
             notice(systemImage: "info.circle", tint: .secondary) {
                 Text("You've already saved that one.")
@@ -209,8 +216,8 @@ struct AddScreen: View {
     }
 }
 
-/// What is happening while the request is out. The second line appears after
-/// a moment so a long wait reads as progress; neither is reported by the server.
+/// What is happening while the server makes the recipe. The second line appears
+/// after a moment so a long wait reads as progress; neither is reported by the server.
 private struct WorkingLine: View {
     let kind: RecipeRequest.Kind
 

@@ -90,72 +90,43 @@ import UniformTypeIdentifiers
         #expect(cards[0].imageURL == URL(string: "https://img.test/1.jpg"))
     }
 
-    @Test func aLinkAlreadyImportedIsAnOutcomeCarryingItsRecipe() async {
-        serverAnswers(409, #"{"detail":{"message":"That page has already been imported.","recipe_id":"traybake"}}"#)
-
-        #expect(await api.createRecipe(.link("https://example.com/traybake")) == .alreadySaved("traybake"))
-        #expect(transport.calls == [Call(method: "POST", path: "/api/recipes/import-from-url/")])
-        #expect(transport.bodies[0] as? [String: String] == ["url": "https://example.com/traybake"])
-    }
-
-    @Test(arguments: [
-        (400, RecipeCreation.Failure.linkBlocked), (404, .noRecipeOnPage), (502, .siteDidNotRespond), (500, .other), (422, .other),
-    ])
-    func aLinkThatFailsSaysWhy(status: Int, expected: RecipeCreation.Failure) async {
-        serverAnswers(status, #"{"detail":"no"}"#)
-
-        #expect(await api.createRecipe(.link("https://example.com/x")) == .failed(expected))
-    }
-
-    @Test(arguments: [400, 404, 409, 500, 502])
-    func aDescriptionThatFailsOnlyEverSaysSomethingWentWrong(status: Int) async {
-        serverAnswers(status, #"{"detail":{"recipe_id":"x"}}"#)
-
-        #expect(await api.createRecipe(.describe("leek and potato soup")) == .failed(.other))
-    }
-
-    @Test func aCreateThatWasSentAndNeverAnsweredIsNotCalledUnreachable() async {
-        transport.reply = { _ in .timedOut }
-
-        #expect(await api.createRecipe(.describe("leek and potato soup")) == .failed(.noAnswer))
-    }
-
     @Test func aSourceThatIsNotAWebPageKeepsItsNameAndLosesItsLink() async throws {
         serverAnswers(200, #"[{"id":"1","title":"Odd","status":"new","source_url":"tel:0123456789","source_name":"Somewhere"}]"#)
 
         #expect(try await api.suggestions().first?.source == RecipeSource(name: "Somewhere", url: nil))
     }
 
-    @Test func creatingWithNoSignalSaysSo() async {
-        transport.reply = { _ in .unreachable }
+    private static let startedJSON = #"{"id":"job1","kind":"link","status":"working","recipe_id":null,"failure":null}"#
 
-        #expect(await api.createRecipe(.describe("leek and potato soup")) == .failed(.unreachable))
+    nonisolated static func jobJSON(_ status: String, recipe: String? = nil, failure: String? = nil) -> String {
+        let quoted = { (value: String?) in value.map { #""\#($0)""# } ?? "null" }
+        return #"{"id":"job1","kind":"link","status":"\#(status)","recipe_id":\#(quoted(recipe)),"failure":\#(quoted(failure))}"#
     }
 
-    @Test func aDescriptionIsSentAsAPromptAndAnswersWithTheRecipe() async {
-        serverAnswers(200, Self.traybakeJSON)
+    @Test func aLinkStartsAJobAndTheAnswerIsItsId() async {
+        serverAnswers(202, Self.startedJSON)
 
-        guard case .saved(let recipe) = await api.createRecipe(.describe("a traybake")) else {
-            Issue.record("not saved")
-            return
-        }
-        #expect(recipe.id == "traybake")
-        #expect(transport.calls == [Call(method: "POST", path: "/api/recipes/generate/")])
+        #expect(await api.startRecipe(.link("https://example.com/traybake")) == .started(RecipeJob(id: "job1", kind: .link)))
+        #expect(transport.calls == [Call(method: "POST", path: "/api/recipe-jobs/link")])
+        #expect(transport.bodies[0] as? [String: String] == ["url": "https://example.com/traybake"])
+    }
+
+    @Test func aDescriptionStartsAJobFromItsPrompt() async {
+        serverAnswers(202, Self.startedJSON)
+
+        #expect(await api.startRecipe(.describe("a traybake")) == .started(RecipeJob(id: "job1", kind: .describe)))
+        #expect(transport.calls == [Call(method: "POST", path: "/api/recipe-jobs/describe")])
         #expect(transport.bodies[0] as? [String: String] == ["prompt": "a traybake"])
     }
 
-    @Test func photosAreUploadedAsOneGroupAndTheFirstRecipeBackIsTheResult() async throws {
-        serverAnswers(200, "[\(Self.traybakeJSON)]")
+    @Test func photosStartAJobAsOneUploadOfEveryPage() async throws {
+        serverAnswers(202, Self.startedJSON)
         let photos = [RecipePhoto(id: UUID(), jpeg: Data("first".utf8)), RecipePhoto(id: UUID(), jpeg: Data("second".utf8))]
 
-        guard case .saved(let recipe) = await api.createRecipe(.photos(photos)) else {
-            Issue.record("not saved")
-            return
-        }
+        #expect(await api.startRecipe(.photos(photos)) == .started(RecipeJob(id: "job1", kind: .photos)))
 
-        #expect(recipe.title == "Traybake")
         let request = try #require(transport.requests.first)
-        #expect(request.url?.path() == "/api/recipes/extract-from-images/")
+        #expect(request.url?.path() == "/api/recipe-jobs/photos")
         let contentType = try #require(request.value(forHTTPHeaderField: "Content-Type"))
         let boundary = try #require(contentType.split(separator: "boundary=").last)
         #expect(contentType.hasPrefix("multipart/form-data; boundary="))
@@ -165,29 +136,94 @@ import UniformTypeIdentifiers
             "Content-Type: image/jpeg", "", "first",
             "--\(boundary)", #"Content-Disposition: form-data; name="files"; filename="photo-2.jpg""#,
             "Content-Type: image/jpeg", "", "second",
-            "--\(boundary)", #"Content-Disposition: form-data; name="group_sizes""#, "", "2",
             "--\(boundary)--", "",
         ].joined(separator: "\r\n"))
     }
 
-    @Test func photosThatHoldNoRecipeFail() async {
-        serverAnswers(200, "[]")
+    @Test func startingWithNoSignalSaysOmleteCouldNotBeReached() async {
+        transport.reply = { _ in .unreachable }
 
-        #expect(await api.createRecipe(.photos([RecipePhoto(id: UUID(), jpeg: Data())])) == .failed(.other))
+        #expect(await api.startRecipe(.describe("leek and potato soup")) == .failed(.unreachable))
     }
 
-    @Test func onlyTheCallsThatWaitOnAModelAreGivenLonger() async throws {
+    @Test(arguments: [(500, "{}"), (422, "{}"), (404, "{}"), (202, "[]")])
+    func aStartTheServerRefusesOrAnswersUnreadablyOnlySaysSomethingWentWrong(status: Int, body: String) async {
+        serverAnswers(status, body)
+
+        #expect(await api.startRecipe(.link("https://example.com/x")) == .failed(.other))
+    }
+
+    @Test(arguments: [
+        (jobJSON("working"), RecipeJobCheck.working),
+        (jobJSON("already_imported", recipe: "traybake"), .finished(.alreadySaved("traybake"))),
+        (jobJSON("failed", failure: "link_blocked"), .finished(.failed(.linkBlocked))),
+        (jobJSON("failed", failure: "no_recipe_on_page"), .finished(.failed(.noRecipeOnPage))),
+        (jobJSON("failed", failure: "site_did_not_respond"), .finished(.failed(.siteDidNotRespond))),
+        (jobJSON("failed", failure: "other"), .finished(.failed(.other))),
+        (jobJSON("failed", failure: "from_the_future"), .finished(.failed(.other))),
+        (jobJSON("failed"), .finished(.failed(.other))),
+        (jobJSON("simmering"), .finished(.failed(.other))),
+        (jobJSON("saved"), .finished(.failed(.other))),
+        (jobJSON("already_imported"), .finished(.failed(.other))),
+        ("[]", .finished(.failed(.other))),
+    ])
+    func aLookAtAJobReadsHowItStands(body: String, expected: RecipeJobCheck) async {
+        serverAnswers(200, body)
+
+        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == expected)
+        #expect(transport.calls == [Call(method: "GET", path: "/api/recipe-jobs/job1")])
+    }
+
+    @Test func aSavedJobIsAnsweredWithItsRecipeFetched() async {
+        transport.reply = { call in
+            call.path == "/api/recipes/traybake" ? .status(200, Self.traybakeJSON) : .status(200, Self.jobJSON("saved", recipe: "traybake"))
+        }
+
+        guard case .finished(.saved(let recipe)) = await api.checkRecipe(RecipeJob(id: "job1", kind: .describe)) else {
+            Issue.record("not saved")
+            return
+        }
+        #expect(recipe.title == "Traybake")
+        #expect(transport.calls == [
+            Call(method: "GET", path: "/api/recipe-jobs/job1"), Call(method: "GET", path: "/api/recipes/traybake"),
+        ])
+    }
+
+    @Test(arguments: [nil, 500, 503, 429])
+    func aLookThatCouldNotBeAnsweredSaysNothingAboutTheJob(status: Int?) async {
+        transport.reply = { _ in status.map { .status($0) } ?? .unreachable }
+
+        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == .unanswered)
+    }
+
+    @Test func aSavedJobWhoseRecipeCannotBeFetchedYetIsAskedAgain() async {
+        transport.reply = { call in
+            call.path == "/api/recipes/traybake" ? .unreachable : .status(200, Self.jobJSON("saved", recipe: "traybake"))
+        }
+
+        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == .unanswered)
+    }
+
+    @Test(arguments: ["/api/recipe-jobs/job1", "/api/recipes/traybake"])
+    func aJobOrItsRecipeThatIsGoneHasFailed(missing: String) async {
+        transport.reply = { call in
+            call.path == missing ? .status(404) : .status(200, Self.jobJSON("saved", recipe: "traybake"))
+        }
+
+        #expect(await api.checkRecipe(RecipeJob(id: "job1", kind: .link)) == .finished(.failed(.other)))
+    }
+
+    @Test func onlyFindingIdeasWaitsOnAModelAndIsGivenLonger() async throws {
         serverAnswers(200, "[]")
 
         _ = try await api.lists()
         _ = try await api.suggestions()
         try await api.findIdeas(TuneSettings())
-        _ = await api.createRecipe(.describe("soup of the day"))
-        _ = await api.createRecipe(.link("https://example.com/x"))
-        _ = await api.createRecipe(.photos([RecipePhoto(id: UUID(), jpeg: Data())]))
+        _ = await api.startRecipe(.describe("soup of the day"))
+        _ = await api.checkRecipe(RecipeJob(id: "job1", kind: .describe))
 
         let standard = URLRequest(url: URL(string: "http://phone.test")!).timeoutInterval
-        #expect(transport.requests.map(\.timeoutInterval) == [standard, standard, 180, 180, 180, 180])
+        #expect(transport.requests.map(\.timeoutInterval) == [standard, standard, 180, standard, standard])
     }
 
     @Test func tuneSettingsAreSentUnderTheServersNames() async throws {

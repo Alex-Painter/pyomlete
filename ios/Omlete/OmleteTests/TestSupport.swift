@@ -13,8 +13,6 @@ import Testing
     enum Reply {
         case status(Int, String = "{}")
         case unreachable
-        /// The request went out and nothing came back.
-        case timedOut
     }
 
     /// Requests in arrival order, without the `/categorize` lookups that adds fire on the side.
@@ -57,8 +55,6 @@ import Testing
         switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
-        case .timedOut:
-            throw URLError(.timedOut)
         case .status(let status, let body):
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
             return (Data(body.utf8), response)
@@ -101,6 +97,8 @@ import Testing
     let transport = ScriptedTransport()
     let storage = MemoryStorage()
     let ticker = Ticker()
+    /// The intake's wait between looks at a job, apart from Chef's so neither wakes the other.
+    let pulse = Ticker()
     private let defaults = UserDefaults(suiteName: "phone-\(UUID().uuidString)")!
     private(set) var undo = UndoCenter()
     private(set) var library: Library!
@@ -121,13 +119,16 @@ import Testing
 
     func relaunch() {
         undo = UndoCenter()
+        // The intake that is replaced below was mid-wait, and that wait dies with its process.
+        pulse.tick()
         let api = APIClient(baseURL: URL(string: "http://phone.test")!, transport: transport)
         library = Library(deps: StoreDependencies(
             api: api,
             disk: storage, undo: undo, connectivity: Connectivity(), retryDelay: nil))
         chef = Chef(deps: ChefDependencies(
             api: api, undo: undo, library: library, defaults: defaults, pause: { [ticker] _ in try await ticker.pause() }))
-        intake = RecipeIntake(library: library)
+        intake = RecipeIntake(deps: IntakeDependencies(
+            api: api, library: library, defaults: defaults, pause: { [pulse] in try await pulse.pause($0) }))
     }
 
     /// Scripts the server: the list GET returns the fixture, everything else 200,
@@ -145,13 +146,16 @@ import Testing
     }
 }
 
-/// Stands in for Chef's wait between polls: each poll waits here until the test calls `tick()`.
+/// Stands in for the wait between polls: each poll waits here until the test calls `tick()`.
 @MainActor final class Ticker {
     private var waiting: [CheckedContinuation<Void, Never>] = []
+    /// How long each wait was asked to be, in order.
+    private(set) var asked: [Duration] = []
 
     var isWaiting: Bool { !waiting.isEmpty }
 
-    func pause() async throws {
+    func pause(_ wanted: Duration = .zero) async throws {
+        asked.append(wanted)
         await withCheckedContinuation { waiting.append($0) }
     }
 

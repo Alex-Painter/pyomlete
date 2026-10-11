@@ -143,30 +143,34 @@ nonisolated struct APIClient: Sendable {
             "PATCH", "recipes/\(recipe.rawValue)/ingredients/\(index)/exclude", body: try Wire.encode(["excluded": !onList]))
     }
 
-    /// Asks a model, so it can take a minute or more. Never throws: a link
-    /// already imported is an outcome, and each failure is named for the kind
-    /// of request that met it. This is the one place an error body is read.
-    func createRecipe(_ request: RecipeRequest) async -> RecipeCreation {
-        let answer: (status: Int, data: Data)
-        do {
-            let upload = try Wire.creation(request)
-            answer = try await transmit(
-                "POST", upload.path, body: upload.body, contentType: upload.contentType, patience: .slow)
-        } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
-            // It was sent, and the server may well finish it.
-            return .failed(.noAnswer)
-        } catch is APIError {
-            return .failed(.other)
+    /// Hands the request to the server, which answers at once and makes the
+    /// recipe in its own time. Never throws: not reaching the server is the
+    /// one failure the user can do something about, and it is named here.
+    func startRecipe(_ request: RecipeRequest) async -> RecipeStart {
+        do throws(APIError) {
+            let upload = try Wire.jobStart(request)
+            let answer = try await exchange("POST", upload.path, body: upload.body, contentType: upload.contentType)
+            if let failure = APIError(status: answer.status) { throw failure }
+            return .started(RecipeJob(id: try decode(Wire.startedJob, from: answer.data), kind: request.kind))
         } catch {
-            return .failed(.unreachable)
+            return .failed(error == .unreachable ? .unreachable : .other)
         }
-        switch (answer.status, request.kind) {
-        case (200..<300, _): return (try? Wire.createdRecipe(answer.data)).map { .saved($0) } ?? .failed(.other)
-        case (409, .link): return Wire.alreadyImported(answer.data).map { .alreadySaved($0) } ?? .failed(.other)
-        case (400, .link): return .failed(.linkBlocked)
-        case (404, .link): return .failed(.noRecipeOnPage)
-        case (502, .link): return .failed(.siteDidNotRespond)
-        default: return .failed(.other)
+    }
+
+    /// Asks how a job stands. Never throws: an answer that could not be had
+    /// is `.unanswered`, which is for asking again, and a job the server no
+    /// longer knows has failed. A saved job's recipe is fetched here, so
+    /// `.finished(.saved)` always carries it.
+    func checkRecipe(_ job: RecipeJob) async -> RecipeJobCheck {
+        do throws(APIError) {
+            switch try decode(Wire.jobAnswer, from: try await call("GET", "recipe-jobs/\(job.id.rawValue)")) {
+            case .working: return .working
+            case .saved(let id): return .finished(.saved(try await recipe(id)))
+            case .alreadySaved(let id): return .finished(.alreadySaved(id))
+            case .failed(let failure): return .finished(.failed(failure))
+            }
+        } catch {
+            return error.isRetryable ? .unanswered : .finished(.failed(.other))
         }
     }
 
@@ -216,21 +220,7 @@ nonisolated struct APIClient: Sendable {
         _ method: String, _ path: String, body: Data? = nil, contentType: String = Wire.json,
         patience: Patience = .quick
     ) async throws(APIError) -> (status: Int, data: Data) {
-        do {
-            return try await transmit(method, path, body: body, contentType: contentType, patience: patience)
-        } catch let error as APIError {
-            throw error
-        } catch {
-            throw .unreachable
-        }
-    }
-
-    /// `exchange` with the transport's own error left as it is, for the one
-    /// caller that tells a request never sent from one never answered.
-    private func transmit(
-        _ method: String, _ path: String, body: Data?, contentType: String, patience: Patience
-    ) async throws -> (status: Int, data: Data) {
-        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw APIError.rejected(400) }
+        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw .rejected(400) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         if patience == .slow { request.timeoutInterval = Self.slowTimeout }
@@ -238,8 +228,12 @@ nonisolated struct APIClient: Sendable {
             request.httpBody = body
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await transport.send(request)
-        return (response.statusCode, data)
+        do {
+            let (data, response) = try await transport.send(request)
+            return (response.statusCode, data)
+        } catch {
+            throw .unreachable
+        }
     }
 
     private func decode<Value>(_ parse: (Data) throws -> Value, from data: Data) throws(APIError) -> Value {

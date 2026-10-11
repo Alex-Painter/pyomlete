@@ -13,7 +13,7 @@ nonisolated enum RecipeRequest: Equatable, Sendable {
     /// Read together as one recipe, such as two pages of a cookbook.
     case photos([RecipePhoto])
 
-    enum Kind: Equatable, Sendable {
+    enum Kind: String, Codable, Equatable, Sendable {
         case link, describe, photos
     }
 
@@ -49,9 +49,8 @@ nonisolated enum RecipeCreation: Equatable, Sendable {
     case failed(Failure)
 
     enum Failure: Equatable, Sendable {
+        /// The request never became a job. Once the server has one, losing touch with it is not a failure.
         case unreachable
-        /// The request went out and no answer came back. The server may still make the recipe.
-        case noAnswer
         case linkBlocked
         case noRecipeOnPage
         case siteDidNotRespond
@@ -60,7 +59,6 @@ nonisolated enum RecipeCreation: Equatable, Sendable {
         var message: String {
             switch self {
             case .unreachable: "Couldn't reach Omlete. Check your connection and try again."
-            case .noAnswer: "Omlete didn't answer in time. The recipe may still be on its way, so check Recipes before trying again."
             case .linkBlocked: "That link can't be fetched. Check it's a full, public recipe URL."
             case .noRecipeOnPage:
                 "Couldn't find a recipe on that page. Try the recipe's own page rather than a listing or a video."
@@ -69,4 +67,25 @@ nonisolated enum RecipeCreation: Equatable, Sendable {
             }
         }
     }
+}
+
+/// A recipe the server is making. The server owns the work, so this is all
+/// the phone has to remember to find out how it went.
+nonisolated struct RecipeJob: Codable, Equatable, Sendable {
+    let id: RecipeJobID
+    let kind: RecipeRequest.Kind
+}
+
+/// What handing a request to the server ends in.
+nonisolated enum RecipeStart: Equatable, Sendable {
+    case started(RecipeJob)
+    case failed(RecipeCreation.Failure)
+}
+
+/// One look at a job.
+nonisolated enum RecipeJobCheck: Equatable, Sendable {
+    case working
+    case finished(RecipeCreation)
+    /// The server could not be asked, which says nothing about the job.
+    case unanswered
 }

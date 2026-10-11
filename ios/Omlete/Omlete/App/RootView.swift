@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(Library.self) private var library
     @Environment(Kitchen.self) private var kitchen
     @Environment(Chef.self) private var chef
+    @Environment(RecipeIntake.self) private var intake
     @Environment(AppNavigation.self) private var navigation
     @Environment(UndoCenter.self) private var undo
     @Environment(\.scenePhase) private var scenePhase
@@ -43,6 +44,7 @@ struct RootView: View {
             if scenePhase == .active {
                 library.syncAll()
                 kitchen.resume()
+                intake.resume()
                 if let open = navigation.openList { library.list(open).sync(refresh: true) }
                 Task { await library.refresh() }
                 Task { await chef.load() }

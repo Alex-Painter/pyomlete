@@ -255,16 +255,11 @@ private struct HeldAisle {
         }
     }
 
-    /// Makes a recipe from a link, a description or photos. A saved one joins the library at once.
-    func createRecipe(_ request: RecipeRequest) async -> RecipeCreation {
-        let outcome = await deps.api.createRecipe(request)
-        if case .saved(let recipe) = outcome {
-            index.recipes.removeAll { $0.id == recipe.id }
-            index.recipes.insert(recipe.summary, at: 0)
-            save()
-        }
-        if outcome == .failed(.noAnswer) { await refresh() }
-        return outcome
+    /// A recipe just made joins the library at once, first, without waiting for a refresh.
+    func shelve(_ recipe: Recipe) {
+        index.recipes.removeAll { $0.id == recipe.id }
+        index.recipes.insert(recipe.summary, at: 0)
+        save()
     }
 
     /// A recipe as an edit just saved it: its tile, and its name wherever a

@@ -73,18 +73,35 @@ nonisolated enum Wire {
             }))
     }
 
-    /// A link or a description answers with one recipe; photos answer with a list, of which the first is ours.
-    static func createdRecipe(_ data: Data) throws -> Recipe {
-        if let one = try? JSONDecoder().decode(RecipeDetailDTO.self, from: data) { return try one.recipe() }
-        guard let first = try JSONDecoder().decode([RecipeDetailDTO].self, from: data).first else {
-            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no recipe"))
-        }
-        return try first.recipe()
+    static func startedJob(_ data: Data) throws -> RecipeJobID {
+        RecipeJobID(try JSONDecoder().decode(RecipeJobDTO.self, from: data).id)
     }
 
-    /// The body of the 409 that import answers when the page is already a recipe.
-    static func alreadyImported(_ data: Data) -> RecipeID? {
-        (try? JSONDecoder().decode(AlreadyImportedDTO.self, from: data))?.detail.recipe_id.map { RecipeID($0) }
+    /// How the server says a job stands. A saved job names its recipe and does not carry it.
+    enum JobAnswer: Equatable {
+        case working
+        case saved(RecipeID)
+        case alreadySaved(RecipeID)
+        case failed(RecipeCreation.Failure)
+    }
+
+    /// A status this build does not know, or one missing the recipe it promises, throws.
+    static func jobAnswer(_ data: Data) throws -> JobAnswer {
+        let dto = try JSONDecoder().decode(RecipeJobDTO.self, from: data)
+        switch (dto.status, dto.recipe_id) {
+        case ("working", _): return .working
+        case ("saved", let recipe?): return .saved(RecipeID(recipe))
+        case ("already_imported", let recipe?): return .alreadySaved(RecipeID(recipe))
+        case ("failed", _):
+            switch dto.failure {
+            case "link_blocked": return .failed(.linkBlocked)
+            case "no_recipe_on_page": return .failed(.noRecipeOnPage)
+            case "site_did_not_respond": return .failed(.siteDidNotRespond)
+            default: return .failed(.other)
+            }
+        default:
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "job status \(dto.status)"))
+        }
     }
 
     /// Cards hidden by "Not for me" or Clear are dropped here, so those two
@@ -128,12 +145,13 @@ nonisolated enum Wire {
         let contentType: String
     }
 
-    static func creation(_ request: RecipeRequest) throws(APIError) -> Upload {
+    /// The request that starts a job for each kind of recipe request.
+    static func jobStart(_ request: RecipeRequest) throws(APIError) -> Upload {
         switch request {
         case .link(let url):
-            return Upload(path: "recipes/import-from-url/", body: try encode(["url": url]), contentType: json)
+            return Upload(path: "recipe-jobs/link", body: try encode(["url": url]), contentType: json)
         case .describe(let prompt):
-            return Upload(path: "recipes/generate/", body: try encode(["prompt": prompt]), contentType: json)
+            return Upload(path: "recipe-jobs/describe", body: try encode(["prompt": prompt]), contentType: json)
         case .photos(let photos):
             let boundary = "omlete-\(UUID().uuidString)"
             var body = Data()
@@ -146,13 +164,9 @@ nonisolated enum Wire {
                 body.append(photo.jpeg)
                 body.append(Data("\r\n".utf8))
             }
-            // One group holding every photo: they are pages of the same recipe.
-            body.append(Data([
-                "--\(boundary)", #"Content-Disposition: form-data; name="group_sizes""#, "", "\(photos.count)",
-                "--\(boundary)--", "",
-            ].joined(separator: "\r\n").utf8))
-            return Upload(
-                path: "recipes/extract-from-images/", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
+            // The server reads every photo of a job as pages of one recipe.
+            body.append(Data("--\(boundary)--\r\n".utf8))
+            return Upload(path: "recipe-jobs/photos", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
         }
     }
 
@@ -308,12 +322,11 @@ nonisolated private struct RecipeUpdateDTO: Encodable {
     let ingredients: [Ingredient]
 }
 
-nonisolated private struct AlreadyImportedDTO: Decodable {
-    struct Detail: Decodable {
-        let recipe_id: String?
-    }
-
-    let detail: Detail
+nonisolated private struct RecipeJobDTO: Decodable {
+    let id: String
+    let status: String
+    let recipe_id: String?
+    let failure: String?
 }
 
 nonisolated private struct SuggestionDTO: Decodable {
