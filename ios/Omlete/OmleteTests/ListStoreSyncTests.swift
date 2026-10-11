@@ -278,6 +278,20 @@ import Testing
         #expect(phone.transport.bodies[1] as? [String: String] == ["recipe_id": "soup"])
     }
 
+    @Test func aMealPutBackWhileItsRemovalCanStillBeUndoneIsNeverSentEitherWay() async throws {
+        phone.serverAnswers()
+        phone.store.removeMeal("curry", title: "Curry")
+        #expect(phone.store.replica.current?.recipes == [])
+
+        let outcome = try await phone.store.addMeal("curry")
+        await phone.store.sync().value
+
+        #expect(outcome == .added)
+        #expect(phone.store.replica.current?.recipes == ["curry"])
+        #expect(phone.undo.banner == nil)
+        #expect(!phone.transport.calls.contains { $0.path.hasSuffix("/recipes") || $0.path.hasSuffix("/recipes/curry") })
+    }
+
     @Test func addingAMealWithNoSignalFails() async {
         phone.serverIsUnreachable()
 

@@ -76,6 +76,8 @@ nonisolated struct RecipeSummary: Identifiable, Codable, Equatable, Sendable {
     var rating: Int?
     /// Set only for a recipe imported from a link, which is what "From the web" means.
     var sourceName: String?
+    /// nil in a library saved before the picker needed it, and for a meal known only by its title.
+    var ingredientCount: Int?
 }
 
 /// Where a recipe or an idea came from. A source always has a name to show;

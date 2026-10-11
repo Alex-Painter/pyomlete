@@ -124,6 +124,12 @@ nonisolated private func cleanName(_ name: String) -> String {
 nonisolated extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    /// The one rule for searching by title: any part of it, whatever the case. An empty search matches everything.
+    func matches(search: String) -> Bool {
+        let needle = search.trimmed.lowercased()
+        return needle.isEmpty || lowercased().contains(needle)
+    }
+
     func replacing(pattern: String, with replacement: String, caseInsensitive: Bool = false) -> String {
         var options: String.CompareOptions = .regularExpression
         if caseInsensitive { options.insert(.caseInsensitive) }

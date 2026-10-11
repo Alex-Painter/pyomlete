@@ -21,6 +21,7 @@ import Observation
     @ObservationIgnored private var commit: (() -> Void)?
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var lastID = 0
+    @ObservationIgnored private var waiting: String?
 
     init(duration: Duration = .seconds(5)) {
         self.duration = duration
@@ -34,7 +35,18 @@ import Observation
         self.commit = commit
         timer = Task { [weak self, duration] in
             try? await Task.sleep(for: duration)
-            if !Task.isCancelled { self?.settle(committing: true) }
+            if !Task.isCancelled { self?.commitNow() }
+        }
+    }
+
+    /// News nobody tapped for, such as a save that failed in the background. It
+    /// never costs the user an Undo: while a banner with Undo is up it waits,
+    /// and shows once that banner has settled on its own.
+    func inform(_ message: String) {
+        if banner?.canUndo == true {
+            waiting = message
+        } else {
+            offer(message)
         }
     }
 
@@ -42,10 +54,18 @@ import Observation
         let undo = undo
         settle(committing: false)
         undo?()
+        sayWhatWaited()
     }
 
     func commitNow() {
         settle(committing: true)
+        sayWhatWaited()
+    }
+
+    private func sayWhatWaited() {
+        guard let message = waiting, banner == nil else { return }
+        waiting = nil
+        offer(message)
     }
 
     private func settle(committing: Bool) {

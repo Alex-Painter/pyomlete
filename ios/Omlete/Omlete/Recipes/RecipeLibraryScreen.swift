@@ -14,7 +14,8 @@ struct RecipeLibraryScreen: View {
         ScrollView {
             if !recipes.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    searchField
+                    SearchField(screen: "recipes", prompt: "Search recipes", text: $query.search)
+                        .padding(.horizontal, 16)
                     filters
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())], spacing: 12) {
                         ForEach(shown) { recipe in
@@ -66,29 +67,6 @@ struct RecipeLibraryScreen: View {
         }
         .refreshable { await library.refresh() }
         .task { await library.refresh() }
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search recipes", text: $query.search)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .accessibilityIdentifier("recipes.searchField")
-            if !query.search.isEmpty {
-                Button("Clear search", systemImage: "xmark.circle.fill") { query.search = "" }
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(.secondary)
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("recipes.clearSearchButton")
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 44)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
     }
 
     private var filters: some View {

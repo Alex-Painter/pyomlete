@@ -45,7 +45,8 @@ nonisolated enum Wire {
         try JSONDecoder().decode([RecipeDTO].self, from: data).map {
             RecipeSummary(
                 id: RecipeID($0.id), title: $0.title, imageURL: $0.image_url.flatMap(URL.init(string:)),
-                totalMinutes: $0.total_minutes, rating: $0.rating, sourceName: $0.source_name)
+                totalMinutes: $0.total_minutes, rating: $0.rating, sourceName: $0.source_name,
+                ingredientCount: $0.ingredient_count)
         }
     }
 
@@ -226,6 +227,7 @@ nonisolated private struct RecipeDTO: Decodable {
     let total_minutes: Int?
     let rating: Int?
     let source_name: String?
+    let ingredient_count: Int?
 }
 
 /// A whole recipe is the Mongo document, so its id is `_id`.
