@@ -57,6 +57,8 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         /// The ingredient this row began as, nil for an added row. Its note,
         /// group and on-list flag are not editable here and are saved as they were.
         fileprivate let origin: Recipe.Ingredient?
+        /// The heading an added row is saved under. Unused when there is an `origin`.
+        fileprivate var addedTo: String?
         /// Where `origin` sits in the recipe.
         fileprivate let originIndex: Int?
     }
@@ -96,17 +98,31 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         lastID = recipe.ingredients.count + recipe.steps.count - 1
     }
 
-    /// Whether this draft was made from exactly this recipe, untouched fields included.
+    /// Whether saving this draft over `recipe` would undo nothing: every
+    /// field the editor edits is as it was when the draft was made. The rest
+    /// (rating, notes, groups, on-list flags) may differ, because a save
+    /// takes them from the recipe as it is then, per `carryingUntouched`.
     func isBased(on recipe: Recipe) -> Bool {
-        original == recipe
+        original.id == recipe.id && Self.edited(in: original) == Self.edited(in: recipe)
     }
 
-    /// A blank row at the end, on the fallback aisle and on shopping lists, as the web adds it.
+    private static func edited(in recipe: Recipe) -> RecipeEdit {
+        RecipeEdit(
+            title: recipe.title, steps: recipe.steps,
+            ingredients: recipe.ingredients.map {
+                Recipe.Ingredient(name: $0.name, amount: $0.amount, unit: $0.unit, category: $0.category)
+            })
+    }
+
+    /// A blank row at the end, on the fallback aisle and on shopping lists, as
+    /// the web adds it. Unlike the web it joins the last ingredient's group:
+    /// with none, the recipe page shows it alone under a heading of its own.
     @discardableResult
     mutating func addIngredient() -> RowID {
         lastID += 1
         ingredients.append(IngredientRow(
-            id: lastID, name: "", quantity: "", unit: "", aisle: ListLayout.fallbackAisle, origin: nil, originIndex: nil))
+            id: lastID, name: "", quantity: "", unit: "", aisle: ListLayout.fallbackAisle, origin: nil,
+            addedTo: ingredients.last?.group, originIndex: nil))
         return lastID
     }
 
@@ -166,8 +182,12 @@ nonisolated extension RecipeDraft.IngredientRow {
         return .number(number)
     }
 
+    fileprivate var group: String? {
+        origin.map(\.group) ?? addedTo
+    }
+
     fileprivate var saved: Recipe.Ingredient {
-        var ingredient = origin ?? Recipe.Ingredient(name: "")
+        var ingredient = origin ?? Recipe.Ingredient(name: "", group: addedTo)
         ingredient.name = name.trimmed
         ingredient.amount = if case .number(let number) = amount { number } else { nil }
         ingredient.unit = unit.trimmed.isEmpty ? nil : unit.trimmed
