@@ -168,7 +168,7 @@ describe('setDay in the queue', () => {
     offline()
     enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'r1', status: 'open' })
     enqueue({ kind: 'removeRecipe', listId: 'L', recipeId: 'r1', notBefore: Date.now() + 60_000 })
-    enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'r1', status: 'open' })
+    enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'r2', status: 'open' })
     expect(pendingOpsFor('L').map((o) => o.kind)).toEqual(['setDay', 'removeRecipe', 'setDay'])
   })
 
@@ -197,6 +197,56 @@ describe('setDay in the queue', () => {
     expect(reloaded.days).toEqual([])
   })
 })
+
+describe('send order', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+  const sent = () => fetchMock.mock.calls.map(([url, init]) => `${init?.method} ${String(url)}`)
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    vi.stubGlobal('fetch', fetchMock)
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }))
+  })
+
+  afterEach(() => {
+    fetchMock.mockReset()
+    vi.unstubAllGlobals()
+  })
+
+  const later = () => Date.now() + 60_000
+
+  it('planning a meal while its removal can be undone cancels the removal', async () => {
+    enqueue({ kind: 'removeRecipe', listId: 'L', recipeId: 'r1', notBefore: later() })
+    enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'r1', status: 'open' })
+    expect(pendingOpsFor('L').map((o) => o.kind)).toEqual(['setDay'])
+    await flushQueue()
+    expect(sent()).toEqual(['PUT /api/lists/L/days/2026-10-20'])
+    expect(readQueue()).toEqual([])
+  })
+
+  it('a removal whose Undo has passed is not cancelled', async () => {
+    offlineFetch(fetchMock)
+    enqueue({ kind: 'removeRecipe', listId: 'L', recipeId: 'r1', notBefore: Date.now() - 1 })
+    enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'r1', status: 'open' })
+    expect(pendingOpsFor('L').map((o) => o.kind)).toEqual(['removeRecipe', 'setDay'])
+    // Let the flush the overdue removal scheduled finish before the next test.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+  })
+
+  it('an op waits behind an earlier one for its list that is not due yet', async () => {
+    enqueue({ kind: 'removeRecipe', listId: 'L', recipeId: 'r1', notBefore: later() })
+    enqueue({ kind: 'setDay', listId: 'L', date: '2026-10-20', recipeId: 'r2', status: 'open' })
+    enqueue({ kind: 'patch', listId: 'M', itemId: 'a', updates: { checked: true } })
+    await flushQueue()
+    // Another list's changes don't wait.
+    expect(sent()).toEqual(['PATCH /api/lists/M/items/a'])
+    expect(pendingOpsFor('L').map((o) => o.kind)).toEqual(['removeRecipe', 'setDay'])
+  })
+})
+
+function offlineFetch(fetchMock: ReturnType<typeof vi.fn<typeof fetch>>) {
+  fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+}
 
 describe('flushQueue', () => {
   it('can run again after a flush with nothing to send', async () => {

@@ -12,6 +12,9 @@
  *
  * Setting a day of a week list rides the queue too. Last write wins per day,
  * the same rule as items.
+ *
+ * Ops for one list reach the server in the order they were made: a later op
+ * waits behind an earlier one that isn't due yet.
  */
 import { ApiError, apiFetch, apiJson } from '@/lib/api'
 import type { DayStatus, ISODate, ListDetail, ListItem } from '@/lib/types'
@@ -97,7 +100,14 @@ export function newId(): string {
 
 export function enqueue(op: NewOp): string {
   const queued = { ...op, opId: newId() } as QueuedOp
-  const queue = readQueue()
+  let queue = readQueue()
+
+  // Planning a meal whose removal is still waiting out its Undo is that Undo:
+  // otherwise the removal, sent later, would take the meal off its new day.
+  if (queued.kind === 'setDay' && queued.recipeId != null) {
+    const removal = pendingRemoval(queued.listId, queued.recipeId)
+    if (removal) queue = queue.filter((o) => o.opId !== removal.opId)
+  }
 
   // Fold a patch into an earlier, not-yet-sent patch or add of the same item,
   // so a row checked and unchecked ten times offline sends one request.
@@ -140,6 +150,19 @@ export function enqueue(op: NewOp): string {
     setTimeout(() => void flushQueue(), queued.notBefore - Date.now() + 50)
   }
   return queued.opId
+}
+
+/** A meal's removal that hasn't been sent and can still be undone. */
+export function pendingRemoval(listId: string, recipeId: string): QueuedOp | undefined {
+  const now = Date.now()
+  return readQueue().find(
+    (o) =>
+      o.kind === 'removeRecipe' &&
+      o.listId === listId &&
+      o.recipeId === recipeId &&
+      o.notBefore != null &&
+      o.notBefore > now,
+  )
 }
 
 /** Drop an op that hasn't been sent yet. Returns false if it already went. */
@@ -218,11 +241,23 @@ export function flushQueue(opts: { keepalive?: boolean } = {}): Promise<number> 
   return flushing
 }
 
+/** The first op that is due and has nothing for its list still waiting before it. */
+function nextDue(queue: QueuedOp[], now: number): QueuedOp | undefined {
+  const waiting = new Set<string>()
+  return queue.find((o) => {
+    if (waiting.has(o.listId)) return false
+    if (o.notBefore && o.notBefore > now) {
+      waiting.add(o.listId)
+      return false
+    }
+    return true
+  })
+}
+
 async function sendDue(keepalive: boolean): Promise<number> {
   let sent = 0
   for (;;) {
-    const now = Date.now()
-    const op = readQueue().find((o) => !o.notBefore || o.notBefore <= now)
+    const op = nextDue(readQueue(), Date.now())
     if (!op) break
     let res: Response
     try {
