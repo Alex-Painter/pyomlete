@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChefHat, ChevronRight, Clock, Sparkles, Copy, Loader2, MoreHorizontal, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
+import { CalendarDays, CalendarPlus, ChefHat, ChevronRight, Clock, Sparkles, Copy, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ActionSheet } from '@/components/BottomSheet'
 import { ErrorState } from '@/components/ErrorState'
@@ -12,7 +12,8 @@ import { RenameListSheet } from '@/components/RenameListSheet'
 import { createList, useCurrentList } from '@/hooks/useAddToList'
 import { apiFetch, apiJson } from '@/lib/api'
 import { useSuggestionActions } from '@/hooks/useSuggestionActions'
-import { useLists, useRecipes, useSuggestions } from '@/lib/queries'
+import { useLists, usePlanSettings, useRecipes, useSuggestions } from '@/lib/queries'
+import { todayISO, weekStartFor } from '@/lib/week'
 import type { ListSummary } from '@/lib/types'
 
 export const Route = createFileRoute('/')({ component: HomePage })
@@ -20,7 +21,7 @@ export const Route = createFileRoute('/')({ component: HomePage })
 /**
  * Home: where you land, built as a stack of sections so v2 can add more
  * without a redesign. Today: meals to cook from the current list, your lists
- * (New list is the most common action, so it stays above the fold), then
+ * (Plan a week is the most common action, so it stays above the fold), then
  * Chef's picks (the proactive suggestions agent). Recent activity
  * and stats slot in as further sections below.
  */
@@ -32,9 +33,15 @@ function HomePage() {
   const [actionsFor, setActionsFor] = useState<ListSummary | null>(null)
   const [renaming, setRenaming] = useState<ListSummary | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const { data: planSettings } = usePlanSettings()
 
+  // The week runs from one shop to the next, so it starts on the most recent
+  // shop day rather than on Monday.
   const newList = useMutation({
-    mutationFn: createList,
+    mutationFn: () =>
+      createList({
+        week_start: weekStartFor(todayISO(), planSettings?.week_start_weekday ?? 5),
+      }),
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ['lists'] })
       void navigate({ to: '/list/$listId', params: { listId: data.id } })
@@ -74,7 +81,7 @@ function HomePage() {
       <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
         <PageHeader
           title="Home"
-          subtitle="Pick meals, build the list, shop, cook."
+          subtitle="Plan the week, shop, cook."
         />
 
         <CookFromList hidden={hidden} />
@@ -86,8 +93,12 @@ function HomePage() {
             disabled={newList.isPending}
             className="min-h-[44px] font-semibold"
           >
-            {newList.isPending ? <Loader2 className="animate-spin" /> : <Plus className="size-4" />}
-            New list
+            {newList.isPending ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <CalendarPlus className="size-4" />
+            )}
+            Plan a week
           </Button>
         </div>
 
@@ -101,8 +112,9 @@ function HomePage() {
 
         {visible && visible.length === 0 && (
           <p className="flex items-center gap-3 rounded-2xl border border-dashed border-line px-4 py-5 text-sm text-ink-muted">
-            <ShoppingCart className="size-6 shrink-0 text-ink-faint" />
-            No lists yet. Start one, add a few meals, and the ingredients collect themselves.
+            <CalendarDays className="size-6 shrink-0 text-ink-faint" />
+            No weeks planned yet. Plan one, pick a dinner for each day, and the shopping list
+            builds itself.
           </p>
         )}
 

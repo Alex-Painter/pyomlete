@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch, apiJson } from '@/lib/api'
 import { useLists } from '@/lib/queries'
-import type { ListSummary } from '@/lib/types'
+import type { ISODate, ListSummary } from '@/lib/types'
 import { useUndo } from '@/components/UndoToast'
 
 const CURRENT_KEY = 'omlete:current-list'
@@ -31,8 +31,15 @@ export function useCurrentList(): ListSummary | null {
   return lists.find((l) => l.id === remembered) ?? lists[0]
 }
 
-export async function createList(): Promise<{ id: string; name: string }> {
-  return apiJson<{ id: string; name: string }>('/api/lists/', { method: 'POST' })
+/** A plain list, or with `week_start` a week list with seven open days. */
+export async function createList(
+  body: { week_start?: ISODate } = {},
+): Promise<{ id: string; name: string }> {
+  return apiJson<{ id: string; name: string }>('/api/lists/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 /** Put a saved recipe on a list, confirming with Undo. */
