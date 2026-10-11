@@ -261,8 +261,18 @@ import Testing
         await eventually { phone.pulse.isWaiting }
         await nextTry()
 
-        #expect(intake.isWorking)
-        #expect(intake.phase != .finished(.failed(.unreachable)))
+        #expect(intake.phase == .working(job, .inTouch))
+        #expect(phone.transport.calls.count(where: { $0 == startLink }) == 2)
+    }
+
+    @Test func aTapWithNoSignalStillSaysSoAtOnceWhenTheAppWasJustRelaunchedIdle() async {
+        intake.resume()
+        server.start = .noSignal
+        intake.edit("https://example.com/traybake")
+        intake.submit()
+
+        await eventually { !intake.isWorking }
+        #expect(intake.phase == .finished(.failed(.unreachable)))
     }
 
     @Test func aStartThatIsNotAnsweredIsSentAgainUnderTheSameKeyUntilItIs() async {

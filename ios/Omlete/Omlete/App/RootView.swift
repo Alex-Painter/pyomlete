@@ -40,7 +40,7 @@ struct RootView: View {
             case .cook(let id): CookScreen(recipeID: id)
             }
         }
-        // A job restored at launch is followed from here, not left for the scene to be seen becoming active.
+        // A job restored at launch is followed from here: `onChange` below does not fire for the first scene phase.
         .task { intake.resume() }
         .onChange(of: scenePhase) {
             if scenePhase == .active {
