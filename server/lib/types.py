@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RecipePrompt(BaseModel):
@@ -198,6 +198,23 @@ class CategoryConfigRequest(BaseModel):
 
 class CategoriesUpdateRequest(BaseModel):
     categories: list[CategoryConfigRequest]
+
+    @field_validator("categories")
+    @classmethod
+    def _clean(cls, categories: list[CategoryConfigRequest]) -> list[CategoryConfigRequest]:
+        """Trim each name, drop the empty ones and any that repeats an earlier one
+        whatever its case. Lists group by name, so two aisles with one name are one
+        aisle listed twice. Cleaned and not refused: a client sends its whole list
+        and none of them expects a 422. Each aisle kept keeps the order it came with."""
+        seen: set[str] = set()
+        kept = []
+        for category in categories:
+            name = category.name.strip()
+            if not name or name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            kept.append(CategoryConfigRequest(name=name, order=category.order))
+        return kept
 
 
 class CategorizeRequest(BaseModel):
