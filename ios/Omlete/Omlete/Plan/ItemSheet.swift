@@ -110,7 +110,7 @@ struct ItemSheet: View {
     }
 
     private var typedAmount: Double? {
-        Double(amountText.trimmed.replacingOccurrences(of: ",", with: ".")).flatMap { $0.isFinite ? $0 : nil }
+        parseAmount(amountText)
     }
 
     private func bump(_ direction: Double) {

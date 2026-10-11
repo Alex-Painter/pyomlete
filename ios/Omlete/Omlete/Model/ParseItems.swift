@@ -62,6 +62,11 @@ nonisolated func formatAmount(_ amount: Double) -> String {
     return isWhole ? String(Int(rounded)) : String(rounded)
 }
 
+/// A quantity typed into an amount field, with either decimal mark. nil for anything that is not a finite number.
+nonisolated func parseAmount(_ text: String) -> Double? {
+    Double(text.trimmed.replacingOccurrences(of: ",", with: ".")).flatMap { $0.isFinite ? $0 : nil }
+}
+
 nonisolated private let numberPattern = #"(\d+(?:[.,]\d+)?(?:\s*/\s*\d+)?|\d*\s*[½¼¾⅓⅔])"#
 
 nonisolated private let fractions: [Character: Double] = [
