@@ -102,16 +102,20 @@ nonisolated enum Wire {
     }
 
     /// Cards hidden by "Not for me" or Clear are dropped here, so those two
-    /// states never reach the app. A card saved without a recipe can only be saved again.
+    /// states never reach the app. A card saved without a recipe has been
+    /// answered and has nothing to open, so it reads as failed: Discover's to
+    /// show, with Try again, and never one of Home's picks. A status the app
+    /// does not know is dropped: it could not say what the card's buttons would do.
     static func suggestions(_ data: Data) throws -> [Suggestion] {
         try JSONDecoder().decode([SuggestionDTO].self, from: data).compactMap { dto in
             let stage: Suggestion.Stage
             switch (dto.status, dto.recipe_id) {
             case ("dismissed", _), ("cleared", _): return nil
             case ("saved", let recipe?): stage = .saved(RecipeID(recipe))
+            case ("saved", nil), ("failed", _): stage = .failed
             case ("saving", _): stage = .saving
-            case ("failed", _): stage = .failed
-            default: stage = .fresh
+            case ("new", _): stage = .fresh
+            default: return nil
             }
             return Suggestion(
                 id: SuggestionID(dto.id), title: dto.title, reason: dto.reason,
@@ -132,8 +136,9 @@ nonisolated enum Wire {
         try encode(["status": "dismissed"])
     }
 
-    static func clearing(_ ids: [SuggestionID]) throws(APIError) -> Data {
-        try encode(["ids": ids.map(\.rawValue)])
+    /// `onlyNew` is left out when false, which is the request older servers and the web know.
+    static func clearing(_ ids: [SuggestionID], onlyNew: Bool) throws(APIError) -> Data {
+        try encode(ClearSuggestionsDTO(ids: ids.map(\.rawValue), only_new: onlyNew ? true : nil))
     }
 
     struct Upload {
@@ -347,6 +352,11 @@ nonisolated private struct TuneDTO: Encodable {
 
 nonisolated private struct SaveSuggestionDTO: Encodable {
     let list_id: String?
+}
+
+nonisolated private struct ClearSuggestionsDTO: Encodable {
+    let ids: [String]
+    let only_new: Bool?
 }
 
 nonisolated private struct NewItemDTO: Encodable {

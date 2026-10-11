@@ -264,6 +264,9 @@ class SuggestionsClearRequest(BaseModel):
     # None clears every visible card; a list clears just those (what the
     # person saw when they tapped Clear, so newer cards survive).
     ids: Optional[list[str]] = None
+    # Home's Clear on the phone: only cards nobody has acted on. Without it a
+    # card saved or failed elsewhere since the phone last read it would go too.
+    only_new: bool = False
 
 
 class SuggestionSaveRequest(BaseModel):

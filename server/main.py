@@ -1218,15 +1218,18 @@ async def clear_suggestions(body: SuggestionsClearRequest):
     """Hide these cards (or every visible card) without counting it against them.
 
     A card whose save may be running is left: the card is that save's to end.
+    With `only_new`, so is every card that has been acted on, a lost save included.
     """
     named = {} if body.ids is None else {"_id": {"$in": [PydanticObjectId(i) for i in body.ids]}}
+    clearable = ["new"] if body.only_new else ["new", "saved", "failed"]
     result = await SuggestionDocument.find(
-        {"status": {"$in": ["new", "saved", "failed"]}, **named}
+        {"status": {"$in": clearable}, **named}
     ).update({"$set": {"status": "cleared"}})
     cleared = getattr(result, "modified_count", 0)
-    for s in await SuggestionDocument.find({"status": "saving", **named}).to_list():
-        if not _save_may_be_running(s) and await _write_if_unchanged(s, {"status": "cleared"}):
-            cleared += 1
+    if not body.only_new:
+        for s in await SuggestionDocument.find({"status": "saving", **named}).to_list():
+            if not _save_may_be_running(s) and await _write_if_unchanged(s, {"status": "cleared"}):
+                cleared += 1
     return {"cleared": cleared}
 
 

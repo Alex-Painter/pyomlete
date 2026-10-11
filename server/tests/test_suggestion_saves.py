@@ -509,6 +509,14 @@ class TestASaveThatWasLost:
         assert answer.json() == {"cleared": 0}
         assert stored(cards, lost).status == "saving"
 
+    async def test_clear_of_only_new_cards_leaves_it(self, api, cards):
+        lost = a_card_whose_save_was_lost(cards)
+
+        answer = await api.post("/api/suggestions/clear", json={"ids": [lost], "only_new": True})
+
+        assert answer.json() == {"cleared": 0}
+        assert stored(cards, lost).status == "saving"
+
     async def test_not_for_me_takes_it_off_the_feed(self, api, cards):
         lost = a_card_whose_save_was_lost(cards)
 
@@ -516,6 +524,41 @@ class TestASaveThatWasLost:
 
         assert answer.json()["status"] == "dismissed"
         assert await in_the_feed(api, lost) is None
+
+
+class TestClearingOnlyNewCards:
+    """Home's Clear on the phone, which names the cards it showed as unanswered."""
+
+    async def test_leaves_a_card_answered_since_the_phone_read_it(self, api, cards):
+        new = a_card(cards)
+        saved = a_card(cards, "saved", recipe_id=RECIPE_ID)
+        failed = a_card(cards, "failed")
+        unnamed = a_card(cards)
+
+        answer = await api.post("/api/suggestions/clear", json={"ids": [new, saved, failed], "only_new": True})
+
+        assert answer.json() == {"cleared": 1}
+        assert [stored(cards, c).status for c in (new, saved, failed, unnamed)] == ["cleared", "saved", "failed", "new"]
+
+    async def test_with_no_cards_named_every_new_card_goes_and_no_other(self, api, cards):
+        new, other_new = a_card(cards), a_card(cards)
+        saved = a_card(cards, "saved", recipe_id=RECIPE_ID)
+
+        answer = await api.post("/api/suggestions/clear", json={"only_new": True})
+
+        assert answer.json() == {"cleared": 2}
+        assert [stored(cards, c).status for c in (new, other_new, saved)] == ["cleared", "cleared", "saved"]
+
+    async def test_without_it_the_cards_named_go_whatever_their_answer(self, api, cards):
+        new = a_card(cards)
+        saved = a_card(cards, "saved", recipe_id=RECIPE_ID)
+        failed = a_card(cards, "failed")
+
+        for body in ({"ids": [new, saved]}, {"ids": [failed], "only_new": False}):
+            answer = await api.post("/api/suggestions/clear", json=body)
+            assert answer.status_code == 200
+
+        assert {stored(cards, c).status for c in (new, saved, failed)} == {"cleared"}
 
 
 class TestShutdown:
