@@ -85,6 +85,8 @@ function serve(initial: ListDetail) {
   return () => state
 }
 
+const dinners = (l: ListDetail | undefined) => l?.days.map((d) => [d.date, d.recipe_id])
+
 function setup(initial: ListDetail = server) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   queryClient.setQueryData(['list', 'L'], initial)
@@ -158,6 +160,27 @@ describe('useListActions', () => {
     })
     await waitFor(() => expect(readQueue()).toEqual([]))
     await waitFor(() => expect(queryClient.getQueryState(['recipes'])?.isInvalidated).toBe(true))
+  })
+
+  it('planning a removed meal during its Undo keeps it off the day it was taken from', async () => {
+    saveListSnapshot(week)
+    const onServer = serve(week)
+    const { result, list } = setup(week)
+    act(() => result.current.removeRecipe('r1', 'Soup'))
+    act(() => {
+      result.current.setDay({ date: '2026-10-21', recipeId: 'r1' })
+    })
+    await waitFor(() => expect(readQueue()).toEqual([]))
+
+    const planned = [
+      ['2026-10-17', null],
+      ['2026-10-20', null],
+      ['2026-10-21', 'r1'],
+    ]
+    await waitFor(() => expect(dinners(list())).toEqual(planned))
+    expect(dinners(onServer())).toEqual(planned)
+    expect(list()?.recipes).toEqual(['r1'])
+    expect(list()?.items.map((i) => i.name)).toEqual(['onion'])
   })
 
   describe('once a change held behind a deferred delete is sent', () => {

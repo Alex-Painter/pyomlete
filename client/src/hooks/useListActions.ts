@@ -151,14 +151,16 @@ export function useListActions(listId: string) {
   /**
    * Putting a meal back while its removal can still be undone is that Undo.
    * The server still has the meal, so adding it again would be refused and
-   * the removal would go through anyway. Returns whether there was one.
+   * the removal would go through anyway. Returns the list as it was before
+   * the removal, or null if there was no removal to undo.
    */
   const undoRemoval = useCallback(
-    (recipeId: string) => {
+    (recipeId: string): { previous: ListDetail | undefined } | null => {
       const removal = pendingRemoval(listId, recipeId)
-      if (!removal) return false
-      restore([removal.opId], beforeRemoval.current.get(removal.opId))
-      return true
+      if (!removal) return null
+      const previous = beforeRemoval.current.get(removal.opId)
+      restore([removal.opId], previous)
+      return { previous }
     },
     [listId, restore],
   )
@@ -166,7 +168,14 @@ export function useListActions(listId: string) {
   /** Put a meal on a day, or clear it. Works offline; last write wins. */
   const setDay = useCallback(
     ({ date, recipeId, status }: { date: ISODate; recipeId: string | null; status?: DayStatus }) => {
-      if (recipeId) undoRemoval(recipeId)
+      const undone = recipeId ? undoRemoval(recipeId) : null
+      // The meal was taken off its days, and planning it now says where it
+      // goes instead: the server never saw the removal, so clear them there.
+      for (const d of undone?.previous?.days ?? []) {
+        if (d.recipe_id === recipeId && d.date !== date) {
+          apply({ kind: 'setDay', listId, date: d.date, recipeId: null, status: d.status })
+        }
+      }
       return apply({ kind: 'setDay', listId, date, recipeId, status: status ?? 'open' })
     },
     [apply, listId, undoRemoval],
