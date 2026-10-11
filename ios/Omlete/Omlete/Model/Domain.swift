@@ -23,6 +23,7 @@ nonisolated enum ListScope {}
 nonisolated enum ItemScope {}
 nonisolated enum RecipeScope {}
 nonisolated enum OpScope {}
+nonisolated enum SuggestionScope {}
 
 /// Minted by the server (a Mongo ObjectId).
 typealias ListID = Identifier<ListScope>
@@ -30,6 +31,7 @@ typealias ListID = Identifier<ListScope>
 typealias ItemID = Identifier<ItemScope>
 typealias RecipeID = Identifier<RecipeScope>
 typealias OpID = Identifier<OpScope>
+typealias SuggestionID = Identifier<SuggestionScope>
 
 nonisolated struct ItemSource: Codable, Equatable, Sendable {
     var recipeID: RecipeID?
@@ -71,4 +73,32 @@ nonisolated struct RecipeSummary: Identifiable, Codable, Equatable, Sendable {
     var title: String
     var imageURL: URL?
     var totalMinutes: Int?
+    var rating: Int?
+    /// Set only for a recipe imported from a link, which is what "From the web" means.
+    var sourceName: String?
+}
+
+/// Where a recipe or an idea came from. A source always has a name to show;
+/// only some have a page to open.
+nonisolated struct RecipeSource: Codable, Equatable, Sendable {
+    let name: String
+    let url: URL?
+}
+
+nonisolated struct ListRef: Equatable, Sendable {
+    let id: ListID
+    let name: String
+}
+
+/// Where "Add to list" should put a meal. `.current` is the list last opened,
+/// else the first, else a new one; `Library` works that out, never a view.
+nonisolated enum ListTarget: Equatable, Sendable {
+    case current
+    case list(ListID)
+    case new
+}
+
+nonisolated enum MealAdd: Equatable, Sendable {
+    case added
+    case alreadyOnList
 }

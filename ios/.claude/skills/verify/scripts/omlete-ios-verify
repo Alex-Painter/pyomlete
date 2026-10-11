@@ -36,6 +36,7 @@ MONGO_IMAGE=mongodb/mongodb-atlas-local:8.0
 MONGO_PORT="${OMLETE_IOS_VERIFY_MONGO_PORT:-27019}"
 DB_URI_LOCAL="mongodb://127.0.0.1:$MONGO_PORT/?directConnection=true"
 FIXTURE_LIST="Verify Fixture List"
+FIXTURE_SOURCE="https://example.com/verify-fixture-traybake"
 
 die() { echo "omlete-ios-verify: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
@@ -84,8 +85,11 @@ start_api() {
       # Exported vars win over server/.env, so a production DB_URI there is never used.
       export DB_URI="$DB_URI_LOCAL"
       # Both SDK clients are built at import time; a placeholder lets CRUD work without keys.
-      grep -Eqs '^[[:space:]]*ANTHROPIC_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env || export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-omlete-verify-no-key}"
-      grep -Eqs '^[[:space:]]*VOYAGE_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]]' .env || export VOYAGE_API_KEY="${VOYAGE_API_KEY:-omlete-verify-no-key}"
+      # Placeholders by default, even with real keys in server/.env: the Discover and Add
+      # recipes prove failures, and a real key would spend money on every run.
+      if [ "${OMLETE_IOS_VERIFY_REAL_KEYS:-0}" != 1 ]; then
+        export ANTHROPIC_API_KEY=omlete-verify-no-key VOYAGE_API_KEY=omlete-verify-no-key
+      fi
       nohup .venv/bin/uvicorn main:app --host 127.0.0.1 --port "$API_PORT" > "$RUN_DIR/api.log" 2>&1 &
       echo $! > "$RUN_DIR/api.pid"
     )
@@ -113,23 +117,63 @@ stop_api() {
 # fixture recipe and "Verify Fixture Soft Egg", whose first step holds a
 # 5-second timer so a recipe can watch one finish. Plus milk and bananas. The
 # list is built through the API so it has the shape the server really produces.
+#
+# Also leaves "Verify Fixture Traybake", a recipe in the shape a link import
+# saves (source, time, rating, ingredient groups, no picture), and five
+# Discover cards across four shelves. The last card's link is the Traybake's
+# source, so saving it finds that recipe without asking a model.
 # Only ever runs against the disposable database.
 seed() {
   local py="$ROOT/server/.venv/bin/python"
   "$py" "$ROOT/.claude/skills/verify-omlete/scripts/seed.py" "$DB_URI_LOCAL" >/dev/null
-  "$py" - "$DB_URI_LOCAL" <<'PY'
+  "$py" - "$DB_URI_LOCAL" "$FIXTURE_SOURCE" <<'PY'
 import sys
 from datetime import datetime, timezone
 from pymongo import MongoClient
-MongoClient(sys.argv[1], serverSelectionTimeoutMS=5000)["omlete"].recipes.insert_one({
-    "title": "Verify Fixture Soft Egg",
-    "instructions": ["Boil the egg for 5 seconds.", "Peel it and eat with toast."],
-    "ingredients": [{"name": "eggs", "unit": "whole", "amount": 1, "note": None, "group": None,
-                     "category": "Dairy & Eggs", "excluded_from_list": False}],
-    "rating": None,
-    "created_at": datetime.now(timezone.utc),
-})
+from datetime import timedelta
+db = MongoClient(sys.argv[1], serverSelectionTimeoutMS=5000)["omlete"]
+now = datetime.now(timezone.utc)
+def ing(name, unit, amount, category, group=None, note=None, excluded=False):
+    return {"name": name, "unit": unit, "amount": amount, "note": note, "group": group,
+            "category": category, "excluded_from_list": excluded}
+db.recipes.insert_many([
+    {
+        "title": "Verify Fixture Soft Egg",
+        "instructions": ["Boil the egg for 5 seconds.", "Peel it and eat with toast."],
+        "ingredients": [ing("eggs", "whole", 1, "Dairy & Eggs")],
+        "rating": None,
+        "created_at": now,
+    },
+    {
+        "title": "Verify Fixture Traybake",
+        "instructions": ["Roast the chicken and potatoes for 40 minutes.", "Whisk the dressing and pour it over."],
+        "ingredients": [
+            ing("chicken thighs", "whole", 6, "Meat & Fish", group="For the traybake"),
+            ing("new potatoes", "grams", 500, "Fresh Produce", group="For the traybake", note="halved"),
+            ing("olive oil", "tablespoons", 2, "Pantry & Dry Goods", group="For the dressing", excluded=True),
+            ing("lemon", "whole", 1, "Fresh Produce", group="For the dressing"),
+        ],
+        "rating": 5,
+        "servings": 4,
+        "total_minutes": 45,
+        "source_url": sys.argv[2],
+        "source_name": "example.com",
+        "created_at": now - timedelta(minutes=2),
+    },
+])
+db.suggestions.delete_many({})
+# A recipe a run made (saved from a card, or added) is not a fixture: the library starts from the four above.
+db.recipes.delete_many({"title": {"$not": {"$regex": "^Verify Fixture "}}})
 PY
+  api -X POST "$API/api/suggestions/" -d "$(jq -n --arg u "$FIXTURE_SOURCE" '{suggestions: [
+    {title: "Verify Card Imported Traybake", reason: "Its page is already in your recipes.", section: "Something new",
+     source_url: $u, source_name: "example.com", total_minutes: 45},
+    {title: "Verify Card Loose Idea", reason: "A card with no shelf of its own."},
+    {title: "Verify Card Quick Noodles", reason: "On the table in twenty minutes.", section: "Under 30 minutes", total_minutes: 20},
+    {title: "Verify Card Bean Chilli", reason: "You rated the shakshuka highly.", section: "For this week", total_minutes: 50},
+    {title: "Verify Card Miso Aubergine", reason: "Uses the eggs on your list.", section: "For this week", total_minutes: 35,
+     source_name: "Chef"}
+  ]}')" >/dev/null
   local id
   for id in $(api "$API/api/lists/" | jq -r '.[].id'); do api -X DELETE "$API/api/lists/$id" >/dev/null; done
   id="$(api -X POST "$API/api/lists/" | jq -r .id)"
@@ -141,7 +185,7 @@ PY
   done
   api -X POST "$API/api/lists/$id/items" -d '{"name":"milk","amount":2,"unit":"pint","category":"Dairy & Eggs"}' >/dev/null
   api -X POST "$API/api/lists/$id/items" -d '{"name":"bananas","amount":6,"unit":null,"category":"Fresh Produce"}' >/dev/null
-  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals"
+  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; 4 recipes; 5 suggestions"
 }
 
 state_get() { [ -f "$STATE" ] || return 0; sed -n "s/^$1=//p" "$STATE" | head -1; }

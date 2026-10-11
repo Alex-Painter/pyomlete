@@ -11,6 +11,24 @@ nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var deletingLists: Set<ListID> = []
     /// The list last opened: the one Home offers to cook from.
     var currentList: ListID?
+    /// Recipes whose delete is committed but not yet confirmed by the server.
+    var deletingRecipes: Set<RecipeID> = []
+}
+
+nonisolated extension LibraryIndex {
+    /// Written by hand so every field may be missing: an index saved by an
+    /// older build still loads, with its unsent deletes and current list.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        summaries = try container.decodeIfPresent([ListSummary].self, forKey: .summaries) ?? []
+        aisleOrder = try container.decodeIfPresent([String].self, forKey: .aisleOrder) ?? []
+        recipes = try container.decodeIfPresent([RecipeSummary].self, forKey: .recipes) ?? []
+        units = try container.decodeIfPresent([String].self, forKey: .units) ?? []
+        deletingLists = try container.decodeIfPresent(Set<ListID>.self, forKey: .deletingLists) ?? []
+        currentList = try container.decodeIfPresent(ListID.self, forKey: .currentList)
+        deletingRecipes = try container.decodeIfPresent(Set<RecipeID>.self, forKey: .deletingRecipes) ?? []
+    }
 }
 
 protocol ReplicaStorage {

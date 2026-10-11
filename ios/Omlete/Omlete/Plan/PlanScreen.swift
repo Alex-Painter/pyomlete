@@ -35,6 +35,8 @@ struct PlanScreen: View {
             }
         }
         .undoBanner(isCovered: navigation.immersive != nil)
+        // Start shopping owns the bottom of this screen, and the tab bar would sit on top of it.
+        .toolbarVisibility(.hidden, for: .tabBar)
         .task {
             library.markCurrent(listID)
             await store.refresh()

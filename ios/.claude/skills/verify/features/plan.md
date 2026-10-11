@@ -35,5 +35,6 @@ Preconditions:
 - The list name is an inline navigation title, which is not in the UI tree. Check it in the screenshot or on Home.
 - The name field capitalises the first letter as the keyboard would, so "oat milk" becomes "Oat milk".
 - Swipe actions and drag-to-reorder have no helper step. Use the item sheet for delete, and the CLI's `ui-automation` gestures with a fresh ref for the rest.
-- "Add meals" is not built, so a new list has no meals strip to drive. The fixture list has two meal chips, `plan.mealChip.<recipeID>`.
+- "Add meals" is not built, so a meal reaches a list from a recipe page or a Discover card (`recipe.addToList`, see [Recipes](./recipes.md)). The fixture list has two meal chips, `plan.mealChip.<recipeID>`.
+- Plan hides the tab bar, so `tab.*` cannot be tapped from here. Go back to Home first.
 - Without an API key `/api/categorize` fails, so a new item keeps the app's own aisle guess.

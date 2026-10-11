@@ -13,12 +13,16 @@ import Testing
     enum Reply {
         case status(Int, String = "{}")
         case unreachable
+        /// The request went out and nothing came back.
+        case timedOut
     }
 
     /// Requests in arrival order, without the `/categorize` lookups that adds fire on the side.
     var calls: [Call] { allCalls.filter { $0.path != "/api/categorize" } }
     private(set) var allCalls: [Call] = []
     private(set) var bodies: [[String: Any]] = []
+    /// Every request as sent, for what a `Call` leaves out: headers, timeout, a body that is not JSON.
+    private(set) var requests: [URLRequest] = []
     /// The most list requests that were ever in flight at once.
     private(set) var peakInFlight = 0
     private var inFlight = 0
@@ -41,6 +45,7 @@ import Testing
     private func answer(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let call = Call(method: request.httpMethod ?? "GET", path: request.url?.path() ?? "")
         allCalls.append(call)
+        requests.append(request)
         let isListRequest = call.path != "/api/categorize"
         if isListRequest {
             bodies.append(request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
@@ -52,6 +57,8 @@ import Testing
         switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
+        case .timedOut:
+            throw URLError(.timedOut)
         case .status(let status, let body):
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
             return (Data(body.utf8), response)
@@ -86,10 +93,19 @@ import Testing
         {"id":"milk","name":"milk","amount":2,"unit":"l","category":"Dairy","checked":false,"sources":[]}]}
         """
 
+    /// What `GET /api/lists/` answers for a phone whose only list is the fixture.
+    static let listsJSON = """
+        [{"id":"list","name":"Week","created_at":null,"item_count":2,"checked_count":0,"recipes":[{"id":"curry","title":"Curry"}]}]
+        """
+
     let transport = ScriptedTransport()
     let storage = MemoryStorage()
+    let ticker = Ticker()
+    private let defaults = UserDefaults(suiteName: "phone-\(UUID().uuidString)")!
     private(set) var undo = UndoCenter()
     private(set) var library: Library!
+    private(set) var chef: Chef!
+    private(set) var intake: RecipeIntake!
 
     /// `fetched` starts with the list already saved on the phone.
     init(fetched: Bool = true) {
@@ -105,9 +121,13 @@ import Testing
 
     func relaunch() {
         undo = UndoCenter()
+        let api = APIClient(baseURL: URL(string: "http://phone.test")!, transport: transport)
         library = Library(deps: StoreDependencies(
-            api: APIClient(baseURL: URL(string: "http://phone.test")!, transport: transport),
+            api: api,
             disk: storage, undo: undo, connectivity: Connectivity(), retryDelay: nil))
+        chef = Chef(deps: ChefDependencies(
+            api: api, undo: undo, library: library, defaults: defaults, pause: { [ticker] _ in try await ticker.pause() }))
+        intake = RecipeIntake(library: library)
     }
 
     /// Scripts the server: the list GET returns the fixture, everything else 200,
@@ -122,6 +142,23 @@ import Testing
 
     func serverIsUnreachable() {
         transport.reply = { _ in .unreachable }
+    }
+}
+
+/// Stands in for Chef's wait between polls: each poll waits here until the test calls `tick()`.
+@MainActor final class Ticker {
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    var isWaiting: Bool { !waiting.isEmpty }
+
+    func pause() async throws {
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func tick() {
+        let woken = waiting
+        waiting = []
+        woken.forEach { $0.resume() }
     }
 }
 

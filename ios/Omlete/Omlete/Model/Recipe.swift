@@ -6,6 +6,26 @@ nonisolated struct Recipe: Codable, Equatable, Sendable, Identifiable {
         var amount: Double?
         var unit: String?
         var note: String?
+        /// The heading the source page put it under, such as "For the sauce".
+        var group: String?
+        var category: String?
+        /// Off for something always in the cupboard: it stays out of shopping lists.
+        var isOnList = true
+    }
+
+    /// A run of ingredients under one heading, in the order the source had them.
+    struct IngredientGroup: Equatable, Identifiable {
+        struct Line: Equatable, Identifiable {
+            /// Index in `Recipe.ingredients`, which is how the server addresses an ingredient.
+            let id: Int
+            let ingredient: Ingredient
+        }
+
+        let heading: String?
+        /// Never empty.
+        let lines: [Line]
+
+        var id: Int { lines[0].id }
     }
 
     let id: RecipeID
@@ -16,6 +36,50 @@ nonisolated struct Recipe: Codable, Equatable, Sendable, Identifiable {
     var baseServings: Int?
     /// The server's rating. What the screen shows is `CookStore.rating`.
     var rating: Int?
+    var imageURL: URL?
+    var totalMinutes: Int?
+    var source: RecipeSource?
+    var createdAt: Date?
+
+    var ingredientGroups: [IngredientGroup] {
+        var groups: [IngredientGroup] = []
+        for (index, ingredient) in ingredients.enumerated() {
+            let line = IngredientGroup.Line(id: index, ingredient: ingredient)
+            if let last = groups.last, last.heading == ingredient.group {
+                groups[groups.count - 1] = IngredientGroup(heading: last.heading, lines: last.lines + [line])
+            } else {
+                groups.append(IngredientGroup(heading: ingredient.group, lines: [line]))
+            }
+        }
+        return groups
+    }
+
+    var summary: RecipeSummary {
+        RecipeSummary(
+            id: id, title: title, imageURL: imageURL, totalMinutes: totalMinutes, rating: rating,
+            sourceName: source?.name)
+    }
+}
+
+nonisolated extension Recipe.Ingredient {
+    /// Written by hand so a cook saved before `isOnList` existed still opens.
+    /// In an extension, which keeps the memberwise initialiser.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        amount = try container.decodeIfPresent(Double.self, forKey: .amount)
+        unit = try container.decodeIfPresent(String.self, forKey: .unit)
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+        group = try container.decodeIfPresent(String.self, forKey: .group)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+        isOnList = try container.decodeIfPresent(Bool.self, forKey: .isOnList) ?? true
+    }
+}
+
+nonisolated func formatMinutes(_ minutes: Int) -> String {
+    let (hours, rest) = (minutes / 60, minutes % 60)
+    if hours == 0 { return "\(minutes) min" }
+    return rest == 0 ? "\(hours) hr" : "\(hours) hr \(rest) min"
 }
 
 /// The servings control. With a known yield it counts servings; without one it

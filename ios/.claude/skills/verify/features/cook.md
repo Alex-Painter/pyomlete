@@ -9,17 +9,17 @@ One recipe, full screen over the whole app, screen kept awake. An overview with 
 - `cook-timers` starts a timer from a time written in the step. Running timers show as chips on every step and read "Step n: done" when they end.
 - `cook-rate` sends a 1 to 5 star rating from the last page. With no connection it is kept and sent later.
 - `cook-resume` reopens a cook at the step, servings and timers it had, after closing Cook or a cold relaunch.
-- `cook-close` returns to where Cook was opened: Home or Plan.
+- `cook-close` returns to where Cook was opened: Home, Plan or a recipe page.
 
 ## How to get to it (user POV)
 
-- On Home, tap a card under "Cook from <list>". Or in Plan, tap a meal chip and choose Cook this.
+- On Home, tap a card under "Cook from <list>". Or in Plan, tap a meal chip and choose Cook this. Or on a recipe page, tap Cook.
 
 ## Driving it with omlete-ios-verify
 
 Preconditions:
 
-- `$V up` just ran and `$V doctor` prints no `FAIL`. `<egg>` and `<shakshuka>` are the two fixture recipe ids.
+- `$V up` just ran and `$V doctor` prints no `FAIL`. `<egg>` and `<shakshuka>` are the ids of the two fixture recipes on the list.
 
 - **Overview and scaling.** `$V tap home.cookCard.<shakshuka>`, `$V expect "chopped tomatoes, 400g"`, `$V tap cook.moreButton` twice, then `$V expect "chopped tomatoes, 800g"` and `$V expect "eggs, 8"`. For the Soft Egg, which has no serving count, the value reads `×1` and `cook.moreButton` makes it `×1.5` with `eggs, 1.5`.
 - **Steps.** `$V tap cook.startButton`, `$V expect "Step 1 of 3"`, `$V tap cook.nextButton`, `$V expect "Step 2 of 3"`. `cook.backButton` goes back; on the last step `cook.nextButton` is labelled Finish.
@@ -28,7 +28,7 @@ Preconditions:
 - **Rate.** On the last page, `$V expect "How was it?"`, `$V tap cook.star.4`, `$V expect "Thanks. Discover will suggest more like this, or less."`. `curl -s http://127.0.0.1:8765/api/recipes/<id> | jq .rating` prints `4`.
 - **Rate offline.** `$V api stop`, `$V tap cook.star.5`, `$V expect "Saved. It will send when you're back online."`, `$V api start`, `$V relaunch`. A few seconds later the API has `5`, and `.verify-run/api.log` holds one `PATCH /api/recipes/<id>/rating`.
 - **Resume.** Mid-cook with a timer running: `$V api stop`, `$V relaunch`, `$V tap home.cookCard.<shakshuka>`, `$V expect "Step 2 of 3"`. The chip is still counting.
-- **Close.** `$V tap cook.closeButton`, then `$V expect-id home.newListButton` (or `plan.startShoppingButton` when opened from Plan).
+- **Close.** `$V tap cook.closeButton`, then `$V expect-id home.newListButton` (or `plan.startShoppingButton` when opened from Plan, or `recipe.cookButton` when opened from a recipe page).
 
 ## Gotchas
 
