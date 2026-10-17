@@ -104,7 +104,7 @@ People use Omlete in four distinct ways, and the old app blended them into one l
 2. **Lists**, with **New list** beside the heading, the most common action, so it stays above the fold.
 3. **Chef's picks**: Chef's newest suggestions, with See all going to Discover.
 
-The phone tab bar is Home, Discover, Add, Recipes. Settings sits behind the cog in each page header.
+The phone tab bar on the web is Home, Discover, Chef, Recipes; the Chef tab opens Chef's sheet over the current screen, and Add a recipe is a link from Chef and from Recipes. Settings sits behind the cog in each page header.
 
 ## Modes are entry points, not stages
 

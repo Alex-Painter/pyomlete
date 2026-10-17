@@ -18,6 +18,9 @@ The full plan, with the data model, the tool list and a diagram, is the [Chef pl
 | Chef's Undo puts back the documents a tool changed, as they were, and refuses (409) when anything has changed them since | Undoing over a later edit would lose it without a word. Each tool call is one action, so the client undoes a whole reply by undoing its actions newest first. |
 | Messages carry only the path of the screen (`page: {"path": "/list/<id>"}`); the server reads the ids from it | The web and iOS then send the same thing, and a new screen needs no new field. |
 | Recipe jobs and Discover cards have no Chef tools | A job is the same recipe making as `create_recipe`, `import_recipe` and `create_recipe_from_photos`, started for a phone that may drop a long request. Discover cards are Chef's own ideas; in chat it suggests in its reply. `tests/test_chef_parity.py` lists each exemption with its reason. |
+| The web reads Chef's stream itself rather than adding the AI SDK's `useChat` | The protocol is a few event types and the client needs only a few dozen lines for it (`client/src/lib/chef.ts`), with no new dependency in an app that has to keep working offline. |
+| While the chat is on screen, its changes carry their own Undo in the conversation and no toast; with Chef closed or at the slim bar, the reply's changes get one Undo toast | The toast would cover the message box, and the Undo is already beside each change. |
+| On phones Chef stays out of Shop and Cook | Both take the whole screen and have no tab bar for the sheet to sit on. The sidebar on wide windows stays. |
 | Notifications, iOS first: week ready, recipe ready, Cook timer done | The timer is a local notification. The others are APNs pushes from the server. Permission is asked the first time one is useful, not at launch. |
 
 ## Phases
