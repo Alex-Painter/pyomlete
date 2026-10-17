@@ -24,10 +24,10 @@ struct MealMenuTests {
     @Test func picksAreTheCardsNotYetRecipesInFeedOrder() {
         let cards = [
             card("fresh", "Bean Chilli"), card("saved", "Traybake", .saved("traybake")),
-            card("saving", "Noodles", .saving), card("failed", "Aubergine", .failed),
+            card("saving", "Noodles", .saving), card("failed", "Aubergine", .failed), card("unsent", "Dal", .unsent),
         ]
 
-        #expect(menu(cards: cards).picks.map(\.id) == ["fresh", "saving"])
+        #expect(menu(cards: cards).picks.map(\.id) == ["fresh", "saving", "unsent"])
     }
 
     @Test func atMostFourPicksAreOffered() {

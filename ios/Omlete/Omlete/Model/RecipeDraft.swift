@@ -32,7 +32,17 @@ nonisolated struct RecipeEdit: Equatable, Sendable {
             edit.ingredients[place].group = now.group
             edit.ingredients[place].isOnList = now.isOnList
         }
+        edit.groupAddedIngredients()
         return edit
+    }
+
+    /// An added ingredient joins the group of the one before it. Worked out
+    /// from the rows as saved, so a row removed or regrouped since the
+    /// ingredient was added cannot leave it alone under a heading.
+    fileprivate mutating func groupAddedIngredients() {
+        for place in ingredients.indices where origins.indices.contains(place) && origins[place] == nil {
+            ingredients[place].group = place > 0 ? ingredients[place - 1].group : nil
+        }
     }
 }
 
@@ -74,9 +84,6 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         case fix(quantities: [RowID])
     }
 
-    /// The units the web's editor offers on top of the ones recipes already use.
-    static let extraUnits = ["to taste", "whole", "pinch"]
-
     var title: String
     var ingredients: [IngredientRow]
     var steps: [StepRow]
@@ -99,12 +106,26 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         lastID = recipe.ingredients.count + recipe.steps.count - 1
     }
 
-    /// Whether this draft was made from exactly this recipe, untouched fields included.
+    /// Whether saving this draft over `recipe` would undo nothing: every
+    /// field the editor edits is as it was when the draft was made. The rest
+    /// (rating, notes, groups, on-list flags) may differ, because a save
+    /// takes them from the recipe as it is then, per `carryingUntouched`.
     func isBased(on recipe: Recipe) -> Bool {
-        original == recipe
+        original.id == recipe.id && Self.edited(in: original) == Self.edited(in: recipe)
     }
 
-    /// A blank row at the end, on the fallback aisle and on shopping lists, as the web adds it.
+    private static func edited(in recipe: Recipe) -> RecipeEdit {
+        RecipeEdit(
+            title: recipe.title, steps: recipe.steps,
+            ingredients: recipe.ingredients.map {
+                Recipe.Ingredient(name: $0.name, amount: $0.amount, unit: $0.unit, category: $0.category)
+            })
+    }
+
+    /// A blank row at the end, on the fallback aisle and on shopping lists, as
+    /// the web adds it. Unlike the web it is saved in the group of the
+    /// ingredient before it (`groupAddedIngredients`): with none, the recipe
+    /// page shows it alone under a heading of its own.
     @discardableResult
     mutating func addIngredient() -> RowID {
         lastID += 1
@@ -127,25 +148,26 @@ nonisolated struct RecipeDraft: Equatable, Sendable, Identifiable {
         let kept = ingredients.filter { !$0.name.trimmed.isEmpty }
         let unreadable = kept.filter { $0.amount == .unreadable }.map(\.id)
         guard unreadable.isEmpty else { return .fix(quantities: unreadable) }
-        return .save(RecipeEdit(
+        var edit = RecipeEdit(
             title: title.oneLine.isEmpty ? original.title : title.oneLine,
             steps: steps.map(\.text.trimmed).filter { !$0.isEmpty },
             ingredients: kept.map(\.saved),
             origins: kept.map { row in
                 row.originIndex.flatMap { index in row.origin.map { RecipeEdit.Origin(index: index, name: $0.name) } }
-            }))
+            })
+        edit.groupAddedIngredients()
+        return .save(edit)
     }
 
     /// Whether saving would change the recipe. Compared as outcomes, so a
     /// blank row added and left empty, or a field retyped as it was, is no change.
     var hasChanges: Bool {
-        outcome != RecipeDraft(original).outcome
+        outcome != untouchedOutcome
     }
 
-    /// The units to offer: the server's, then the web's extra three, each once.
-    static func unitChoices(server: [String]) -> [String] {
-        var seen: Set<String> = []
-        return (server + extraUnits).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+    /// What Save would send had nothing been edited.
+    var untouchedOutcome: Outcome {
+        RecipeDraft(original).outcome
     }
 
     fileprivate static func text(_ amount: Double?) -> String {

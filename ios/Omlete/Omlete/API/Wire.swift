@@ -29,13 +29,13 @@ nonisolated enum Wire {
         return ListDetail(id: ListID(dto.id), name: dto.name, recipes: dto.recipes.map { RecipeID($0) }, items: items)
     }
 
-    static func aisleOrder(_ data: Data) throws -> [String] {
-        AisleOrder(try JSONDecoder().decode([CategoryDTO].self, from: data).sorted { $0.order < $1.order }.map(\.name)).names
+    static func aisleOrder(_ data: Data) throws -> AisleOrder {
+        AisleOrder(try JSONDecoder().decode([CategoryDTO].self, from: data).sorted { $0.order < $1.order }.map(\.name))
     }
 
     /// The whole list, each aisle numbered by its place: the PUT replaces every aisle the server has.
-    static func aisleOrder(_ names: [String]) throws(APIError) -> Data {
-        try encode(CategoriesDTO(categories: names.enumerated().map { CategoryDTO(name: $1, order: $0) }))
+    static func aisleOrderBody(_ order: AisleOrder) throws(APIError) -> Data {
+        try encode(CategoriesDTO(categories: order.names.enumerated().map { CategoryDTO(name: $1, order: $0) }))
     }
 
     static func category(_ data: Data) throws -> String {
@@ -73,31 +73,49 @@ nonisolated enum Wire {
             }))
     }
 
-    /// A link or a description answers with one recipe; photos answer with a list, of which the first is ours.
-    static func createdRecipe(_ data: Data) throws -> Recipe {
-        if let one = try? JSONDecoder().decode(RecipeDetailDTO.self, from: data) { return try one.recipe() }
-        guard let first = try JSONDecoder().decode([RecipeDetailDTO].self, from: data).first else {
-            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no recipe"))
-        }
-        return try first.recipe()
+    /// How the server says a job stands. A saved job names its recipe and does not carry it.
+    enum JobAnswer: Equatable {
+        case working
+        case saved(RecipeID)
+        case alreadySaved(RecipeID)
+        case failed(RecipeCreation.Failure)
     }
 
-    /// The body of the 409 that import answers when the page is already a recipe.
-    static func alreadyImported(_ data: Data) -> RecipeID? {
-        (try? JSONDecoder().decode(AlreadyImportedDTO.self, from: data))?.detail.recipe_id.map { RecipeID($0) }
+    /// A status this build does not know, or one missing the recipe it promises, throws.
+    /// A failure it does not know is still a failure.
+    static func jobAnswer(_ data: Data) throws -> JobAnswer {
+        let dto = try JSONDecoder().decode(RecipeJobDTO.self, from: data)
+        switch (dto.status, dto.recipe_id) {
+        case ("working", _): return .working
+        case ("saved", let recipe?): return .saved(RecipeID(recipe))
+        case ("already_imported", let recipe?): return .alreadySaved(RecipeID(recipe))
+        case ("failed", _):
+            switch dto.failure {
+            case "link_blocked": return .failed(.linkBlocked)
+            case "no_recipe_on_page": return .failed(.noRecipeOnPage)
+            case "site_did_not_respond": return .failed(.siteDidNotRespond)
+            default: return .failed(.other)
+            }
+        default:
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "job status \(dto.status)"))
+        }
     }
 
     /// Cards hidden by "Not for me" or Clear are dropped here, so those two
-    /// states never reach the app. A card saved without a recipe can only be saved again.
+    /// states never reach the app. A card saved without a recipe has been
+    /// answered and has nothing to open, so it reads as failed: Discover's to
+    /// show, with Try again, and never one of Home's picks. A status the app
+    /// does not know is dropped: it could not say what the card's buttons would do.
     static func suggestions(_ data: Data) throws -> [Suggestion] {
         try JSONDecoder().decode([SuggestionDTO].self, from: data).compactMap { dto in
             let stage: Suggestion.Stage
             switch (dto.status, dto.recipe_id) {
             case ("dismissed", _), ("cleared", _): return nil
             case ("saved", let recipe?): stage = .saved(RecipeID(recipe))
+            case ("saved", nil), ("failed", _): stage = .failed
             case ("saving", _): stage = .saving
-            case ("failed", _): stage = .failed
-            default: stage = .fresh
+            case ("new", _): stage = .fresh
+            default: return nil
             }
             return Suggestion(
                 id: SuggestionID(dto.id), title: dto.title, reason: dto.reason,
@@ -118,8 +136,9 @@ nonisolated enum Wire {
         try encode(["status": "dismissed"])
     }
 
-    static func clearing(_ ids: [SuggestionID]) throws(APIError) -> Data {
-        try encode(["ids": ids.map(\.rawValue)])
+    /// `onlyNew` is left out when false, which is the request older servers and the web know.
+    static func clearing(_ ids: [SuggestionID], onlyNew: Bool) throws(APIError) -> Data {
+        try encode(ClearSuggestionsDTO(ids: ids.map(\.rawValue), only_new: onlyNew ? true : nil))
     }
 
     struct Upload {
@@ -128,12 +147,14 @@ nonisolated enum Wire {
         let contentType: String
     }
 
-    static func creation(_ request: RecipeRequest) throws(APIError) -> Upload {
+    /// The request that starts a job for each kind of recipe request.
+    static func jobStart(_ request: RecipeRequest, key: RecipeJobID) throws(APIError) -> Upload {
+        let path = "recipe-jobs/\(key.rawValue)/\(request.kind.rawValue)"
         switch request {
         case .link(let url):
-            return Upload(path: "recipes/import-from-url/", body: try encode(["url": url]), contentType: json)
+            return Upload(path: path, body: try encode(["url": url]), contentType: json)
         case .describe(let prompt):
-            return Upload(path: "recipes/generate/", body: try encode(["prompt": prompt]), contentType: json)
+            return Upload(path: path, body: try encode(["prompt": prompt]), contentType: json)
         case .photos(let photos):
             let boundary = "omlete-\(UUID().uuidString)"
             var body = Data()
@@ -146,13 +167,9 @@ nonisolated enum Wire {
                 body.append(photo.jpeg)
                 body.append(Data("\r\n".utf8))
             }
-            // One group holding every photo: they are pages of the same recipe.
-            body.append(Data([
-                "--\(boundary)", #"Content-Disposition: form-data; name="group_sizes""#, "", "\(photos.count)",
-                "--\(boundary)--", "",
-            ].joined(separator: "\r\n").utf8))
-            return Upload(
-                path: "recipes/extract-from-images/", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
+            // The server reads every photo of a job as pages of one recipe.
+            body.append(Data("--\(boundary)--\r\n".utf8))
+            return Upload(path: path, body: body, contentType: "multipart/form-data; boundary=\(boundary)")
         }
     }
 
@@ -308,12 +325,10 @@ nonisolated private struct RecipeUpdateDTO: Encodable {
     let ingredients: [Ingredient]
 }
 
-nonisolated private struct AlreadyImportedDTO: Decodable {
-    struct Detail: Decodable {
-        let recipe_id: String?
-    }
-
-    let detail: Detail
+nonisolated private struct RecipeJobDTO: Decodable {
+    let status: String
+    let recipe_id: String?
+    let failure: String?
 }
 
 nonisolated private struct SuggestionDTO: Decodable {
@@ -337,6 +352,11 @@ nonisolated private struct TuneDTO: Encodable {
 
 nonisolated private struct SaveSuggestionDTO: Encodable {
     let list_id: String?
+}
+
+nonisolated private struct ClearSuggestionsDTO: Encodable {
+    let ids: [String]
+    let only_new: Bool?
 }
 
 nonisolated private struct NewItemDTO: Encodable {

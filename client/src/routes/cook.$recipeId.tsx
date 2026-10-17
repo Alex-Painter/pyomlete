@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Check, Loader2, Minus, Plus, Star, Timer, X } from 'lucide-react'
+import { BackLink } from '@/components/BackLink'
 import { ErrorState } from '@/components/ErrorState'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { apiJson } from '@/lib/api'
@@ -133,7 +134,7 @@ function CookPage() {
   const factor = base ? servings / base : servings
   const step = search.step
   const go = (next: Partial<CookSearch>) =>
-    void navigate({ search: (prev) => ({ ...prev, ...next }), replace: false })
+    void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true })
 
   const startTimer = (label: string, seconds: number, stepIndex: number) => {
     const id = ++timerId.current
@@ -148,13 +149,13 @@ function CookPage() {
     <main className="flex min-h-screen flex-col bg-cream text-ink">
       <header className="sticky top-0 z-30 border-b border-line bg-cream/95 backdrop-blur safe-area-top">
         <div className="mx-auto flex max-w-3xl items-center gap-2 px-2 py-2">
-          <Link
+          <BackLink
             {...exit}
             aria-label="Stop cooking"
             className="flex size-11 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-sand"
           >
             <X className="size-6" />
-          </Link>
+          </BackLink>
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold">{recipe.title}</p>
             {step != null && step < steps.length && (
@@ -255,7 +256,6 @@ function CookPage() {
             onRate={(r) => rate.mutate(r)}
             rated={rate.isSuccess}
             exit={exit}
-            listId={search.list}
           />
         )}
       </div>
@@ -386,13 +386,11 @@ function Finished({
   onRate,
   rated,
   exit,
-  listId,
 }: {
   rating: number | null
   onRate: (r: number) => void
   rated: boolean
   exit: { to: '/list/$listId'; params: { listId: string } } | { to: '/recipe/$recipeId'; params: { recipeId: string } }
-  listId?: string
 }) {
   const [picked, setPicked] = useState<number | null>(null)
   const value = picked ?? rating
@@ -425,12 +423,12 @@ function Finished({
       <p className="min-h-[1.5rem] text-ink-muted" role="status">
         {rated ? 'Thanks. Discover will suggest more like this, or less.' : 'One tap. It shapes what Discover suggests.'}
       </p>
-      <Link
+      <BackLink
         {...exit}
         className="flex min-h-[48px] items-center rounded-xl border border-line bg-white px-5 font-medium hover:bg-sand"
       >
-        {listId ? 'Back to the list' : 'Back to the recipe'}
-      </Link>
+        Done
+      </BackLink>
     </div>
   )
 }

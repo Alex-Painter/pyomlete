@@ -34,6 +34,27 @@ import Testing
         phone.transport.calls.count(where: { $0 == call })
     }
 
+    /// The meal picker shows recipes and nothing else the library loads.
+    @Test func refreshingTheRecipesAloneAsksForNothingElse() async {
+        serverAnswers()
+
+        await phone.library.refreshRecipes()
+
+        #expect(phone.transport.calls == [Call(method: "GET", path: "/api/recipes/")])
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Curry"])
+        #expect(phone.library.recipesLoaded)
+    }
+
+    @Test func aRecipesRefreshThatFailsKeepsTheRecipesAlreadyLoaded() async {
+        serverAnswers()
+        await phone.library.refresh()
+        phone.serverIsUnreachable()
+
+        await phone.library.refreshRecipes()
+
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Curry"])
+    }
+
     @Test func addingToTheCurrentListSaysSoAndTheListAndItsHomeRowShowTheMeal() async {
         var added = false
         serverAnswers { [addToWeek] call in
@@ -150,7 +171,7 @@ import Testing
         edited.title = "Green curry"
         edited.ingredients.removeLast()
 
-        phone.library.adopt(edited)
+        phone.library.recipeEdited(edited)
 
         #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
         #expect(phone.library.recipes[1].ingredientCount == 2)
@@ -160,6 +181,29 @@ import Testing
 
         phone.relaunch()
         #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
+    }
+
+    /// The refresh's answer is the library from before the edit. Not fixed here: issue #75 has the design.
+    @Test func aRefreshAskedForBeforeAnEditWasSavedStillPutsTheOldTitleBack() async {
+        serverAnswers()
+        await phone.library.refresh()
+        var edited = Recipe.fixture()
+        edited.title = "Green curry"
+        phone.transport.holding = true
+
+        async let refreshing: Void = phone.library.refresh()
+        await eventually { calls(Call(method: "GET", path: "/api/recipes/")) == 2 }
+        phone.library.recipeEdited(edited)
+        #expect(phone.library.recipes.map(\.title) == ["Soup", "Green curry"])
+        phone.transport.release()
+        await refreshing
+
+        // Only the title is excused: anything else wrong with the library fails here.
+        #expect(phone.library.recipes.map(\.title).first == "Soup")
+        #expect(phone.library.recipes.count == 2)
+        withKnownIssue("a refresh already out puts the old title back until the next one (#75)") {
+            #expect(phone.library.recipes.last?.title == "Green curry")
+        }
     }
 
     @Test func aSettledRecipeDeleteIsSentAndTheRecipeForgotten() async {
@@ -189,153 +233,6 @@ import Testing
 
         await eventually { phone.storage.index?.deletingRecipes.isEmpty == true }
         #expect(phone.storage.index?.recipes.map(\.title) == ["Curry"])
-    }
-
-    @Test func aRecipeJustMadeIsFirstInTheLibraryAndStaysThereAfterARelaunch() async {
-        serverAnswers { $0.path == "/api/recipes/generate/" ? .status(200, ExploreAPITests.traybakeJSON) : nil }
-        await phone.library.refresh()
-
-        let outcome = await phone.library.createRecipe(.describe("a traybake"))
-
-        guard case .saved = outcome else { Issue.record("not saved"); return }
-        #expect(phone.library.recipes.first == RecipeSummary(
-            id: "traybake", title: "Traybake", totalMinutes: 45, rating: 5, sourceName: "example.com", ingredientCount: 4))
-
-        phone.serverIsUnreachable()
-        phone.relaunch()
-        #expect(phone.library.recipes.map(\.title) == ["Traybake", "Soup", "Curry"])
-    }
-
-    @Test func aRecipeThatCouldNotBeMadeLeavesTheLibraryAlone() async {
-        serverAnswers { $0.method == "POST" ? .status(500) : nil }
-        await phone.library.refresh()
-
-        #expect(await phone.library.createRecipe(.describe("a traybake")) == .failed(.other))
-        #expect(phone.library.recipes.map(\.title) == ["Soup", "Curry"])
-    }
-}
-
-@MainActor struct RecipeIntakeTests {
-    private typealias Call = ScriptedTransport.Call
-    private let phone = Phone()
-    private let importLink = Call(method: "POST", path: "/api/recipes/import-from-url/")
-
-    private var intake: RecipeIntake { phone.intake }
-
-    private func serverAnswers(_ reply: ScriptedTransport.Reply) {
-        phone.serverAnswers { $0.method == "POST" ? reply : nil }
-    }
-
-    @Test func theButtonNamesWhatSubmittingWillDo() {
-        #expect(intake.submitLabel == "Create recipe")
-        #expect(!intake.canSubmit)
-
-        intake.edit("leek and potato soup")
-        #expect(intake.submitLabel == "Create recipe")
-        #expect(intake.canSubmit)
-
-        intake.edit("https://example.com/soup")
-        #expect(intake.submitLabel == "Import recipe")
-
-        let photo = RecipePhoto(id: UUID(), jpeg: Data())
-        intake.expectPhotos(2)
-        intake.attach(photo)
-        #expect(intake.submitLabel == "Read 1 photo")
-        intake.attach(RecipePhoto(id: UUID(), jpeg: Data()))
-        #expect(intake.submitLabel == "Read 2 photos")
-
-        intake.removePhoto(photo.id)
-        #expect(intake.photos.count == 1)
-    }
-
-    @Test func aSavedRecipeEndsTheWorkClearsTheFieldAndJoinsTheLibrary() async {
-        serverAnswers(.status(200, ExploreAPITests.traybakeJSON))
-        phone.transport.holding = true
-        intake.edit("https://example.com/traybake")
-
-        intake.submit()
-        #expect(intake.phase == .working(.link))
-        #expect(!intake.canSubmit)
-
-        intake.submit()
-        intake.edit("something else")
-        phone.transport.release()
-        await eventually { !intake.isWorking }
-
-        guard case .finished(.saved(let recipe)) = intake.phase else { Issue.record("not saved"); return }
-        #expect(recipe.title == "Traybake")
-        #expect(intake.text.isEmpty)
-        #expect(phone.transport.calls == [importLink])
-        #expect(phone.library.recipes.map(\.title) == ["Traybake"])
-    }
-
-    @Test func aLinkAlreadySavedKeepsWhatWasTypedAndEditingPutsTheAnswerAway() async {
-        serverAnswers(.status(409, #"{"detail":{"message":"That page has already been imported.","recipe_id":"traybake"}}"#))
-        intake.edit("https://example.com/traybake")
-
-        intake.submit()
-        await eventually { !intake.isWorking }
-
-        #expect(intake.phase == .finished(.alreadySaved("traybake")))
-        #expect(intake.text == "https://example.com/traybake")
-
-        intake.edit("https://example.com/traybake-2")
-        #expect(intake.phase == .editing)
-    }
-
-    @Test func aFailureKeepsTheInputForAnotherTry() async {
-        serverAnswers(.status(502))
-        intake.edit("https://example.com/down")
-
-        intake.submit()
-        await eventually { !intake.isWorking }
-
-        #expect(intake.phase == .finished(.failed(.siteDidNotRespond)))
-        #expect(intake.canSubmit)
-
-        serverAnswers(.status(200, ExploreAPITests.traybakeJSON))
-        intake.submit()
-        await eventually { !intake.isWorking }
-        #expect(phone.transport.calls == [importLink, importLink])
-    }
-
-    @Test func nothingIsSentWhilePickedPhotosAreStillArriving() {
-        intake.expectPhotos(3)
-        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page 1".utf8)))
-        #expect(!intake.canSubmit)
-
-        intake.submit()
-        #expect(phone.transport.calls.isEmpty)
-
-        intake.attach(nil)
-        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page 3".utf8)))
-        #expect(intake.canSubmit)
-        #expect(intake.submitLabel == "Read 2 photos")
-    }
-
-    @Test func aRequestNeverAnsweredSaysTheRecipeMayStillComeAndLooksForIt() async {
-        serverAnswers(.timedOut)
-        intake.edit("leek and potato soup")
-
-        intake.submit()
-        await eventually { !intake.isWorking }
-
-        #expect(intake.phase == .finished(.failed(.noAnswer)))
-        #expect(phone.transport.calls.contains(Call(method: "GET", path: "/api/recipes/")))
-    }
-
-    @Test func photosAreSentInsteadOfTheTextAndClearedOnceSaved() async {
-        serverAnswers(.status(200, "[\(ExploreAPITests.traybakeJSON)]"))
-        intake.edit("ignored")
-        intake.expectPhotos(1)
-        intake.attach(RecipePhoto(id: UUID(), jpeg: Data("page".utf8)))
-
-        intake.submit()
-        #expect(intake.phase == .working(.photos))
-        await eventually { !intake.isWorking }
-
-        #expect(phone.transport.calls == [Call(method: "POST", path: "/api/recipes/extract-from-images/")])
-        #expect(intake.photos.isEmpty)
     }
 }
 
@@ -486,6 +383,27 @@ private extension RecipePage {
         #expect(page?.title == "Curry")
         #expect(stove.session?.recipe.title == "Curry")
         #expect(stove.reportedSaves.isEmpty)
+    }
+
+    /// The answer to a fetch that an edit overtook is the recipe from before the edit.
+    @Test func aFetchAskedForBeforeAnEditWasSavedDoesNotPutTheOldRecipeBack() async throws {
+        await store.load()
+        serverSavesEdits()
+        let get = Call(method: "GET", path: "/api/recipes/curry")
+        stove.transport.holding = true
+
+        async let loading: Void = store.load()
+        await eventually { stove.transport.calls.count(where: { $0 == get }) == 2 }
+        async let saving: Void = store.save(greenCurry)
+        await eventually { stove.transport.calls.last == put }
+        stove.transport.release(only: put)
+        try await saving
+        #expect(page?.title == "Green curry")
+        stove.transport.release()
+        await loading
+
+        #expect(stove.transport.answered.suffix(2) == [put, get])
+        #expect(page?.title == "Green curry")
     }
 
     @Test func anEditWaitsForAnOnListChangeStillOnItsWayBecauseThatNamesItsIngredientByPosition() async throws {

@@ -1,6 +1,7 @@
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RecipePrompt(BaseModel):
@@ -80,6 +81,36 @@ class ImportFromUrlRequest(BaseModel):
     changes: Optional[str] = None
 
 
+RecipeJobKind = Literal["link", "describe", "photos"]
+RecipeJobStatus = Literal["working", "saved", "already_imported", "failed"]
+# The first three are a link's 400, 404 and 502 from import-from-url.
+RecipeJobFailure = Literal[
+    "link_blocked", "no_recipe_on_page", "site_did_not_respond", "other"
+]
+
+
+class RecipeJob(BaseModel):
+    """One recipe being made off the request path, and how it ended.
+
+    `recipe_id` is set when the status is saved or already_imported, and
+    `failure` when it is failed.
+    """
+
+    kind: RecipeJobKind
+    status: RecipeJobStatus = "working"
+    recipe_id: Optional[str] = None
+    failure: Optional[RecipeJobFailure] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class RecipeJobEnd(BaseModel):
+    """How a job ended: the three fields of `RecipeJob` that its ending writes."""
+
+    status: RecipeJobStatus
+    recipe_id: Optional[str] = None
+    failure: Optional[RecipeJobFailure] = None
+
+
 class SimilarIngredient(BaseModel):
     name: str
     score: float
@@ -150,6 +181,25 @@ class CategoryConfigRequest(BaseModel):
 class CategoriesUpdateRequest(BaseModel):
     categories: list[CategoryConfigRequest]
 
+    @field_validator("categories")
+    @classmethod
+    def _clean(cls, categories: list[CategoryConfigRequest]) -> list[CategoryConfigRequest]:
+        """Trim each name, drop the empty ones and any that repeats an earlier one
+        whatever its case. Lists group by name, so two aisles with one name are one
+        aisle listed twice. Cleaned and not refused: a client sends its whole list
+        and none of them expects a 422. Each aisle kept keeps the order it came with."""
+        seen: set[str] = set()
+        kept = []
+        for category in categories:
+            name = category.name.strip()
+            # casefold, not lower: "Straße" and "STRASSE" are one name.
+            folded = name.casefold()
+            if not name or folded in seen:
+                continue
+            seen.add(folded)
+            kept.append(CategoryConfigRequest(name=name, order=category.order))
+        return kept
+
 
 class CategorizeRequest(BaseModel):
     name: str
@@ -215,6 +265,9 @@ class SuggestionsClearRequest(BaseModel):
     # None clears every visible card; a list clears just those (what the
     # person saw when they tapped Clear, so newer cards survive).
     ids: Optional[list[str]] = None
+    # Home's Clear on the phone: only cards nobody has acted on. Without it a
+    # card saved or failed elsewhere since the phone last read it would go too.
+    only_new: bool = False
 
 
 class SuggestionSaveRequest(BaseModel):

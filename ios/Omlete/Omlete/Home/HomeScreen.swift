@@ -39,6 +39,9 @@ struct HomeScreen: View {
             }
         }
         .accessibilityIdentifier("home.list")
+        // A List with no rows draws white, not the grouped grey, behind the cover.
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
         .overlay { cover(for: content) }
         .contentMargins(.bottom, 72, for: .scrollContent)
         .undoBanner(isCovered: navigation.immersive != nil)
@@ -60,17 +63,23 @@ struct HomeScreen: View {
             }
         }
         .refreshable { await refresh() }
-        .task { await refresh() }
+        .task { await appear() }
         .sheet(item: $renaming) { row in
             RenameListSheet(name: row.name) { library.list(row.id).rename($0) }
         }
     }
 
     /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.
-    private func refresh() async {
-        async let ideas: Void = chef.load()
+    private func appear() async {
+        async let ideas: Void = chef.loadIfNeeded()
         await library.refresh()
         await ideas
+    }
+
+    private func refresh() async {
+        async let ideas: Bool = chef.load()
+        await library.refresh()
+        _ = await ideas
     }
 
     @ViewBuilder private func cover(for content: HomeContent) -> some View {
@@ -148,15 +157,9 @@ struct HomeScreen: View {
             }
         } header: {
             HStack(spacing: 16) {
-                // Laid out by hand: inside a List a Label takes the row style, with a wide icon gutter.
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .accessibilityHidden(true)
-                    Text("Chef's picks")
-                }
-                .accessibilityAddTraits(.isHeader)
+                IconHeader(title: "Chef's picks", systemImage: "sparkles")
                 Spacer()
-                Button("Clear") { chef.clearPicks() }
+                Button("Clear") { chef.clear(.picks) }
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
                     .accessibilityIdentifier("home.picks.clearButton")

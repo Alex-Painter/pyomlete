@@ -3,9 +3,10 @@ from typing import Optional
 from uuid import uuid4
 
 from beanie import Document
+from pymongo import ASCENDING, IndexModel
 from pydantic import BaseModel, Field
 
-from lib.types import Ingredient, IngredientRecipe, Recipe, RecipeMetadata
+from lib.types import Ingredient, IngredientRecipe, Recipe, RecipeJob, RecipeMetadata
 
 
 class IngredientDocument(Document, Ingredient):
@@ -107,7 +108,33 @@ class SuggestionDocument(Document):
     origin: str = "suggest"
     recipe_id: Optional[str] = None
     error: Optional[str] = None
+    # When the latest save was started. The task doing it lives in the
+    # server's memory, so a read decides from this whether it can still be
+    # running. It also names that save: a save ends a card only while the card
+    # still carries the start it was given.
+    saving_since: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "suggestions"
+
+
+class RecipeJobDocument(Document, RecipeJob):
+    """A recipe being made in the background, under a key the client chose.
+
+    The key is the document's `_id`, so Mongo itself refuses a second job for
+    it: two starts that race end in one document and one `DuplicateKeyError`.
+
+    The task that does the work lives in the server's memory, and a server
+    that is killed loses it without ending the job. Nothing here is trusted to
+    say "working" for ever: a read decides whether a job has been working too
+    long. Mongo deletes a job a day after it was started.
+    """
+
+    id: str
+
+    class Settings:
+        name = "recipe_jobs"
+        indexes = [
+            IndexModel([("created_at", ASCENDING)], expireAfterSeconds=24 * 60 * 60),
+        ]

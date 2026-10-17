@@ -150,7 +150,8 @@ struct RecipeDraftTests {
         #expect(!draft.hasChanges)
     }
 
-    @Test func anAddedIngredientIsOnListsOnTheFallbackAisleWithNoNoteOrGroup() {
+    /// The last ingredient here has no group, so neither has the added one.
+    @Test func anAddedIngredientIsOnListsOnTheFallbackAisleWithNoNote() {
         var draft = RecipeDraft(traybake)
         let id = draft.addIngredient()
         #expect(draft.ingredients.last?.id == id)
@@ -159,6 +160,98 @@ struct RecipeDraftTests {
         draft.ingredients[4].quantity = "1"
 
         #expect(edit(draft)?.ingredients.last == Recipe.Ingredient(name: "lemon", amount: 1, category: "Other"))
+        #expect(edit(draft)?.origins.last == .some(nil))
+    }
+
+    /// With no group it would show on the recipe page alone, under a heading of its own.
+    @Test func anIngredientAddedToAGroupedRecipeJoinsTheLastGroup() {
+        var grouped = traybake
+        grouped.ingredients.removeLast()
+        var draft = RecipeDraft(grouped)
+
+        draft.addIngredient()
+        draft.ingredients[3].name = "capers"
+        draft.addIngredient()
+        draft.ingredients[4].name = "lemon"
+
+        let saved = edit(draft)
+        #expect(saved?.ingredients.map(\.group) == ["For the traybake", "For the traybake", "For the dressing", "For the dressing", "For the dressing"])
+        #expect(saved?.ingredients[3] == Recipe.Ingredient(name: "capers", group: "For the dressing", category: "Other"))
+
+        var served = grouped
+        served.ingredients = saved?.ingredients ?? []
+        #expect(served.ingredientGroups.map(\.heading) == ["For the traybake", "For the dressing"])
+        #expect(saved?.carryingUntouched(from: grouped).ingredients.map(\.group) == saved?.ingredients.map(\.group))
+    }
+
+    @Test func anIngredientAddedAfterTheLastGroupWasRemovedJoinsTheOneNowLast() {
+        var grouped = traybake
+        grouped.ingredients.removeLast()
+        var draft = RecipeDraft(grouped)
+        draft.ingredients.removeLast()
+
+        draft.addIngredient()
+        draft.ingredients[2].name = "capers"
+
+        #expect(edit(draft)?.ingredients.last?.group == "For the traybake")
+    }
+
+    /// Added while the dressing was last, saved after it was removed: not alone under "For the dressing".
+    @Test func anIngredientAddedBeforeTheLastGroupWasRemovedJoinsTheOneNowLast() {
+        var grouped = traybake
+        grouped.ingredients.removeLast()
+        var draft = RecipeDraft(grouped)
+
+        draft.addIngredient()
+        draft.ingredients[3].name = "capers"
+        draft.ingredients.remove(at: 2)
+
+        #expect(edit(draft)?.ingredients.last?.group == "For the traybake")
+    }
+
+    /// The group is the recipe's as it is at save time, like the other fields the editor does not touch.
+    @Test func anAddedIngredientFollowsAGroupRenamedSinceTheEditorOpened() {
+        var grouped = traybake
+        grouped.ingredients.removeLast()
+        var draft = RecipeDraft(grouped)
+        draft.addIngredient()
+        draft.ingredients[3].name = "capers"
+        var now = grouped
+        now.ingredients[2].group = "For the sauce"
+
+        #expect(edit(draft)?.carryingUntouched(from: now).ingredients.suffix(2).map(\.group) == ["For the sauce", "For the sauce"])
+    }
+
+    /// Cancel then Undo offers the draft back when this holds.
+    @Test func aDraftIsStillBasedOnARecipeWhoseUneditableFieldsChanged() {
+        var draft = RecipeDraft(traybake)
+        draft.title = "Chicken traybake"
+        var now = traybake
+        now.ingredients[0].isOnList = false
+        now.ingredients[1].note = "quartered"
+        now.rating = 2
+
+        #expect(draft.isBased(on: now))
+        #expect(draft.isBased(on: traybake))
+        #expect(edit(draft)?.carryingUntouched(from: now).ingredients.map(\.isOnList) == [false, true, false, true])
+    }
+
+    @Test func aDraftIsNotBasedOnARecipeEditedSince() {
+        let draft = RecipeDraft(traybake)
+        var retitled = traybake
+        retitled.title = "Roast"
+        var requantified = traybake
+        requantified.ingredients[1].amount = 750
+        var reaisled = traybake
+        reaisled.ingredients[3].category = "Pantry"
+        var shorter = traybake
+        shorter.ingredients.removeLast()
+        var restepped = traybake
+        restepped.steps[0] = "Roast for an hour."
+
+        for changed in [retitled, requantified, reaisled, shorter, restepped] {
+            #expect(!draft.isBased(on: changed))
+        }
     }
 
     @Test func anAddedRowLeftBlankIsNotAChange() {
@@ -239,7 +332,7 @@ struct RecipeDraftTests {
     }
 
     @Test func unitsOfferedAreTheServersThenTheWebsThreeEachOnce() {
-        #expect(RecipeDraft.unitChoices(server: ["g", "", "Whole", "tbsp"]) == ["g", "Whole", "tbsp", "to taste", "pinch"])
-        #expect(RecipeDraft.unitChoices(server: []) == ["to taste", "whole", "pinch"])
+        #expect(RecipeEditor.unitChoices(server: ["g", "", "Whole", "tbsp"]) == ["g", "Whole", "tbsp", "to taste", "pinch"])
+        #expect(RecipeEditor.unitChoices(server: []) == ["to taste", "whole", "pinch"])
     }
 }

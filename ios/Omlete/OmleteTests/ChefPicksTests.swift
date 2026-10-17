@@ -25,6 +25,10 @@ struct ChefPicksTests {
         #expect(picks.fresh.map(\.id) == ["2", "3", "5", "6", "7"])
     }
 
+    @Test func aCardWhoseSaveCouldNotBeSentIsStillAPick() {
+        #expect(ChefPicks(cards: [card("a", .unsent), card("b")]).shown.map(\.id) == ["a", "b"])
+    }
+
     @Test func aFeedWithNothingFreshHasNoPicks() {
         #expect(ChefPicks(cards: []).shown.isEmpty)
         #expect(ChefPicks(cards: [card("a", .saved("r")), card("b", .failed)]).shown.isEmpty)

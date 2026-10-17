@@ -24,6 +24,7 @@ nonisolated enum ItemScope {}
 nonisolated enum RecipeScope {}
 nonisolated enum OpScope {}
 nonisolated enum SuggestionScope {}
+nonisolated enum RecipeJobScope {}
 
 /// Minted by the server (a Mongo ObjectId).
 typealias ListID = Identifier<ListScope>
@@ -32,6 +33,7 @@ typealias ItemID = Identifier<ItemScope>
 typealias RecipeID = Identifier<RecipeScope>
 typealias OpID = Identifier<OpScope>
 typealias SuggestionID = Identifier<SuggestionScope>
+typealias RecipeJobID = Identifier<RecipeJobScope>
 
 nonisolated struct ItemSource: Codable, Equatable, Sendable {
     var recipeID: RecipeID?

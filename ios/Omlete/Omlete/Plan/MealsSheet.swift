@@ -5,7 +5,6 @@ import SwiftUI
 /// both. Coming up with ideas is Discover's job; this only receives them.
 struct MealsSheet: View {
     let list: ListDetail
-    let store: ListStore
 
     @Environment(Library.self) private var library
     @Environment(Chef.self) private var chef
@@ -13,8 +12,8 @@ struct MealsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var search = ""
-    /// Recipes whose add is on the wire.
-    @State private var adding: Set<RecipeID> = []
+
+    private var store: ListStore { library.list(list.id) }
 
     var body: some View {
         let menu = MealMenu(
@@ -32,7 +31,7 @@ struct MealsSheet: View {
                     Section {
                         ForEach(menu.picks, content: pickRow)
                     } header: {
-                        Label("Discover picks", systemImage: "sparkles")
+                        IconHeader(title: "Discover picks", systemImage: "sparkles")
                     }
                 }
 
@@ -65,7 +64,7 @@ struct MealsSheet: View {
             // Plan's banner is under this sheet, so the sheet draws it while it is up.
             .undoBanner()
         }
-        .task { await library.refresh() }
+        .task { await library.refreshRecipes() }
         .task { await chef.load() }
     }
 
@@ -97,12 +96,13 @@ struct MealsSheet: View {
 
     private func recipeRow(_ entry: MealMenu.Row) -> some View {
         let recipe = entry.recipe
-        let isAdding = adding.contains(recipe.id)
+        let isAdding = store.mealsBeingAdded.contains(recipe.id)
         return Button {
             if entry.isOnList {
                 store.removeMeal(recipe.id, title: recipe.title)
             } else {
-                add(recipe)
+                // Not tied to this sheet: the add carries on after Done.
+                Task { await library.addMeal(recipe.id, title: recipe.title, to: .list(list.id)) }
             }
         } label: {
             PictureRow(picture: recipe.imageURL, title: recipe.title) {
@@ -161,14 +161,6 @@ struct MealsSheet: View {
     private func leave(for tab: AppTab) {
         dismiss()
         navigation.tab = tab
-    }
-
-    private func add(_ recipe: RecipeSummary) {
-        adding.insert(recipe.id)
-        Task {
-            await library.addMeal(recipe.id, title: recipe.title, to: .list(list.id))
-            adding.remove(recipe.id)
-        }
     }
 }
 

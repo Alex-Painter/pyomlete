@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(Library.self) private var library
     @Environment(Kitchen.self) private var kitchen
     @Environment(Chef.self) private var chef
+    @Environment(RecipeIntake.self) private var intake
     @Environment(AppNavigation.self) private var navigation
     @Environment(UndoCenter.self) private var undo
     @Environment(\.scenePhase) private var scenePhase
@@ -39,16 +40,19 @@ struct RootView: View {
             case .cook(let id): CookScreen(recipeID: id)
             }
         }
+        // A job restored at launch is followed from here: `onChange` below does not fire for the first scene phase.
+        .task { intake.resume() }
         .onChange(of: scenePhase) {
             if scenePhase == .active {
+                undo.appCameToFront()
                 library.syncAll()
                 kitchen.resume()
+                intake.resume()
                 if let open = navigation.openList { library.list(open).sync(refresh: true) }
                 Task { await library.refresh() }
                 Task { await chef.load() }
             } else {
-                // Leaving the app settles the banner, as closing the page does on the web.
-                undo.commitNow()
+                undo.appLeftFront()
             }
         }
     }

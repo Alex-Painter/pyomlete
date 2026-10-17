@@ -57,7 +57,7 @@ struct ShopScreen: View {
     }
 
     private func aisles(of list: ListDetail, in store: ListStore) -> some View {
-        let layout = ListLayout(list, aisleOrder: library.aisleOrder)
+        let layout = ListLayout(list, aisleOrder: library.aisles.order.names)
         return List {
             Section {
                 QuickAddField(screen: "shop", placeholder: "Spotted something? Add it") { store.add($0) }
@@ -94,6 +94,7 @@ struct ShopScreen: View {
         }
         .animation(.default, value: layout)
         .contentMargins(.bottom, 72, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle(list.name)
         .navigationSubtitle(layout.remaining == 0 ? "Nothing left to get" : "\(layout.remaining) left to get")
     }
