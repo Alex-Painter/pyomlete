@@ -138,3 +138,37 @@ class RecipeJobDocument(Document, RecipeJob):
         indexes = [
             IndexModel([("created_at", ASCENDING)], expireAfterSeconds=24 * 60 * 60),
         ]
+
+
+class ChefActionStep(BaseModel):
+    """One document a Chef action changed, as it was before and after.
+
+    `before` is None for a document the action created, `after` None for one
+    it deleted. Both are what a fresh read of the document returned, so Undo
+    can tell whether anything has changed it since.
+    """
+
+    collection: str
+    doc_id: str
+    before: Optional[dict] = None
+    after: Optional[dict] = None
+
+
+class ChefActionDocument(Document):
+    """A change Chef made in chat, kept so the person can Undo it.
+
+    Chef acts without asking first (docs/PRD_CHEF.md); this is what makes that
+    safe. Mongo deletes an action a week after it was made.
+    """
+
+    chat_id: Optional[str] = None
+    summary: str
+    steps: list[ChefActionStep]
+    undone_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "chef_actions"
+        indexes = [
+            IndexModel([("created_at", ASCENDING)], expireAfterSeconds=7 * 24 * 60 * 60),
+        ]
