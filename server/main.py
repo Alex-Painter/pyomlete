@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, TypeAdapter
 from pymongo.errors import DuplicateKeyError
 
+from chef import discover
 from data_models import (
     IngredientDocument,
     ListDocument,
@@ -39,7 +40,6 @@ from lib.types import (
     ItemReorderRequest,
     ItemUpdateRequest,
     ListUpdateRequest,
-    MealSuggestions,
     RatingUpdate,
     RecipeJobEnd,
     RecipeJobKind,
@@ -47,8 +47,6 @@ from lib.types import (
     RecipeModelResponse,
     RecipePrompt,
     RecipeUpdateRequest,
-    SuggestMealsRequest,
-    SuggestedMeals,
     SuggestionRefreshRequest,
     SuggestionSaveRequest,
     SuggestionStatusUpdate,
@@ -67,12 +65,6 @@ async_claude = AsyncAnthropic()
 
 recipeSchema = TypeAdapter(RecipeModelResponse).json_schema()
 recipeSchema = transform_schema(recipeSchema)
-
-suggestionsSchema = TypeAdapter(MealSuggestions).json_schema()
-suggestionsSchema = transform_schema(suggestionsSchema)
-
-suggestedMealsSchema = TypeAdapter(SuggestedMeals).json_schema()
-suggestedMealsSchema = transform_schema(suggestedMealsSchema)
 
 
 @asynccontextmanager
@@ -180,44 +172,6 @@ async def create_recipe(prompt: RecipePrompt):
     final_message = await runner.until_done()
     recipe = RecipeModelResponse.model_validate_json(final_message.content[0].text)
     return await _save_recipe(recipe)
-
-
-@router.post("/recipes/suggest/")
-async def suggest_meals(req: SuggestMealsRequest) -> MealSuggestions:
-    constraints: list[str] = []
-    if req.diet and req.diet.lower() != "any":
-        constraints.append(f"Dietary preference: {req.diet}.")
-    if req.ease and req.ease.lower() != "any":
-        constraints.append(f"Effort level: {req.ease} to cook.")
-    if req.notes and req.notes.strip():
-        constraints.append(f"Additional notes from the user: {req.notes.strip()}")
-    constraints_str = (
-        " ".join(constraints) if constraints else "No specific constraints."
-    )
-
-    avoid_str = ""
-    if req.exclude_titles:
-        avoid_str = (
-            " Do NOT suggest any of these meals, the user already has them: "
-            + "; ".join(req.exclude_titles)
-            + "."
-        )
-
-    prompt = (
-        "You are a professional chef helping a home cook decide what to make this week. "
-        "Suggest 5 distinct, appealing dinner ideas. For each idea give a short title and "
-        "a single appetising sentence describing it. Respect these constraints: "
-        f"{constraints_str}{avoid_str} Output the ideas in the given JSON format."
-    )
-
-    message = await async_claude.beta.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-        output_config={"format": {"type": "json_schema", "schema": suggestionsSchema}},
-    )
-
-    return MealSuggestions.model_validate_json(message.content[0].text)
 
 
 class RecipeImage(NamedTuple):
@@ -1125,92 +1079,9 @@ async def create_suggestions(body: SuggestionsCreateRequest):
     return [_suggestion_out(d) for d in docs]
 
 
-async def _taste_profile() -> str:
-    """What we know about this household's taste, as prompt text.
-
-    Every signal the UI collects ends up here: star ratings (including the
-    "How was it?" at the end of Cook), "Not for me" on Discover cards, and
-    what's on the latest shopping list.
-    """
-    lines: list[str] = []
-    rated = await RecipeDocument.find(RecipeDocument.rating != None).to_list()  # noqa: E711
-    liked = [f"{r.title} ({r.rating} stars)" for r in rated if (r.rating or 0) >= 4]
-    disliked = [f"{r.title} ({r.rating} stars)" for r in rated if (r.rating or 0) <= 2]
-    if liked:
-        lines.append("They loved: " + "; ".join(liked[:15]) + ".")
-    if disliked:
-        lines.append("They didn't enjoy: " + "; ".join(disliked[:10]) + ".")
-
-    dismissed = (
-        await SuggestionDocument.find(SuggestionDocument.status == "dismissed")
-        .sort("-created_at")
-        .limit(20)
-        .to_list()
-    )
-    if dismissed:
-        lines.append(
-            "They said 'not for me' to: " + "; ".join(d.title for d in dismissed) + "."
-        )
-
-    latest = await ListDocument.find_all().sort("-created_at").limit(1).to_list()
-    if latest:
-        on_list = [i.name for i in latest[0].items if not i.checked][:30]
-        if on_list:
-            lines.append("On their current shopping list: " + ", ".join(on_list) + ".")
-
-    return " ".join(lines) or "No taste signals yet."
-
-
 @router.post("/suggestions/refresh")
 async def refresh_suggestions(req: SuggestionRefreshRequest):
-    constraints: list[str] = []
-    if req.diet and req.diet.lower() != "any":
-        constraints.append(f"Dietary preference: {req.diet}.")
-    if req.ease and req.ease.lower() != "any":
-        constraints.append(f"Effort level: {req.ease} to cook.")
-    if req.notes and req.notes.strip():
-        constraints.append(f"Additional notes from the user: {req.notes.strip()}")
-
-    library = await RecipeDocument.find_all().to_list()
-    shown = (
-        await SuggestionDocument.find_all().sort("-created_at").limit(60).to_list()
-    )
-    avoid = [r.title for r in library] + [s.title for s in shown]
-
-    prompt = (
-        "You are a professional chef helping a home cook discover new things to make. "
-        "Suggest 6 distinct dinner ideas: two 'For this week', two 'Under 30 minutes' "
-        "and two 'Something new' that stretch their usual cooking. For each, give a "
-        "short title, one appetising sentence, a rough total time in minutes, and a "
-        "reason it suits them that a person would find specific and true, grounded in "
-        f"the signals below.\n\nTaste signals: {await _taste_profile()}\n"
-        f"Constraints: {' '.join(constraints) or 'None.'}\n"
-        + (f"Do NOT suggest any of these, they already have or saw them: {'; '.join(avoid[:80])}.\n" if avoid else "")
-        + "Output the ideas in the given JSON format."
-    )
-
-    message = await async_claude.beta.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-        output_config={"format": {"type": "json_schema", "schema": suggestedMealsSchema}},
-    )
-    ideas = SuggestedMeals.model_validate_json(message.content[0].text)
-    docs = [
-        SuggestionDocument(
-            title=i.title,
-            description=i.description,
-            reason=i.reason,
-            total_minutes=i.total_minutes,
-            section=i.section,
-            origin="suggest",
-        )
-        for i in ideas.suggestions
-    ]
-    # One at a time so each document gets its id back for the response.
-    for d in docs:
-        await d.insert()
-    return [_suggestion_out(d) for d in docs]
+    return [_suggestion_out(d) for d in await discover.refresh(req)]
 
 
 @router.post("/suggestions/clear")

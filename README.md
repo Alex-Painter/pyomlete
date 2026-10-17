@@ -57,7 +57,7 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
 
 - **FastAPI**, all routes under an `/api` prefix in `main.py`:
   - Recipe creation: `POST /recipes/generate/` (from an ingredient list), `POST /recipes/extract-from-images/` (from photos), `POST /recipes/import-from-url/` (from a link)
-  - Recipes: `GET /recipes/`, `GET/PUT/DELETE /recipes/{id}`, `PATCH /recipes/{id}/rating`, `PATCH /recipes/{id}/ingredients/{index}/exclude`, `POST /recipes/suggest/` (AI meal suggestions for a list)
+  - Recipes: `GET /recipes/`, `GET/PUT/DELETE /recipes/{id}`, `PATCH /recipes/{id}/rating`, `PATCH /recipes/{id}/ingredients/{index}/exclude`
   - Lists: `GET/POST /lists/`, `GET/PATCH/DELETE /lists/{id}`, `POST /lists/{id}/duplicate`, `POST/DELETE /lists/{id}/recipes[/{recipe_id}]`, and item CRUD + reorder under `/lists/{id}/items`
   - Categories and units: `GET/PUT /settings/categories`, `POST /categorize` (cached lookup, then Haiku), `GET /units`
   - Discover suggestions from Chef: `GET/POST /suggestions/` (`POST` is where an agent drops suggestion cards), `POST /suggestions/refresh` (Claude suggests from your ratings, dismissals and lists), `PATCH /suggestions/{id}` (dismiss, a taste signal), `POST /suggestions/clear` (hide cards, not a taste signal), `POST /suggestions/{id}/save` (turn one into a recipe in the background)
