@@ -34,3 +34,8 @@ class AlreadyImported(HTTPException):
                 "recipe_id": recipe_id,
             },
         )
+
+
+class Conflict(HTTPException):
+    def __init__(self, detail: str):
+        super().__init__(status_code=409, detail=detail)

@@ -6,14 +6,17 @@ from typing import Awaitable, Callable
 from uuid import UUID
 
 from beanie import PydanticObjectId, UpdateResponse, init_beanie
-from fastapi import APIRouter, FastAPI, HTTPException, Response, UploadFile
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pymongo.errors import DuplicateKeyError
 
-from chef import discover
+from chef import actions as chef_actions
+from chef import chat, discover
 from data_models import (
     CategoryConfig,
+    ChefActionDocument,
     IngredientDocument,
     ListDocument,
     RecipeDocument,
@@ -62,6 +65,7 @@ async def lifespan(app: FastAPI):
             UserSettingsDocument,
             SuggestionDocument,
             RecipeJobDocument,
+            ChefActionDocument,
         ],
     )
     yield
@@ -836,6 +840,30 @@ async def get_recipe_job(key: UUID):
     if not job:
         raise HTTPException(status_code=404, detail="Recipe job not found")
     return _recipe_job_out(job)
+
+
+# --- Chef chat ---
+
+
+@router.post("/chef/chat")
+async def chef_chat(request: Request):
+    """Talk to Chef. The body is the AI SDK's chat request plus `page`, where the
+    person is in the app; the reply streams back in the AI SDK's format."""
+    try:
+        adapter = await VercelAIAdapter.from_request(request, agent=chat.agent)
+    except ValidationError as exc:
+        return Response(content=exc.json(), media_type="application/json", status_code=422)
+    run_input = adapter.run_input
+    deps = chat.deps_for(run_input.id, (run_input.model_extra or {}).get("page"), adapter.messages)
+    return adapter.streaming_response(adapter.run_stream(deps=deps))
+
+
+@router.post("/chef/actions/{action_id}/undo")
+async def undo_chef_action(action_id: PydanticObjectId):
+    """Put back what one of Chef's changes changed. 409 when something else
+    has changed it since."""
+    action = await chef_actions.undo(action_id)
+    return {"id": str(action.id), "summary": action.summary, "undone": True}
 
 
 app.include_router(router)
