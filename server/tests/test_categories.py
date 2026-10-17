@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 import main
+from services import settings as settings_service
 from data_models import CategoryConfig
 
 
@@ -20,7 +21,7 @@ class FakeSettings:
 @pytest.fixture
 def settings():
     held = FakeSettings("Bakery", "Dairy")
-    with patch.object(main, "_get_or_create_settings", AsyncMock(return_value=held)):
+    with patch.object(settings_service, "get_or_create", AsyncMock(return_value=held)):
         yield held
 
 

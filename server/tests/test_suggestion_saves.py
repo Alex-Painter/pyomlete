@@ -225,7 +225,7 @@ class TestSavingACard:
         card = a_card_being_saved(cards)
         save_recipe = saved_recipe()
 
-        with a_model(_save_recipe=save_recipe):
+        with a_model(save=save_recipe):
             answer = await save(api, card)
             await saves_have_ended()
 
@@ -239,7 +239,7 @@ class TestSavingACard:
         card = a_card(cards, status)
         save_recipe = saved_recipe()
 
-        with a_model(_save_recipe=save_recipe):
+        with a_model(save=save_recipe):
             answers = await asyncio.gather(save(api, card), save(api, card, LIST_ID))
             started = len(main._suggestion_save_tasks)
             await saves_have_ended()
@@ -255,7 +255,7 @@ class TestSavingACard:
 
         with a_model(
             async_claude=a_model_that_never_answers(),
-            _save_recipe=save_recipe,
+            save=save_recipe,
             BACKGROUND_WORK_TIME_LIMIT=main.BACKGROUND_WORK_TIME_LIMIT * 0,
         ), caplog.at_level(logging.WARNING, logger="main"):
             await save(api, card)
@@ -288,7 +288,7 @@ class TestASaveOntoAList:
         )
         statuses_at_the_add: list[str] = []
 
-        with a_model(_save_recipe=made):
+        with a_model(save=made):
             await save(api, card, LIST_ID)
             await saves_have_ended()
 
@@ -335,7 +335,7 @@ class TestSavingACardThatAlreadyHasItsRecipe:
         claude = model_answering(SOUP)
         save_recipe = saved_recipe()
 
-        with a_model(async_claude=claude, _save_recipe=save_recipe, RecipeDocument=the_library(recipe)):
+        with a_model(async_claude=claude, save=save_recipe, RecipeDocument=the_library(recipe)):
             await save(api, card, LIST_ID)
             await saves_have_ended()
         after = await in_the_feed(api, card)
@@ -349,7 +349,7 @@ class TestSavingACardThatAlreadyHasItsRecipe:
         card = a_card(cards, "failed", recipe_id="64b7f0c2a1b2c3d4e5f60700")
         save_recipe = saved_recipe()
 
-        with a_model(_save_recipe=save_recipe, RecipeDocument=the_library()):
+        with a_model(save=save_recipe, RecipeDocument=the_library()):
             await save(api, card)
             await saves_have_ended()
         after = await in_the_feed(api, card)
@@ -451,7 +451,7 @@ class TestASaveThatWasLost:
         lost = a_card_whose_save_was_lost(cards)
         save_recipe = saved_recipe()
 
-        with a_model(_save_recipe=save_recipe):
+        with a_model(save=save_recipe):
             await asyncio.gather(save(api, lost), save(api, lost))
             started = len(main._suggestion_save_tasks)
             await saves_have_ended()
@@ -567,7 +567,7 @@ class TestShutdown:
         reached = asyncio.Event()
         save_recipe = saved_recipe()
 
-        with a_model(async_claude=a_model_that_never_answers(reached), _save_recipe=save_recipe):
+        with a_model(async_claude=a_model_that_never_answers(reached), save=save_recipe):
             await save(api, card)
             await reached.wait()
             await main._end_running_work()

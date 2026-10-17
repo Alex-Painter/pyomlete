@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import ClassVar
@@ -12,6 +13,7 @@ import pytest
 from pymongo.errors import DuplicateKeyError
 
 import main
+from services import recipes
 from lib.types import RecipeJob, RecipeModelResponse
 from recipe_import import BlockedURL, FetchFailed
 from tests.test_import_from_url import URL, make_scraped, patch_pipeline, structured
@@ -76,7 +78,7 @@ async def api():
 
 
 def saved_recipe() -> AsyncMock:
-    """`_save_recipe`, answering with a document that has an id."""
+    """`services.recipes.save`, answering with a document that has an id."""
     return AsyncMock(return_value=SimpleNamespace(id=RECIPE_ID))
 
 
@@ -113,14 +115,26 @@ def describe(api: httpx.AsyncClient, key: str = KEY):
     return api.put(f"/api/recipe-jobs/{key}/describe", json={"prompt": "leek and potato soup"})
 
 
+# What making a recipe touches lives in services.recipes; the rest of a job is main's.
+_IN_RECIPES = {"async_claude", "save", "category_names"}
+
+
+@contextmanager
 def a_model(recipe=None, **patches):
     """Everything a describe or photos job touches, with the model answering `recipe`."""
-    return patch.multiple(main, **{
+    patches = {
         "async_claude": model_answering(recipe or SOUP),
-        "_get_category_names": AsyncMock(return_value=["Other"]),
-        "_save_recipe": saved_recipe(),
+        "category_names": AsyncMock(return_value=["Other"]),
+        "save": saved_recipe(),
         **patches,
-    })
+    }
+    in_recipes = {k: v for k, v in patches.items() if k in _IN_RECIPES}
+    in_main = {k: v for k, v in patches.items() if k not in _IN_RECIPES}
+    if "RecipeDocument" in in_main:
+        # main reads the library for a card's earlier recipe, services.recipes for a link's.
+        in_recipes["RecipeDocument"] = in_main["RecipeDocument"]
+    with patch.multiple(recipes, **in_recipes), patch.multiple(main, **in_main) if in_main else nullcontext():
+        yield
 
 
 def a_model_that_never_answers(reached: asyncio.Event | None = None) -> MagicMock:
@@ -169,7 +183,7 @@ class TestALinkJob:
         adapted = SOUP.model_copy(update={"title": "Quorn lasagne"})
         apply_changes = AsyncMock(return_value=adapted)
 
-        with ctx, patch.object(main, "_apply_changes", apply_changes):
+        with ctx, patch.object(recipes, "_apply_changes", apply_changes):
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/link", json={"url": URL, "changes": "use quorn mince"}
             ))
@@ -204,7 +218,7 @@ class TestALinkJob:
     async def test_each_way_a_link_fails_is_named(self, api, pipeline, failure):
         ctx, mocks = patch_pipeline(**pipeline)
 
-        with ctx, patch.object(main, "_recipe_from_page_text", AsyncMock(return_value=None)):
+        with ctx, patch.object(recipes, "_recipe_from_page_text", AsyncMock(return_value=None)):
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/link", json={"url": URL}))
 
@@ -217,10 +231,10 @@ class TestADescribeJob:
         claude, save = model_answering(SOUP), saved_recipe()
 
         with patch.multiple(
-            main,
+            recipes,
             async_claude=claude,
-            _save_recipe=save,
-            _get_category_names=AsyncMock(return_value=["Fresh Produce", "Other"]),
+            save=save,
+            category_names=AsyncMock(return_value=["Fresh Produce", "Other"]),
         ):
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/describe", json={"prompt": "leek and potato soup"}
@@ -233,10 +247,10 @@ class TestADescribeJob:
 
     async def test_a_model_error_is_a_general_failure(self, api):
         with patch.multiple(
-            main,
+            recipes,
             async_claude=model_answering(RuntimeError("no key")),
-            _save_recipe=saved_recipe(),
-            _get_category_names=AsyncMock(return_value=["Other"]),
+            save=saved_recipe(),
+            category_names=AsyncMock(return_value=["Other"]),
         ):
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/describe", json={"prompt": "leek and potato soup"}
@@ -250,10 +264,10 @@ class TestAPhotosJob:
         claude, save = model_answering(SOUP), saved_recipe()
 
         with patch.multiple(
-            main,
+            recipes,
             async_claude=claude,
-            _save_recipe=save,
-            _get_category_names=AsyncMock(return_value=["Other"]),
+            save=save,
+            category_names=AsyncMock(return_value=["Other"]),
         ):
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/photos",
@@ -277,10 +291,10 @@ class TestAPhotosJob:
 
     async def test_a_model_error_is_a_general_failure(self, api):
         with patch.multiple(
-            main,
+            recipes,
             async_claude=model_answering(RuntimeError("no key")),
-            _save_recipe=saved_recipe(),
-            _get_category_names=AsyncMock(return_value=["Other"]),
+            save=saved_recipe(),
+            category_names=AsyncMock(return_value=["Other"]),
         ):
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/photos",
@@ -313,7 +327,7 @@ class TestStartingAJob:
     async def test_a_repeat_after_the_job_ended_answers_with_how_it_ended(self, api):
         save = saved_recipe()
 
-        with a_model(_save_recipe=save):
+        with a_model(save=save):
             await finished(api, await describe(api))
             again = await describe(api)
             await asyncio.gather(*list(main._recipe_job_tasks))
@@ -325,7 +339,7 @@ class TestStartingAJob:
     async def test_two_starts_at_once_make_one_job(self, api, jobs):
         claude, save = model_answering(SOUP), saved_recipe()
 
-        with a_model(async_claude=claude, _save_recipe=save):
+        with a_model(async_claude=claude, save=save):
             # Both look before either inserts, so the second insert is the one Mongo refuses.
             both = await asyncio.gather(describe(api), describe(api))
             await asyncio.gather(*list(main._recipe_job_tasks))
@@ -507,7 +521,7 @@ class TestHowAJobEndsIsWritten:
         reached = asyncio.Event()
         save = saved_recipe()
 
-        with a_model(async_claude=a_model_that_never_answers(reached), _save_recipe=save):
+        with a_model(async_claude=a_model_that_never_answers(reached), save=save):
             started = await describe(api)
             await reached.wait()
             await main._end_running_work()
@@ -597,7 +611,7 @@ class TestReadingAJob:
 
         with a_model(
             async_claude=claude,
-            _save_recipe=save,
+            save=save,
             BACKGROUND_WORK_TIME_LIMIT=main.BACKGROUND_WORK_TIME_LIMIT * 0,
         ), caplog.at_level(logging.WARNING, logger="main"):
             job = await finished(api, await describe(api))
