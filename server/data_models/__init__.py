@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import date, datetime, timezone
+from typing import Literal, Optional
 from uuid import uuid4
 
 from beanie import Document
@@ -48,11 +48,24 @@ class ListItem(BaseModel):
     sources: list[ItemSource] = []
 
 
+class PlanDay(BaseModel):
+    date: date
+    recipe_id: Optional[str] = None
+    # "out" means no dinner to cook that night, e.g. eating out.
+    status: Literal["open", "out"] = "open"
+    origin: Literal["user", "calendar", "chef"] = "user"
+
+
 class ListDocument(Document):
     name: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     recipes: list[str] = []
     items: list[ListItem] = []
+    # A week list has seven consecutive days from week_start. A list with no
+    # week_start is a plain list. Every day's recipe_id is also in `recipes`;
+    # recipes with no day are the week's any-day meals.
+    week_start: Optional[date] = None
+    days: list[PlanDay] = []
 
     class Settings:
         name = "lists"
@@ -80,6 +93,8 @@ class UserSettingsDocument(Document):
     categories: list[CategoryConfig] = Field(
         default_factory=lambda: [CategoryConfig(**c) for c in DEFAULT_CATEGORIES]
     )
+    # 0 is Monday. Saturday by default: the week runs from one shop to the next.
+    week_start_weekday: int = 5
 
     class Settings:
         name = "user_settings"

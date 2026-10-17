@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -171,6 +171,20 @@ class ItemReorderRequest(BaseModel):
 
 class ListUpdateRequest(BaseModel):
     name: Optional[str] = None
+
+
+class ListCreateRequest(BaseModel):
+    week_start: Optional[date] = None
+
+
+class DayUpdateRequest(BaseModel):
+    recipe_id: Optional[str] = None
+    status: Literal["open", "out"] = "open"
+
+
+class PlanSettingsRequest(BaseModel):
+    # 0 is Monday, 6 is Sunday, as in date.weekday().
+    week_start_weekday: int = Field(ge=0, le=6)
 
 
 class CategoryConfigRequest(BaseModel):

@@ -17,6 +17,16 @@ class Invalid(HTTPException):
         super().__init__(status_code=400, detail=detail)
 
 
+class Conflict(HTTPException):
+    def __init__(self, detail: str):
+        super().__init__(status_code=409, detail=detail)
+
+
+class OutOfRange(HTTPException):
+    def __init__(self, detail: str):
+        super().__init__(status_code=422, detail=detail)
+
+
 class Unreachable(HTTPException):
     """A page we were asked to fetch could not be fetched."""
 

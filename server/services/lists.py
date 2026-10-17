@@ -4,15 +4,17 @@ Shared by the routes and by Chef's tools. Errors are typed HTTPExceptions, as
 in services.recipes.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 from beanie import PydanticObjectId
 from beanie.operators import In
+from bson import ObjectId
 
-from data_models import ItemSource, ListDocument, ListItem, RecipeDocument
+from data_models import ItemSource, ListDocument, ListItem, PlanDay, RecipeDocument
 from lib.types import ItemUpdateRequest
 from services import recipes
-from services.errors import Invalid, NotFound
+from services.errors import Conflict, Invalid, NotFound, OutOfRange
 
 
 def _ordinal(n: int) -> str:
@@ -28,6 +30,10 @@ def _auto_list_name() -> str:
     return f"{_ordinal(now.day)} {now.strftime('%B')}"
 
 
+def _week_name(week_start: date) -> str:
+    return f"Week of {week_start.strftime('%a')} {week_start.day} {week_start.strftime('%b')}"
+
+
 async def get(list_id: PydanticObjectId) -> ListDocument:
     lst = await ListDocument.get(list_id)
     if not lst:
@@ -35,8 +41,15 @@ async def get(list_id: PydanticObjectId) -> ListDocument:
     return lst
 
 
+def week_out(lst: ListDocument) -> dict:
+    return {
+        "week_start": lst.week_start.isoformat() if lst.week_start else None,
+        "days": [d.model_dump(mode="json") for d in lst.days],
+    }
+
+
 async def summaries() -> list[dict]:
-    """Every list, newest first, with counts and the meals on it."""
+    """Every list, newest first, with counts, the meals on it and its week."""
     lists = await ListDocument.find_all().sort("-created_at").to_list()
     results = []
     for lst in lists:
@@ -52,12 +65,21 @@ async def summaries() -> list[dict]:
             "item_count": len(lst.items),
             "checked_count": sum(1 for item in lst.items if item.checked),
             "recipes": recipes_summary,
+            **week_out(lst),
         })
     return results
 
 
-async def create() -> ListDocument:
-    lst = ListDocument(name=_auto_list_name())
+async def create(week_start: date | None = None) -> ListDocument:
+    """A plain list, or with week_start a week of seven open days."""
+    if week_start is None:
+        lst = ListDocument(name=_auto_list_name())
+    else:
+        lst = ListDocument(
+            name=_week_name(week_start),
+            week_start=week_start,
+            days=[PlanDay(date=week_start + timedelta(days=n)) for n in range(7)],
+        )
     await lst.insert()
     return lst
 
@@ -159,6 +181,10 @@ async def remove_recipe(list_id: PydanticObjectId, recipe_id: str) -> ListDocume
         raise NotFound("Recipe not on this list")
 
     lst.recipes.remove(recipe_id)
+    # A day's recipe is always on the list (see set_day), so its day goes too.
+    for d in lst.days:
+        if d.recipe_id == recipe_id:
+            d.recipe_id = None
 
     # Subtract recipe's contributions from items
     remaining_items = []
@@ -172,6 +198,53 @@ async def remove_recipe(list_id: PydanticObjectId, recipe_id: str) -> ListDocume
 
     await lst.save()
     return lst
+
+
+async def set_day(
+    list_id: PydanticObjectId,
+    day: date,
+    recipe_id: str | None,
+    status: Literal["open", "out"] = "open",
+) -> ListDocument:
+    """Set or clear one day of a week list.
+
+    Holds the week's invariant: a day's recipe is always on the list, so its
+    ingredients are on it too. Clearing a day leaves the recipe on the list as
+    an any-day meal.
+    """
+    lst = await get(list_id)
+    if lst.week_start is None:
+        raise Conflict("This list has no week")
+    plan_day = next((d for d in lst.days if d.date == day), None)
+    if plan_day is None:
+        raise OutOfRange("Date is outside this list's week")
+
+    recipe = None
+    if recipe_id is not None and recipe_id not in lst.recipes:
+        if not ObjectId.is_valid(recipe_id):
+            raise NotFound("Recipe not found")
+        recipe = await recipes.get(PydanticObjectId(recipe_id))
+
+    plan_day.recipe_id = recipe_id
+    # A meal wins over Out: Out only applies to an empty day.
+    plan_day.status = "open" if recipe_id is not None else status
+    plan_day.origin = "user"
+    if recipe:
+        await put_recipe(lst, recipe)
+    else:
+        await lst.save()
+    return lst
+
+
+async def last_planned_on() -> dict[str, str]:
+    """The latest day each recipe was planned for, across every week, by recipe id."""
+    pipeline = [
+        {"$unwind": "$days"},
+        {"$match": {"days.recipe_id": {"$ne": None}}},
+        {"$group": {"_id": "$days.recipe_id", "last": {"$max": "$days.date"}}},
+    ]
+    rows = await ListDocument.aggregate(pipeline).to_list()
+    return {row["_id"]: row["last"].date().isoformat() for row in rows}
 
 
 async def add_item(
