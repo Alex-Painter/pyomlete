@@ -7,6 +7,7 @@ and a tool reads the type.
 
 import asyncio
 import base64
+from typing import NamedTuple
 from urllib.parse import urlparse, urlunparse
 
 from anthropic import transform_schema
@@ -98,14 +99,22 @@ async def generate(prompt: str) -> RecipeDocument:
     return await save(recipe)
 
 
-async def from_images(images: list[tuple[bytes, str]]) -> RecipeDocument:
-    """Read one recipe from photos of it, each given as (bytes, media type)."""
+class RecipeImage(NamedTuple):
+    """An uploaded photo, read into memory: an upload is gone once its request ends."""
+
+    media_type: str | None
+    data: bytes
+
+
+async def from_images(images: list[RecipeImage]) -> RecipeDocument:
+    """Read one recipe from photos of it."""
     categories_str = ", ".join(await category_names())
     image_blocks = []
-    for data, media_type in images:
+    for image in images:
+        data = base64.standard_b64encode(image.data).decode("utf-8")
         image_blocks.append({
             "type": "image",
-            "source": {"type": "base64", "media_type": media_type, "data": base64.standard_b64encode(data).decode("utf-8")},
+            "source": {"type": "base64", "media_type": image.media_type, "data": data},
         })
     image_word = "this image" if len(images) == 1 else "these images"
     runner = async_claude.beta.messages.tool_runner(

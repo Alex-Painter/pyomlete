@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { CloudOff, Loader2, PartyPopper, X } from 'lucide-react'
+import { BackLink } from '@/components/BackLink'
 import { ErrorState } from '@/components/ErrorState'
 import { ListRow } from '@/components/ListRow'
 import { QuickAdd } from '@/components/QuickAdd'
@@ -143,13 +144,13 @@ function ShopPage() {
 
 function CloseLink({ listId }: { listId: string }) {
   return (
-    <Link
+    <BackLink
       to="/list/$listId"
       params={{ listId }}
       aria-label="Leave shopping mode"
       className="flex size-11 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-sand hover:text-ink"
     >
       <X className="size-6" />
-    </Link>
+    </BackLink>
   )
 }

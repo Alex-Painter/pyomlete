@@ -105,7 +105,7 @@ struct RecipeScreen: View {
             }
         }
         .sheet(item: $editing) { draft in
-            RecipeEditor(draft: draft, store: store, aisles: library.aisleOrder, units: library.units) { discarded in
+            RecipeEditor(draft: draft, store: store, aisles: library.aisles.order.names, units: library.units) { discarded in
                 discardOffered = true
                 undo.offer("Discarded your changes to \(recipe.title)", undo: {
                     discardOffered = false
@@ -141,8 +141,9 @@ struct RecipeScreen: View {
     }
 
     /// A discarded draft is only as good as the recipe it was made from. If
-    /// that changed while the banner was up, saving the draft would put the
-    /// old values back, so it is not reopened.
+    /// something the editor edits changed while the banner was up, saving the
+    /// draft would put the old value back, so it is not reopened. A rating or
+    /// an On list toggle is no such change: a save sends those as they are then.
     private func restore(_ discarded: RecipeDraft, in store: CookStore) {
         if case .ready(let now) = store.page, discarded.isBased(on: now) {
             editing = discarded

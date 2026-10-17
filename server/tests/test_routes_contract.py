@@ -242,7 +242,7 @@ async def test_photos_are_grouped_into_recipes(api):
             "/api/recipes/extract-from-images/", files=files, data={"group_sizes": ["2", "1"]}
         )
         assert [len(g) for g in seen] == [2, 1]
-        assert seen[0] == [(b"img0", "image/jpeg"), (b"img1", "image/jpeg")]
+        assert seen[0] == [("image/jpeg", b"img0"), ("image/jpeg", b"img1")]
         seen.clear()
         await api.post("/api/recipes/extract-from-images/", files=files)
         assert [len(g) for g in seen] == [1, 1, 1]
@@ -261,7 +261,8 @@ async def test_saving_a_card_whose_page_is_already_imported_reuses_that_recipe(a
         raise AlreadyImported(str(dal.id))
 
     with patch.object(recipes, "import_url", already):
-        await main._realise_suggestion(card.id, lid)
+        await api.post(f"/api/suggestions/{card.id}/save", json={"list_id": lid})
+        await main.asyncio.gather(*main._suggestion_save_tasks)
 
     saved = await SuggestionDocument.get(card.id)
     assert (saved.status, saved.recipe_id) == ("saved", str(dal.id))

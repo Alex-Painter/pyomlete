@@ -1,10 +1,15 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable
+from uuid import UUID
 
-from beanie import PydanticObjectId, init_beanie
-from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
+from beanie import PydanticObjectId, UpdateResponse, init_beanie
+from fastapi import APIRouter, FastAPI, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from pymongo.errors import DuplicateKeyError
 
 from chef import discover
 from data_models import (
@@ -12,6 +17,7 @@ from data_models import (
     IngredientDocument,
     ListDocument,
     RecipeDocument,
+    RecipeJobDocument,
     SuggestionDocument,
     UserSettingsDocument,
 )
@@ -27,6 +33,8 @@ from lib.types import (
     ItemUpdateRequest,
     ListUpdateRequest,
     RatingUpdate,
+    RecipeJobEnd,
+    RecipeJobKind,
     RecipePrompt,
     RecipeUpdateRequest,
     SuggestionRefreshRequest,
@@ -37,6 +45,9 @@ from lib.types import (
 )
 from services import lists, recipes, settings
 from services.errors import AlreadyImported
+from services.recipes import RecipeImage
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -50,9 +61,11 @@ async def lifespan(app: FastAPI):
             ListDocument,
             UserSettingsDocument,
             SuggestionDocument,
+            RecipeJobDocument,
         ],
     )
     yield
+    await _end_running_work()
     client.close()
 
 
@@ -86,7 +99,7 @@ async def extract_recipes_from_images(files: list[UploadFile], group_sizes: list
                  e.g. [2, 1] means first 2 files = recipe 1, next 1 file = recipe 2.
                  If omitted, each file is treated as a separate recipe (backward compatible).
     """
-    images = [(await f.read(), f.content_type) for f in files]
+    images = [RecipeImage(f.content_type, await f.read()) for f in files]
     # Backward compatible: without group sizes each file is one recipe
     sizes = group_sizes or [1] * len(images)
     results = []
@@ -279,6 +292,100 @@ async def delete_item(list_id: PydanticObjectId, item_id: str):
     return {"ok": True}
 
 
+# --- Background work ---
+# A recipe job and a Discover card's save both make a recipe in a task that
+# lives in this server's memory, with nobody waiting on a request. What bounds
+# such work is here, above both: a limit on the making, a rule for work whose
+# task was lost, a write of how it ended that outlasts a refusal and a
+# shutdown, and shutdown ending what this instance is running.
+
+# Longer than any honest making: the slowest is a link with changes, which is
+# a page fetch and three model calls of a few thousand tokens. Work still
+# running after this is cancelled, which bounds what it can spend. It does not
+# promise that work ending failed saved nothing: a cancel that lands while the
+# recipe's insert is on its way to Mongo leaves the recipe behind.
+BACKGROUND_WORK_TIME_LIMIT = timedelta(minutes=5)
+# The limit plus a minute to record how the work ended. Work still reading as
+# under way after this lost its task, which is what a killed server does to
+# it. Clients treat this as the longest a job or a save can be outstanding.
+BACKGROUND_WORK_STALE_AFTER = BACKGROUND_WORK_TIME_LIMIT + timedelta(minutes=1)
+# Seconds to wait before each try at writing how the work ended, and the
+# longest this side waits on one try: 36 seconds if every try hangs. That
+# bounds the waiting, not Mongo: a write given up on here can still land
+# later, so work read as stale may yet turn saved.
+END_WRITE_PAUSES = (0, 1, 5)
+END_WRITE_TIMEOUT = 10
+
+
+class _TimeLimitReached(Exception):
+    """The making outran `BACKGROUND_WORK_TIME_LIMIT` and was cancelled."""
+
+
+async def _within_time_limit[T](making: Awaitable[T]) -> T:
+    """Awaits the making, cancelling it once the limit is up.
+
+    A `TimeoutError` out of here came from inside the making (a page or a
+    model that did not answer) and is that making's own failure.
+    """
+    limit = asyncio.timeout(BACKGROUND_WORK_TIME_LIMIT.total_seconds())
+    try:
+        async with limit:
+            return await making
+    except TimeoutError:
+        if limit.expired():
+            raise _TimeLimitReached from None
+        raise
+
+
+def _lost_its_task(started: datetime) -> bool:
+    """Whether work that began then, and still reads as under way, has outlived any task doing it."""
+    if started.tzinfo is None:
+        # Mongo hands datetimes back without their zone; they were stored as UTC.
+        started = started.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - started > BACKGROUND_WORK_STALE_AFTER
+
+
+async def _written(write: Callable[[], Awaitable[object]], what: str) -> bool:
+    """Writes how background work ended, more than once if Mongo will not take it.
+
+    If every try fails the work still reads as under way and is answered as
+    failed once it is stale, whatever it really did. The log says which.
+    """
+    for pause in END_WRITE_PAUSES:
+        await asyncio.sleep(pause)
+        try:
+            await asyncio.wait_for(write(), END_WRITE_TIMEOUT)
+            return True
+        except Exception:
+            logger.exception("%s and that could not be written", what)
+    return False
+
+
+async def _through_shutdown(writing: Awaitable[None]) -> None:
+    """Awaits a write that a cancel must not stop.
+
+    Shutdown can arrive mid-write. What is being written is how the work
+    really ended, so it is finished, not replaced.
+    """
+    write = asyncio.ensure_future(writing)
+    try:
+        await asyncio.shield(write)
+    except asyncio.CancelledError:
+        await write
+
+
+async def _end_running_work() -> None:
+    """Stops this instance's recipe jobs and card saves and waits for each to be written as failed.
+
+    A deploy would otherwise leave them "working" or "saving" until they are
+    stale. Only this instance's tasks: another instance's are still being made.
+    """
+    tasks = [*_recipe_job_tasks, *_suggestion_save_tasks]
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
 # --- Discover suggestions ---
 # Omlete's driving principle is "eat better and reduce cognitive load"
 # (docs/PRINCIPLES.md). Suggestions are the "variety comes to you" half: an
@@ -291,11 +398,50 @@ async def delete_item(list_id: PydanticObjectId, item_id: str):
 # web-searching agent can POST /suggestions/ with the same shape and the
 # Discover screen won't need to change.
 
-# Strong references so background saves aren't garbage-collected mid-flight.
-_background_tasks: set[asyncio.Task] = set()
+# Saving a card makes its recipe in a task that lives in this server's memory,
+# under the bounds in "Background work" above. A save is one run of that task,
+# and the card's `saving_since` names the run that owns the card: starting a
+# save and recording how it ended are both writes that happen only if the
+# card is still as the writer last knew it, so two requests cannot both start
+# one, and a run cannot write over a card that was saved again, cleared or
+# dismissed while it worked.
+_suggestion_save_tasks: set[asyncio.Task] = set()
+
+SAVE_INTERRUPTED = "The save was interrupted. Try again."
+NOT_PUT_ON_THE_LIST = "The recipe was made, but it could not be added to your list. Try again."
+
+
+def _save_may_be_running(s: SuggestionDocument) -> bool:
+    """Whether a save of this card can still be under way.
+
+    Not that one is: a killed server leaves the card saving with no task, and
+    that is only known once the save has outlived any task. A card left saving
+    by a server from before `saving_since` has none, and its save is lost.
+    """
+    return (
+        s.status == "saving"
+        and s.saving_since is not None
+        and not _lost_its_task(s.saving_since)
+    )
+
+
+async def _write_if_unchanged(s: SuggestionDocument, change: dict) -> SuggestionDocument | None:
+    """Changes the card only if no save of it has started or ended since `s` was read.
+
+    One conditional update, so of several writers holding the same reading
+    Mongo lets one through. Answers the card as written, or None if it had
+    moved on and nothing was written.
+    """
+    return await SuggestionDocument.find_one(
+        {"_id": s.id, "status": s.status, "saving_since": s.saving_since}
+    ).update({"$set": change}, response_type=UpdateResponse.NEW_DOCUMENT)
 
 
 def _suggestion_out(s: SuggestionDocument) -> dict:
+    status, error = s.status, s.error
+    if status == "saving" and not _save_may_be_running(s):
+        # Decided when read, not written: see `_recipe_job_out`.
+        status, error = "failed", SAVE_INTERRUPTED
     return {
         "id": str(s.id),
         "title": s.title,
@@ -306,10 +452,10 @@ def _suggestion_out(s: SuggestionDocument) -> dict:
         "source_name": s.source_name,
         "total_minutes": s.total_minutes,
         "section": s.section,
-        "status": s.status,
+        "status": status,
         "origin": s.origin,
         "recipe_id": s.recipe_id,
-        "error": s.error,
+        "error": error,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     }
 
@@ -354,19 +500,33 @@ async def refresh_suggestions(req: SuggestionRefreshRequest):
 
 @router.post("/suggestions/clear")
 async def clear_suggestions(body: SuggestionsClearRequest):
-    """Hide these cards (or every visible card) without counting it against them."""
-    query: dict = {"status": {"$in": ["new", "saved", "failed"]}}
-    if body.ids is not None:
-        query["_id"] = {"$in": [PydanticObjectId(i) for i in body.ids]}
-    result = await SuggestionDocument.find(query).update({"$set": {"status": "cleared"}})
-    return {"cleared": getattr(result, "modified_count", 0)}
+    """Hide these cards (or every visible card) without counting it against them.
+
+    A card whose save may be running is left: the card is that save's to end.
+    With `only_new`, so is every card that has been acted on, a lost save included.
+    """
+    named = {} if body.ids is None else {"_id": {"$in": [PydanticObjectId(i) for i in body.ids]}}
+    clearable = ["new"] if body.only_new else ["new", "saved", "failed"]
+    result = await SuggestionDocument.find(
+        {"status": {"$in": clearable}, **named}
+    ).update({"$set": {"status": "cleared"}})
+    cleared = getattr(result, "modified_count", 0)
+    if not body.only_new:
+        for s in await SuggestionDocument.find({"status": "saving", **named}).to_list():
+            if not _save_may_be_running(s) and await _write_if_unchanged(s, {"status": "cleared"}):
+                cleared += 1
+    return {"cleared": cleared}
 
 
 @router.patch("/suggestions/{suggestion_id}")
 async def update_suggestion(suggestion_id: PydanticObjectId, body: SuggestionStatusUpdate):
     s = await _get_suggestion(suggestion_id)
+    if body.status == "new" and _save_may_be_running(s):
+        # Back to new would let a second save start beside the one running.
+        raise HTTPException(status_code=409, detail="This card is being saved")
+    # Only the status: writing the whole card back would undo a save that started or ended since the read.
+    await SuggestionDocument.find_one({"_id": s.id}).update({"$set": {"status": body.status}})
     s.status = body.status
-    await s.save()
     return _suggestion_out(s)
 
 
@@ -376,43 +536,86 @@ async def _add_recipe_to_list_id(list_id: str, recipe: RecipeDocument) -> None:
         await lists.put_recipe(lst, recipe)
 
 
-async def _realise_suggestion(suggestion_id: PydanticObjectId, list_id: str | None) -> None:
-    """Turn a suggestion into a saved recipe, off the request path."""
-    s = await SuggestionDocument.get(suggestion_id)
-    if not s:
-        return
-    try:
-        recipe: RecipeDocument | None = None
-        if s.source_url:
-            try:
-                recipe = await recipes.import_url(s.source_url)
-            except AlreadyImported as exc:
-                recipe = await RecipeDocument.get(PydanticObjectId(exc.recipe_id))
-        else:
-            recipe = await recipes.generate(
-                f"Create a recipe for: {s.title}. {s.description or ''}".strip()
-            )
-        if recipe is None:
-            raise RuntimeError("No recipe came back")
+async def _recipe_for(s: SuggestionDocument) -> RecipeDocument:
+    """The card as a recipe: the one an earlier save made, imported from its link, or written from its title."""
+    if s.recipe_id:
+        # An earlier save got as far as the recipe. Making it again would be a second copy.
+        made = await RecipeDocument.get(PydanticObjectId(s.recipe_id))
+        if made:
+            return made
+    if s.source_url:
+        try:
+            recipe = await recipes.import_url(s.source_url)
+        except AlreadyImported as exc:
+            recipe = await RecipeDocument.get(PydanticObjectId(exc.recipe_id))
+    else:
+        recipe = await recipes.generate(
+            f"Create a recipe for: {s.title}. {s.description or ''}".strip()
+        )
+    if recipe is None:
+        raise RuntimeError("No recipe came back")
+    return recipe
 
-        s.recipe_id = str(recipe.id)
-        s.status = "saved"
-        s.error = None
-        await s.save()
-        if list_id:
-            await _add_recipe_to_list_id(list_id, recipe)
+
+async def _end_save(
+    s: SuggestionDocument, end: dict, recipe: RecipeDocument | None, list_id: str | None
+) -> None:
+    """Puts the recipe on its list, then writes once how the save ended.
+
+    In that order so that a card reading saved has its meal on the list, which
+    is when clients fetch the list. This has to fit the minute between the
+    time limit and the stale bound: `END_WRITE_TIMEOUT` for the list (10 s)
+    and three tries at the write (36 s).
+    """
+    if recipe is not None and list_id:
+        still_this_saves = await SuggestionDocument.find(
+            {"_id": s.id, "status": s.status, "saving_since": s.saving_since}
+        ).limit(1).to_list()
+        if not still_this_saves:
+            # Saved again, cleared or dismissed meanwhile, so its meal is not wanted on the list.
+            logger.info("Suggestion %s was no longer this save's to end, so nothing was written", s.id)
+            return
+        try:
+            await asyncio.wait_for(_add_recipe_to_list_id(list_id, recipe), END_WRITE_TIMEOUT)
+        except Exception:
+            logger.exception("Suggestion %s: recipe %s could not be put on list %s", s.id, recipe.id, list_id)
+            # Keeps the recipe, so saving the card again only has the list left to do.
+            end = {"status": "failed", "recipe_id": str(recipe.id), "error": NOT_PUT_ON_THE_LIST}
+
+    async def write() -> None:
+        if await _write_if_unchanged(s, end) is None:
+            logger.info("Suggestion %s was no longer this save's to end, so nothing was written", s.id)
+
+    await _written(write, f"Suggestion {s.id} ended {end['status']} (recipe {end.get('recipe_id')})")
+
+
+async def _realise_suggestion(s: SuggestionDocument, list_id: str | None) -> None:
+    """Turn a suggestion into a saved recipe, off the request path.
+
+    `s` is the card as this save claimed it, which is what its end is written against.
+    """
+    recipe: RecipeDocument | None = None
+    try:
+        recipe = await _within_time_limit(_recipe_for(s))
+        end = {"status": "saved", "recipe_id": str(recipe.id), "error": None}
+    except asyncio.CancelledError:
+        # The server is shutting down, and waits for this save to be written off.
+        end = {"status": "failed", "error": SAVE_INTERRUPTED}
+    except _TimeLimitReached:
+        logger.warning("Saving suggestion %s ran past its time limit", s.id)
+        end = {"status": "failed", "error": SAVE_INTERRUPTED}
     except Exception as exc:  # surfaced on the card, so the user can retry
-        s.status = "failed"
-        s.error = (exc.detail if isinstance(exc, HTTPException) else str(exc))
-        s.error = str(s.error)[:200]
-        await s.save()
+        error = str(exc.detail if isinstance(exc, HTTPException) else exc)[:200]
+        end = {"status": "failed", "error": error}
+    await _through_shutdown(_end_save(s, end, recipe, list_id))
 
 
 @router.post("/suggestions/{suggestion_id}/save")
 async def save_suggestion(suggestion_id: PydanticObjectId, body: SuggestionSaveRequest):
     """Save a card as a recipe. Returns at once; the recipe fills in after.
 
-    With `list_id`, the recipe also goes on that list once it exists.
+    With `list_id`, the recipe also goes on that list once it exists. A card
+    already being saved is left to it; one whose save was lost is saved afresh.
     """
     s = await _get_suggestion(suggestion_id)
 
@@ -423,14 +626,216 @@ async def save_suggestion(suggestion_id: PydanticObjectId, body: SuggestionSaveR
                 await _add_recipe_to_list_id(body.list_id, recipe)
         return _suggestion_out(s)
 
-    if s.status != "saving":
-        s.status = "saving"
-        s.error = None
-        await s.save()
-        task = asyncio.create_task(_realise_suggestion(s.id, body.list_id))
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-    return _suggestion_out(s)
+    if _save_may_be_running(s):
+        return _suggestion_out(s)
+
+    claimed = await _write_if_unchanged(
+        s, {"status": "saving", "saving_since": datetime.now(timezone.utc), "error": None}
+    )
+    if claimed is None:
+        # Another request got to the card between the read and the claim.
+        return _suggestion_out(await _get_suggestion(suggestion_id))
+    task = asyncio.create_task(_realise_suggestion(claimed, body.list_id))
+    _suggestion_save_tasks.add(task)
+    task.add_done_callback(_suggestion_save_tasks.discard)
+    return _suggestion_out(claimed)
+
+
+# --- Recipe jobs ---
+# Making a recipe waits on a model for a minute or more, and a phone that
+# switches apps drops the request while the work carries on here. A job is the
+# same work started without waiting, under a key the client mints before it
+# sends anything. A start names its key, so sending it again (its answer was
+# lost, or the app was killed) finds the job there and starts nothing. Each
+# job calls the endpoint function a waiting client would have called, so the
+# two cannot drift apart.
+
+# Each job is a model call somebody pays for and nobody is waiting on, so only
+# a few run at once. One household makes one recipe at a time. Counted from
+# this instance's own tasks, so a job orphaned by a kill holds no place, and so
+# the cap is per instance: two overlapping in a deploy can run this many each.
+MAX_WORKING_RECIPE_JOBS = 4
+# The iOS picker takes six photos and re-encodes each as a JPEG no longer than
+# 2000 px. 5 MB is the most the model takes for one image.
+MAX_JOB_PHOTOS = 6
+MAX_JOB_PHOTO_BYTES = 5 * 1024 * 1024
+# The image types the model reads, by what the upload says it is: the bytes are not inspected.
+JOB_PHOTO_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+_recipe_job_tasks: set[asyncio.Task] = set()
+# Keys of starts that have passed the cap and not yet made their task.
+_recipe_jobs_starting: set[str] = set()
+
+_JOB_FAILED = RecipeJobEnd(status="failed", failure="other")
+
+_LINK_FAILURES = {
+    400: "link_blocked",
+    404: "no_recipe_on_page",
+    502: "site_did_not_respond",
+}
+
+
+def _refused(_exc: HTTPException) -> RecipeJobEnd:
+    return _JOB_FAILED
+
+
+def _link_refused(exc: HTTPException) -> RecipeJobEnd:
+    """How import-from-url's refusals end a job: its 409 is a recipe, not a failure."""
+    if exc.status_code == 409:
+        return RecipeJobEnd(status="already_imported", recipe_id=exc.detail["recipe_id"])
+    return RecipeJobEnd(
+        status="failed", failure=_LINK_FAILURES.get(exc.status_code, "other")
+    )
+
+
+def _recipe_job_out(job: RecipeJobDocument) -> dict:
+    status, failure = job.status, job.failure
+    if status == "working" and _lost_its_task(job.created_at):
+        status, failure = "failed", "other"
+    return {
+        "key": job.id,
+        "kind": job.kind,
+        "status": status,
+        "recipe_id": job.recipe_id,
+        "failure": failure,
+    }
+
+
+async def _record_end(job: RecipeJobDocument, end: RecipeJobEnd) -> None:
+    job.status, job.recipe_id, job.failure = end.status, end.recipe_id, end.failure
+    await _written(
+        job.save, f"Recipe job {job.id} ended {end.status} (recipe {end.recipe_id})"
+    )
+
+
+async def _run_recipe_job(
+    job: RecipeJobDocument,
+    make: Callable[[], Awaitable[RecipeDocument]],
+    refused: Callable[[HTTPException], RecipeJobEnd],
+) -> None:
+    try:
+        recipe = await _within_time_limit(make())
+        end = RecipeJobEnd(status="saved", recipe_id=str(recipe.id))
+    except HTTPException as exc:
+        end = refused(exc)
+    except asyncio.CancelledError:
+        # The server is shutting down, and waits for this job to be written off.
+        end = _JOB_FAILED
+    except _TimeLimitReached:
+        # An expected ending and not a crash.
+        logger.warning("Recipe job %s ran past its time limit", job.id)
+        end = _JOB_FAILED
+    except Exception:
+        # Nobody is waiting on this request, so the log is the only trace.
+        logger.exception("Recipe job %s failed", job.id)
+        end = _JOB_FAILED
+    await _through_shutdown(_record_end(job, end))
+
+
+async def _start_recipe_job(
+    key: UUID,
+    kind: RecipeJobKind,
+    make: Callable[[], Awaitable[RecipeDocument]],
+    response: Response,
+    refused: Callable[[HTTPException], RecipeJobEnd] = _refused,
+) -> dict:
+    """Starts the job with this key, or answers with the one already there.
+
+    202 for a job this call started and 200 for one it found, whatever that
+    job was started with: the key is the job.
+    """
+    name = str(key)
+    job = await RecipeJobDocument.get(name)
+    if job is None:
+        # A start for this key that is already past the cap holds the place:
+        # this one is a repeat, and falls through to find the job it makes.
+        twin_is_starting = name in _recipe_jobs_starting
+        # Checked and reserved with no await between, so a burst cannot pass the cap together.
+        if (
+            not twin_is_starting
+            and len(_recipe_job_tasks) + len(_recipe_jobs_starting) >= MAX_WORKING_RECIPE_JOBS
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail="Too many recipes are being made. Try again shortly.",
+                headers={"Retry-After": "30"},
+            )
+        _recipe_jobs_starting.add(name)
+        try:
+            job = RecipeJobDocument(id=name, kind=kind)
+            try:
+                await job.insert()
+            except DuplicateKeyError:
+                # Another start with this key got in between the look and the insert.
+                job = await RecipeJobDocument.get(name)
+            else:
+                task = asyncio.create_task(_run_recipe_job(job, make, refused))
+                _recipe_job_tasks.add(task)
+                task.add_done_callback(_recipe_job_tasks.discard)
+                return _recipe_job_out(job)
+        finally:
+            if not twin_is_starting:
+                _recipe_jobs_starting.discard(name)
+        if job is None:
+            # Refused by the index and then not there: answered as a fault, which a client tries again.
+            raise HTTPException(status_code=503, detail="That recipe job could not be read. Try again.")
+    response.status_code = 200
+    return _recipe_job_out(job)
+
+
+@router.put("/recipe-jobs/{key}/link", status_code=202)
+async def start_link_job(key: UUID, body: ImportFromUrlRequest, response: Response):
+    """`POST /recipes/import-from-url/` as the job with this key."""
+    return await _start_recipe_job(
+        key, "link", lambda: recipes.import_url(body.url, body.changes), response, _link_refused
+    )
+
+
+@router.put("/recipe-jobs/{key}/describe", status_code=202)
+async def start_describe_job(key: UUID, prompt: RecipePrompt, response: Response):
+    """`POST /recipes/generate/` as the job with this key."""
+    return await _start_recipe_job(key, "describe", lambda: recipes.generate(prompt.prompt), response)
+
+
+@router.put("/recipe-jobs/{key}/photos", status_code=202)
+async def start_photos_job(key: UUID, files: list[UploadFile], response: Response):
+    """One recipe read from every photo sent, as the job with this key.
+
+    This is `POST /recipes/extract-from-images/` with a single group, since a
+    job ends in one recipe.
+    """
+    too_much = HTTPException(
+        status_code=413,
+        detail=f"A recipe is read from up to {MAX_JOB_PHOTOS} photos of up to "
+        f"{MAX_JOB_PHOTO_BYTES // (1024 * 1024)} MB each.",
+    )
+    if len(files) > MAX_JOB_PHOTOS:
+        raise too_much
+    not_photos = HTTPException(
+        status_code=422, detail="Send at least one photo, each a JPEG, PNG, GIF or WebP."
+    )
+    if not files:
+        raise not_photos
+    images = []
+    for file in files:
+        data = await file.read(MAX_JOB_PHOTO_BYTES + 1)
+        if len(data) > MAX_JOB_PHOTO_BYTES:
+            raise too_much
+        # Checked here, before a job exists: a model asked to read nothing invents a recipe.
+        if not data or file.content_type not in JOB_PHOTO_TYPES:
+            raise not_photos
+        images.append(RecipeImage(file.content_type, data))
+
+    return await _start_recipe_job(key, "photos", lambda: recipes.from_images(images), response)
+
+
+@router.get("/recipe-jobs/{key}")
+async def get_recipe_job(key: UUID):
+    """How a job stands: working, saved, already_imported or failed."""
+    job = await RecipeJobDocument.get(str(key))
+    if not job:
+        raise HTTPException(status_code=404, detail="Recipe job not found")
+    return _recipe_job_out(job)
 
 
 app.include_router(router)

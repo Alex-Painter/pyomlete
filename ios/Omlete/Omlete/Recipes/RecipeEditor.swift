@@ -8,56 +8,58 @@ import SwiftUI
 /// away, a save that fails leaves the sheet up as it was, and Cancel hands the
 /// draft to `onDiscard` so the page can offer it back with Undo.
 struct RecipeEditor: View {
-    let store: CookStore
     let aisles: [String]
-    let units: [String]
+    let unitChoices: [String]
     let onDiscard: (RecipeDraft) -> Void
 
-    @State private var draft: RecipeDraft
-    @State private var phase: Phase = .editing
+    @State private var model: RecipeEditorModel
     /// The row whose first field has the keyboard, so an added row is ready to type in.
     @FocusState private var focus: RecipeDraft.RowID?
     @Environment(\.dismiss) private var dismiss
 
-    private enum Phase: Equatable {
-        case editing
-        case saving
-        /// Save was tapped and nothing was saved; this says why.
-        case stopped(String)
-    }
+    /// The units the web's editor offers on top of the ones recipes already use.
+    nonisolated static let extraUnits = ["to taste", "whole", "pinch"]
 
     init(
         draft: RecipeDraft, store: CookStore, aisles: [String], units: [String],
         onDiscard: @escaping (RecipeDraft) -> Void
     ) {
-        self.store = store
         self.aisles = aisles
-        self.units = units
+        unitChoices = Self.unitChoices(server: units)
         self.onDiscard = onDiscard
-        _draft = State(initialValue: draft)
+        _model = State(initialValue: RecipeEditorModel(draft: draft, store: store))
+    }
+
+    /// The units to offer: the server's, then the web's extra three, each once.
+    nonisolated static func unitChoices(server: [String]) -> [String] {
+        var seen: Set<String> = []
+        return (server + extraUnits).filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
     }
 
     var body: some View {
+        @Bindable var model = model
+        let draft = model.draft
+        let phase = model.phase
         NavigationStack {
             Form {
                 Section("Title") {
-                    TextField("Title", text: $draft.title, axis: .vertical)
+                    TextField("Title", text: $model.draft.title, axis: .vertical)
                         .font(.headline)
                         .accessibilityIdentifier("recipeEditor.titleField")
                 }
                 Section("Ingredients") {
-                    ForEach($draft.ingredients) { $row in
+                    ForEach($model.draft.ingredients) { $row in
                         ingredient($row, at: draft.ingredients.firstIndex { $0.id == row.id } ?? 0)
                     }
-                    Button("Add ingredient", systemImage: "plus") { focus = draft.addIngredient() }
+                    Button("Add ingredient", systemImage: "plus") { focus = model.draft.addIngredient() }
                         .accessibilityIdentifier("recipeEditor.addIngredientButton")
                 }
                 Section {
-                    ForEach($draft.steps) { $row in
+                    ForEach($model.draft.steps) { $row in
                         step($row, at: draft.steps.firstIndex { $0.id == row.id } ?? 0)
                     }
-                    .onMove { draft.steps.move(fromOffsets: $0, toOffset: $1) }
-                    Button("Add step", systemImage: "plus") { focus = draft.addStep() }
+                    .onMove { model.draft.steps.move(fromOffsets: $0, toOffset: $1) }
+                    Button("Add step", systemImage: "plus") { focus = model.draft.addStep() }
                         .accessibilityIdentifier("recipeEditor.addStepButton")
                 } header: {
                     Text("Method")
@@ -85,15 +87,17 @@ struct RecipeEditor: View {
                         ProgressView()
                             .accessibilityIdentifier("recipeEditor.saving")
                     } else {
-                        Button("Save", action: save)
-                            .accessibilityIdentifier("recipeEditor.saveButton")
+                        Button("Save") {
+                            Task { await model.save() }
+                        }
+                        .accessibilityIdentifier("recipeEditor.saveButton")
                     }
                 }
             }
         }
-        .interactiveDismissDisabled(draft.hasChanges || phase == .saving)
-        .onChange(of: draft) {
-            if case .stopped = phase { phase = .editing }
+        .interactiveDismissDisabled(model.hasChanges || phase == .saving)
+        .onChange(of: phase) {
+            if phase == .finished { dismiss() }
         }
     }
 
@@ -107,14 +111,14 @@ struct RecipeEditor: View {
                     .focused($focus, equals: row.wrappedValue.id)
                     .accessibilityIdentifier("\(id).nameField")
                 removeButton("Remove \(name.isEmpty ? "ingredient" : name)") {
-                    draft.ingredients.removeAll { $0.id == row.wrappedValue.id }
+                    model.draft.ingredients.removeAll { $0.id == row.wrappedValue.id }
                 }
                 .accessibilityIdentifier("\(id).removeButton")
             }
             HStack(spacing: 8) {
                 TextField("Qty", text: row.quantity)
                     .keyboardType(.decimalPad)
-                    .foregroundStyle(unreadable.contains(row.wrappedValue.id) ? .red : .primary)
+                    .foregroundStyle(model.unreadable.contains(row.wrappedValue.id) ? .red : .primary)
                     .frame(width: 52)
                     .accessibilityLabel("Quantity")
                     .accessibilityIdentifier("\(id).quantityField")
@@ -123,7 +127,7 @@ struct RecipeEditor: View {
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("\(id).unitField")
                 Menu("Choose a unit", systemImage: "chevron.up.chevron.down") {
-                    ForEach(RecipeDraft.unitChoices(server: units), id: \.self) { unit in
+                    ForEach(unitChoices, id: \.self) { unit in
                         Button(unit) { row.wrappedValue.unit = unit }
                             .accessibilityIdentifier("recipeEditor.unit.\(unit)")
                     }
@@ -162,7 +166,7 @@ struct RecipeEditor: View {
                 .focused($focus, equals: row.wrappedValue.id)
                 .accessibilityIdentifier("recipeEditor.step.\(position).field")
             removeButton("Remove step \(position + 1)") {
-                draft.steps.removeAll { $0.id == row.wrappedValue.id }
+                model.draft.steps.removeAll { $0.id == row.wrappedValue.id }
             }
             .accessibilityIdentifier("recipeEditor.step.\(position).removeButton")
         }
@@ -176,7 +180,7 @@ struct RecipeEditor: View {
     }
 
     @ViewBuilder private var stoppedMessage: some View {
-        if case .stopped(let message) = phase {
+        if case .stopped(let message) = model.phase {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -190,10 +194,6 @@ struct RecipeEditor: View {
         }
     }
 
-    private var unreadable: [RecipeDraft.RowID] {
-        if case .fix(let rows) = draft.outcome { rows } else { [] }
-    }
-
     private func aisle(of row: Binding<RecipeDraft.IngredientRow>) -> Binding<String> {
         Binding(get: { row.wrappedValue.aisle ?? ListLayout.fallbackAisle }, set: { row.wrappedValue.aisle = $0 })
     }
@@ -204,39 +204,7 @@ struct RecipeEditor: View {
     }
 
     private func cancel() {
-        if draft.hasChanges { onDiscard(draft) }
+        if model.hasChanges { onDiscard(model.draft) }
         dismiss()
-    }
-
-    private func save() {
-        switch draft.outcome {
-        case .fix(let rows):
-            let names = draft.ingredients.filter { rows.contains($0.id) }.map(\.name.trimmed)
-            phase = .stopped("The quantity for \(names.formatted(.list(type: .and))) has to be a plain number, or empty.")
-        case .save where !draft.hasChanges:
-            dismiss()
-        case .save(let edit):
-            phase = .saving
-            Task {
-                do throws(APIError) {
-                    try await store.save(edit)
-                    dismiss()
-                } catch {
-                    phase = .stopped(Self.message(for: error))
-                }
-            }
-        }
-    }
-
-    /// An edit is never queued, so each of these says plainly that the recipe is not saved.
-    private static func message(for failure: APIError) -> String {
-        switch failure {
-        case .unreachable:
-            "Couldn't reach Omlete, so this may not be saved. Saving an edit needs a connection. Your changes are still here, and saving again is safe."
-        case .rejected(404):
-            "This recipe doesn't exist any more, so it can't be saved."
-        case .serverFault, .rejected, .undecodable:
-            "Couldn't save. Your changes are still here, so try again."
-        }
     }
 }

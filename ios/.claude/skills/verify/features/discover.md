@@ -5,8 +5,8 @@ Chef's suggestions as shelves of cards that scroll sideways: For this week, Unde
 ## Sub-features
 
 - `discover-feed` shows the cards in their shelves, in section order.
-- `discover-save` turns a card into a recipe. The card says "Saving." at once, the feed is polled every three seconds while any card is saving, and the card then reads Saved and opens its recipe. A save that fails reads "Couldn't save this one." with Try again.
-- `discover-add-to-list` puts a card's meal on a list. An unsaved card is saved first, and the server adds it to the list when the recipe exists.
+- `discover-save` turns a card into a recipe. The card says "Saving." at once, the feed is polled every three seconds while any card is saving, and the card then reads Saved and opens its recipe. A save that fails reads "Couldn't save this one." with Try again. So does a save the server lost: it answers a card still saving six minutes after the save began as failed. The phone's own give-up is only for a server that never says: a feed that still says saving eight minutes after the phone first saw it so.
+- `discover-add-to-list` puts a card's meal on a list. An unsaved card is saved first, and the server adds it to the list when the recipe exists, before the card reads saved. Try again on a card that failed on its way to a list sends it to that list again.
 - `discover-not-for-me` hides a card at once with Undo, and tells the server after the banner.
 - `discover-clear-all` hides every card that is not saving, with Undo. The server learns nothing about taste from it.
 - `discover-get-ideas` asks for a new batch from the toolbar button or by pulling down.
@@ -23,9 +23,17 @@ Preconditions:
 - `$V up` just ran, `$V doctor` prints no `FAIL`, and `$V tap tab.discover` has run.
 - `<card>` is a suggestion id: `curl -s http://127.0.0.1:8765/api/suggestions/ | jq -r '.[] | "\(.id) \(.title)"'`. The seed leaves five cards: `Verify Card Bean Chilli` and `Verify Card Miso Aubergine` (For this week), `Verify Card Quick Noodles` (Under 30 minutes), `Verify Card Imported Traybake` (Something new) and `Verify Card Loose Idea` (More ideas).
 
-- **See the shelves.** `$V begin discover-feed`, `$V expect "Verify Card Bean Chilli"`, `$V expect "You rated the shakshuka highly."`, then `$V swipe discover.feed up` and `$V expect "Verify Card Loose Idea"`. The shelf titles show in the screenshot. `$V swipe discover.shelf.thisWeek left` brings the second card of a shelf into view.
+- **See the shelves.** `$V begin discover-feed`, `$V expect "Verify Card Bean Chilli"`, `$V expect "You rated the shakshuka highly."`, then `$V swipe discover.feed up` twice and `$V expect "Verify Card Loose Idea"`. The shelf titles show in the screenshot. `$V swipe discover.shelf.thisWeek left` brings the second card of a shelf into view.
 - **Save, and open the recipe.** `$V swipe discover.feed up`, `$V tap discover.save.<Imported Traybake>`, then `$V expect-id discover.saved.<Imported Traybake>`. `$V tap discover.saved.<Imported Traybake>`, then `$V expect-id recipe.cookButton`. The API shows the card `saved` with a `recipe_id`.
 - **A save that fails.** `$V tap discover.save.<Bean Chilli>`, then `$V expect "Couldn't save this one."`. The button now reads Try again.
+- **A save the server lost.** In this order:
+  1. Add a card whose link hangs, so its save is still running when the API is killed: `curl -s -X POST http://127.0.0.1:8765/api/suggestions/ -H 'content-type: application/json' -d '{"suggestions":[{"title":"Verify Card Orphan","section":"For this week","source_url":"http://example.com:81/x"}]}'`. Then `$V relaunch` and `$V tap tab.discover`.
+  2. Start a watcher in the background that waits for the save and then kills the API under it: `( until curl -s http://127.0.0.1:8765/api/suggestions/ | jq -e '.[] | select(.title == "Verify Card Orphan" and .status == "saving")' >/dev/null; do sleep 0.2; done; kill -9 "$(cat .verify-run/api.pid)"; $V api start ) &`. It does nothing until step 3.
+  3. `$V tap discover.save.<Orphan>`, which starts the save the watcher is waiting for, then `$V expect "Saving."`.
+  4. Six minutes after the tap, `OMLETE_IOS_VERIFY_TIMEOUT_MS=400000 $V expect "Couldn't save this one."` passes, the API lists the card `failed` with `The save was interrupted. Try again.`, and its row in Mongo still says `saving`.
+  5. `$V tap discover.save.<Orphan>` (now Try again) shows Saving again, the row has a new `saving_since`, and a few seconds later the card fails by itself with `could not fetch`.
+
+  `$V api stop` in place of the kill is a deploy: the row in Mongo is `failed` by the time the API has exited.
 - **Add an unsaved card to a list.** `$V tap discover.addToList.<Imported Traybake>`. The tap's `NN-tap.json` holds `Saving Verify Card Imported Traybake. It goes on Verify Fixture List when it's ready.` Then `$V expect-id discover.saved.<Imported Traybake>`, `$V tap tab.home`, `$V expect "3 meals"`.
 - **Add a saved card to a list.** Once a card reads Saved, `discover.addToList.<card>` adds its recipe at once with `Added <title> to <list>` and Undo. `discover.addToList.<card>.choose` opens the picker (`listPicker.list.<listID>`, `listPicker.newListButton`).
 - **Not for me.** `$V tap discover.notForMe.<card> then undo.button`, then `$V expect "<title>"`: the card is back and the API still has it as `new`. Without `then undo.button` the tap's `NN-tap.json` holds `Hid <title>. You'll see less like it.`, and seven seconds later `curl -s http://127.0.0.1:8765/api/suggestions/` no longer lists it and `.verify-run/api.log` has one `PATCH /api/suggestions/<card>`.
@@ -40,4 +48,5 @@ Preconditions:
 - Saving the Traybake card takes under a second, so "Saving." is rarely on screen for a capture. `Verify Card Bean Chilli` shows it for a moment before it fails.
 - Shelf titles and the "Finding new ideas…" row are plain text in a scroll view and are in the UI tree, but only for shelves on screen. Scroll with `discover.feed` first.
 - A card that is saving cannot be dismissed or cleared: Not for me is disabled and Clear all leaves it.
+- To see the lost-save rule without the six-minute wait, put the row's start back in the disposable Mongo: `docker exec omlete-ios-verify-mongo mongosh --quiet omlete --eval 'db.suggestions.updateOne({_id: ObjectId("<card>")}, {$set: {saving_since: new Date(Date.now() - 7 * 60 * 1000)}})'`. The phone's own give-up cannot be driven: it takes a server that says saving for eight minutes, which this one no longer does. `ChefTests` covers it.
 - Card ids are new on every seed.

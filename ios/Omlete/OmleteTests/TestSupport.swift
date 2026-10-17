@@ -12,9 +12,12 @@ import Testing
 
     enum Reply {
         case status(Int, String = "{}")
+        /// There is no network: the request never leaves.
         case unreachable
-        /// The request went out and nothing came back.
-        case timedOut
+        /// The request left and nothing came back.
+        case lost
+        /// 200 with a body made from the request's own.
+        case answering(([String: Any]) -> String)
     }
 
     /// Requests in arrival order, without the `/categorize` lookups that adds fire on the side.
@@ -30,12 +33,20 @@ import Testing
     var reply: (Call) -> Reply = { _ in .status(200) }
     /// While set, every request waits here until `release()`.
     var holding = false
-    private var held: [CheckedContinuation<Void, Never>] = []
+    private var held: [(call: Call, resume: CheckedContinuation<Void, Never>)] = []
+    /// Requests that have been answered, in the order their answers went back.
+    private(set) var answered: [Call] = []
 
     func release() {
         holding = false
-        held.forEach { $0.resume() }
+        held.forEach { $0.resume.resume() }
         held = []
+    }
+
+    /// Answers the held requests for `call` and keeps holding the rest, so a test chooses which answer arrives first.
+    func release(only call: Call) {
+        held.filter { $0.call == call }.forEach { $0.resume.resume() }
+        held.removeAll { $0.call == call }
     }
 
     nonisolated func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -47,21 +58,29 @@ import Testing
         allCalls.append(call)
         requests.append(request)
         let isListRequest = call.path != "/api/categorize"
+        let sent = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         if isListRequest {
-            bodies.append(request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            bodies.append(sent)
             inFlight += 1
             peakInFlight = max(peakInFlight, inFlight)
         }
-        defer { if isListRequest { inFlight -= 1 } }
-        if holding { await withCheckedContinuation { held.append($0) } }
+        defer {
+            if isListRequest { inFlight -= 1 }
+            answered.append(call)
+        }
+        if holding { await withCheckedContinuation { held.append((call, $0)) } }
+        func response(_ status: Int, _ body: String) -> (Data, HTTPURLResponse) {
+            (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+        }
         switch reply(call) {
         case .unreachable:
             throw URLError(.notConnectedToInternet)
-        case .timedOut:
+        case .lost:
             throw URLError(.timedOut)
         case .status(let status, let body):
-            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), response)
+            return response(status, body)
+        case .answering(let body):
+            return response(200, body(sent))
         }
     }
 }
@@ -69,12 +88,15 @@ import Testing
 @MainActor final class MemoryStorage: ReplicaStorage {
     var replicas: [ListID: ListReplica] = [:]
     var index: LibraryIndex?
+    var aisles: AisleRecord?
 
     func loadAll() -> [ListReplica] { Array(replicas.values) }
     func save(_ replica: ListReplica) { replicas[replica.id] = replica }
     func discard(_ id: ListID) { replicas[id] = nil }
     func loadIndex() -> LibraryIndex? { index }
     func save(_ index: LibraryIndex) { self.index = index }
+    func loadAisles() -> AisleRecord? { aisles }
+    func save(_ aisles: AisleRecord) { self.aisles = aisles }
 }
 
 /// A phone with a scripted server and an in-memory disk. `relaunch()` builds a
@@ -101,7 +123,14 @@ import Testing
     let transport = ScriptedTransport()
     let storage = MemoryStorage()
     let ticker = Ticker()
+    /// The intake's wait between looks at a job, apart from Chef's so neither wakes the other.
+    let pulse = Ticker()
     private let defaults = UserDefaults(suiteName: "phone-\(UUID().uuidString)")!
+    nonisolated static let apiAddress = "http://phone.test"
+    /// The phone's clock, which a test puts forward.
+    var now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    /// Recipe jobs are keyed job1, job2, … in the order they were tapped.
+    private var jobsKeyed = 0
     private(set) var undo = UndoCenter()
     private(set) var library: Library!
     private(set) var chef: Chef!
@@ -119,15 +148,28 @@ import Testing
 
     var store: ListStore { library.list(Self.listID) }
 
-    func relaunch() {
+    /// A new process on the same phone. `comingToFront` is the scene becoming
+    /// active, which a launch ends in; without it the app has been made and nothing more.
+    func relaunch(against server: String = Phone.apiAddress, comingToFront: Bool = true) {
         undo = UndoCenter()
-        let api = APIClient(baseURL: URL(string: "http://phone.test")!, transport: transport)
+        // The intake that is replaced below was mid-wait, and that wait dies with its process.
+        pulse.tick()
+        let api = APIClient(baseURL: URL(string: server)!, transport: transport)
         library = Library(deps: StoreDependencies(
             api: api,
             disk: storage, undo: undo, connectivity: Connectivity(), retryDelay: nil))
         chef = Chef(deps: ChefDependencies(
-            api: api, undo: undo, library: library, defaults: defaults, pause: { [ticker] _ in try await ticker.pause() }))
-        intake = RecipeIntake(library: library)
+            api: api, undo: undo, library: library, defaults: defaults,
+            // Weak, because a poll still running when a test ends outlives the phone.
+            now: { [weak self] in self?.now ?? .distantPast }, pause: { [ticker] _ in try await ticker.pause() }))
+        intake = RecipeIntake(deps: IntakeDependencies(
+            api: api, library: library, defaults: defaults, pause: { [pulse] in try await pulse.pause($0) },
+            now: { [unowned self] in now },
+            newKey: { [unowned self] in
+                jobsKeyed += 1
+                return RecipeJobID("job\(jobsKeyed)")
+            }))
+        if comingToFront { intake.resume() }
     }
 
     /// Scripts the server: the list GET returns the fixture, everything else 200,
@@ -143,15 +185,23 @@ import Testing
     func serverIsUnreachable() {
         transport.reply = { _ in .unreachable }
     }
+
+    /// `refresh()` returns before the aisles have answered, so a test that reads them waits for their requests to end.
+    func aislesSettle() async {
+        while let turn = library.aisles.working { await turn.value }
+    }
 }
 
-/// Stands in for Chef's wait between polls: each poll waits here until the test calls `tick()`.
+/// Stands in for the wait between polls: each poll waits here until the test calls `tick()`.
 @MainActor final class Ticker {
     private var waiting: [CheckedContinuation<Void, Never>] = []
+    /// How long each wait was asked to be, in order.
+    private(set) var asked: [Duration] = []
 
     var isWaiting: Bool { !waiting.isEmpty }
 
-    func pause() async throws {
+    func pause(_ wanted: Duration = .zero) async throws {
+        asked.append(wanted)
         await withCheckedContinuation { waiting.append($0) }
     }
 

@@ -9,11 +9,14 @@
 #   omlete-ios-verify expect <text>         wait until <text> is on screen
 #   omlete-ios-verify gone <text>           wait until <text> is no longer on screen
 #   omlete-ios-verify expect-id <id>        wait until a control with accessibility id <id> exists
-#   omlete-ios-verify tap <id> [then <id>]  tap the control with accessibility id <id>, then at once a second one
+#   omlete-ios-verify tap <id> [then <id>]...  tap the control with accessibility id <id>, then at once each one after
 #   omlete-ios-verify type <id> <text>      replace the contents of field <id> with <text>
 #   omlete-ios-verify swipe <id> <dir>      swipe up|down|left|right inside scrollable <id>
 #   omlete-ios-verify relaunch              cold-start the installed build: no rebuild, no reseed
 #   omlete-ios-verify api stop|start|seed   take the local API away, bring it back, or reset its fixtures
+#   omlete-ios-verify api freeze|release    freeze the API now, so nothing is read or answered; let it go again
+#   omlete-ios-verify api hold              freeze the API once it has taken the next recipe job
+#   omlete-ios-verify api bounce            restart the API once it has taken the next recipe job
 #   omlete-ios-verify down                  stop the app and the local API; shut the simulator down if `up` booted it
 set -euo pipefail
 
@@ -113,6 +116,49 @@ stop_api() {
   rm -f "$RUN_DIR/api.pid"
 }
 
+# Returns once the API has answered the next recipe-job start, so what follows
+# happens with that job outstanding. Run the caller in the background before
+# the tap that starts the job.
+await_job_start() {
+  pid_alive "$RUN_DIR/api.pid" || die "the API is not running; run: $0 api start"
+  local starts='PUT /api/recipe-jobs/' before
+  before="$(grep -c "$starts" "$RUN_DIR/api.log" || true)"
+  for _ in $(seq 1 1200); do
+    [ "$(grep -c "$starts" "$RUN_DIR/api.log" || true)" -gt "$before" ] && return 0
+    sleep 0.05
+  done
+  die "no recipe job was started within 60s"
+}
+
+freeze_api() {
+  pid_alive "$RUN_DIR/api.pid" || die "the API is not running; run: $0 api start"
+  kill -STOP "$(cat "$RUN_DIR/api.pid")"
+  say "froze the API (pid $(cat "$RUN_DIR/api.pid")): nothing is read or answered until: $0 api release"
+}
+
+# The API takes the job, then goes quiet with it outstanding.
+hold_api() {
+  await_job_start
+  freeze_api
+}
+
+# What a deploy does to a job: the API is told to stop while the job is
+# working, and a new one takes its place. The old log is kept beside the new.
+bounce_api() {
+  await_job_start
+  stop_api
+  cp "$RUN_DIR/api.log" "$RUN_DIR/api.before-bounce.log"
+  start_mongo
+  start_api
+  say "restarted the API under a recipe job (old log: .verify-run/api.before-bounce.log)"
+}
+
+release_api() {
+  pid_alive "$RUN_DIR/api.pid" || die "the API is not running"
+  kill -CONT "$(cat "$RUN_DIR/api.pid")"
+  say "released the API"
+}
+
 # Leaves exactly one list, "$FIXTURE_LIST", with two meals: the Shakshuka
 # fixture recipe and "Verify Fixture Soft Egg", whose first step holds a
 # 5-second timer so a recipe can watch one finish. Plus milk and bananas. The
@@ -120,8 +166,9 @@ stop_api() {
 #
 # Also leaves "Verify Fixture Traybake", a recipe in the shape a link import
 # saves (source, time, rating, ingredient groups, no picture), and five
-# Discover cards across four shelves. The last card's link is the Traybake's
-# source, so saving it finds that recipe without asking a model.
+# Discover cards across four shelves, in a fixed feed order. The Traybake
+# card's link is the Traybake's source, so saving it finds that recipe without
+# asking a model.
 # Only ever runs against the disposable database.
 seed() {
   local py="$ROOT/server/.venv/bin/python"
@@ -176,6 +223,20 @@ PY
     {title: "Verify Card Miso Aubergine", reason: "Uses the eggs on your list.", section: "For this week", total_minutes: 35,
      source_name: "Chef"}
   ]}')" >/dev/null
+  # The server stamps a batch within a millisecond, which leaves the feed's order, and so
+  # Home's three picks, to chance. A minute apart, newest first in shelf order.
+  "$py" - "$DB_URI_LOCAL" <<'PY'
+import sys
+from datetime import datetime, timedelta, timezone
+from pymongo import MongoClient
+db = MongoClient(sys.argv[1], serverSelectionTimeoutMS=5000)["omlete"]
+now = datetime.now(timezone.utc)
+newest_first = ["Bean Chilli", "Miso Aubergine", "Quick Noodles", "Imported Traybake", "Loose Idea"]
+for age, name in enumerate(newest_first):
+    found = db.suggestions.update_one(
+        {"title": f"Verify Card {name}"}, {"$set": {"created_at": now - timedelta(minutes=age)}})
+    assert found.matched_count == 1, name
+PY
   local id
   for id in $(api "$API/api/lists/" | jq -r '.[].id'); do api -X DELETE "$API/api/lists/$id" >/dev/null; done
   id="$(api -X POST "$API/api/lists/" | jq -r .id)"
@@ -383,16 +444,35 @@ cmd_expect_id() {
   require_up; wait_for "expect-id $1" --predicate exists --identifier "$1"; capture expect-id >/dev/null
 }
 
-# `then <id>` taps a second control straight after the first, with no evidence
+# `then <id>` taps more controls straight after the first, with no evidence
 # capture in between: a capture takes about as long as the Undo banner lasts.
+# They are found in one snapshot taken after the first tap and tapped as one
+# batch, so all of them must be on screen by then.
 cmd_tap() {
-  [ $# -eq 1 ] || { [ $# -eq 3 ] && [ "$2" = then ]; } || die "usage: omlete-ios-verify tap <accessibility id> [then <accessibility id>]"
+  local usage="usage: omlete-ios-verify tap <accessibility id> [then <accessibility id>]..."
+  [ $# -ge 1 ] && [ $(($# % 2)) -eq 1 ] || die "$usage"
+  # Checked before the first tap, so a mistyped call taps nothing.
+  local place=2
+  while [ $place -lt $# ]; do
+    [ "${!place}" = then ] || die "$usage"
+    place=$((place + 2))
+  done
   require_up
   local ref; ref="$(ref_for "$1")"
   act "tap $1" ui-automation tap --simulator-id "$UDID" --element-ref "$ref"
-  if [ $# -eq 3 ]; then
-    ref="$(ref_for "$3")"
-    act "tap $3" ui-automation tap --simulator-id "$UDID" --element-ref "$ref"
+  shift
+  if [ $# -gt 0 ]; then
+    local tree steps="" names=""
+    tree="$(xb ui-automation snapshot-ui --simulator-id "$UDID" --output json)"
+    while [ $# -gt 0 ]; do
+      [ "$1" = then ] || die "$usage"
+      ref="$(jq -r --arg id "$2" '[.data.capture | (.targets[], .scroll[]) | split("|") | select(.[-1] == $id) | .[0]][0] // empty' <<<"$tree")"
+      [ -n "$ref" ] || die "no tappable or scrollable control with accessibility id '$2' on screen straight after the tap before it"
+      steps="$steps${steps:+,}{\"action\":\"tap\",\"elementRef\":\"$ref\"}"
+      names="$names${names:+, }$2"
+      shift 2
+    done
+    act "tap $names" ui-automation batch --simulator-id "$UDID" --json "{\"steps\":[$steps]}"
   fi
   capture tap >/dev/null
 }
@@ -431,7 +511,11 @@ cmd_api() {
     stop)  stop_api ;;
     start) mkdir -p "$RUN_DIR"; start_mongo; start_api; say "API answers on $API" ;;
     seed)  seed ;;
-    *) die "usage: omlete-ios-verify api stop|start|seed" ;;
+    freeze) freeze_api ;;
+    hold)  hold_api ;;
+    bounce) bounce_api ;;
+    release) release_api ;;
+    *) die "usage: omlete-ios-verify api stop|start|seed|freeze|hold|bounce|release" ;;
   esac
 }
 

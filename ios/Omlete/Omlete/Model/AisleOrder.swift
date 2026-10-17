@@ -2,7 +2,7 @@ import Foundation
 
 /// The aisles in the order the user walks their shop, and every rule about
 /// changing them. Settings edits one of these and hands the result to
-/// `Library`; the view holds no rules of its own.
+/// `AisleStore`; the view holds no rules of its own.
 ///
 /// Invariant: no two aisles have exactly the same name, so a name identifies
 /// its aisle. Names that differ only in case can arrive from the server and

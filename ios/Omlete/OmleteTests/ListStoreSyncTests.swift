@@ -313,6 +313,29 @@ import Testing
         #expect(!phone.transport.calls.contains { $0.path.hasSuffix("/recipes") || $0.path.hasSuffix("/recipes/curry") })
     }
 
+    /// What the picker's row shows while its add is on the wire, whoever asked for it.
+    @Test func aMealIsBeingAddedFromTheAskUntilTheListHasBeenFetchedWithIt() async throws {
+        phone.serverAnswers()
+        phone.transport.holding = true
+
+        let adding = Task { try await phone.store.addMeal("soup") }
+        await eventually { phone.transport.calls.contains(.init(method: "POST", path: "/api/lists/list/recipes")) }
+        #expect(phone.store.mealsBeingAdded == ["soup"])
+
+        phone.transport.release()
+        _ = try await adding.value
+        #expect(phone.store.mealsBeingAdded == [])
+        #expect(phone.transport.calls.last == .init(method: "GET", path: "/api/lists/list"))
+    }
+
+    @Test func aMealThatCouldNotBeAddedIsNoLongerBeingAdded() async {
+        phone.serverIsUnreachable()
+
+        _ = try? await phone.store.addMeal("soup")
+
+        #expect(phone.store.mealsBeingAdded == [])
+    }
+
     @Test func addingAMealWithNoSignalFails() async {
         phone.serverIsUnreachable()
 

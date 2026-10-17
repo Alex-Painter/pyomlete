@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, MouseEvent, Ref, TouchEvent } from 'react'
+import type { CSSProperties, MouseEvent, Ref, TouchEvent } from 'react'
 import { Check, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 import { formatQuantity } from '@/lib/parseItems'
 import type { ListItem } from '@/lib/types'
@@ -15,8 +15,12 @@ type GestureHandlers = {
 /**
  * One shopping-list row: a native list row in web clothes.
  *
- * - Tap anywhere on it to check it off (not just the circle).
- * - The chevron (Plan only) opens the edit sheet.
+ * What a tap does depends on the mode, because Plan is where the list is built
+ * and Shop is where it is checked off (see docs/DESIGN.md):
+ *
+ * - With `onEdit` (Plan), a tap on the row opens the edit sheet. The circle is
+ *   its own control and the only thing that checks or unchecks.
+ * - Without `onEdit` (Shop), a tap anywhere on the row checks it.
  * - Swipe left for Delete and right for Edit, like iOS swipe actions, when
  *   those handlers are given. A short swipe snaps back; nothing is deleted
  *   without the Undo toast that follows.
@@ -97,21 +101,75 @@ export function ListRow({
     mode.current = 'idle'
   }
 
-  const toggle = () => {
+  const guarded = (action: () => void) => () => {
     if (suppressClick.current || dragging) return
-    onToggle()
+    action()
   }
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === ' ' || e.key === 'Enter') {
-      e.preventDefault()
-      onToggle()
-    }
-  }
+  const toggle = guarded(onToggle)
 
   const qty = formatQuantity(item.amount, item.unit)
   const recipeCount = item.sources.filter((s) => s.recipe_id).length
   const large = size === 'large'
+
+  const label = `${item.name}${qty ? `, ${qty}` : ''}`
+  const padY = large ? 'py-3' : 'py-2.5'
+  const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  const rowProps = {
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel: onTouchEnd,
+    onMouseDown: gestureHandlers?.onMouseDown,
+    style: {
+      transform: offset ? `translateX(${offset}px)` : undefined,
+      touchAction: 'pan-y',
+    },
+    className: cn(
+      'touch-row relative flex items-center bg-white',
+      animating && 'transition-transform duration-200',
+      large ? 'min-h-[60px]' : 'min-h-[52px]',
+    ),
+  }
+
+  const circle = (
+    <span
+      aria-hidden
+      className={cn(
+        'flex shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+        large ? 'size-7' : 'size-6',
+        item.checked ? 'border-primary bg-primary text-ink' : 'border-ink-faint bg-white',
+      )}
+    >
+      {item.checked && <Check className={large ? 'size-4' : 'size-3.5'} strokeWidth={3} />}
+    </span>
+  )
+
+  const details = (
+    <>
+      <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+        <span
+          className={cn(
+            'break-words',
+            large ? 'text-lg' : 'text-base',
+            item.checked ? 'text-ink-muted line-through decoration-ink-muted/60' : 'text-ink',
+          )}
+        >
+          {item.name}
+        </span>
+        {recipeCount > 1 && (
+          <span className="rounded-full bg-cream px-2 py-0.5 text-xs text-ink-muted">
+            {recipeCount} meals
+          </span>
+        )}
+      </span>
+      {qty && (
+        <span className={cn('shrink-0 tabular-nums text-ink-muted', large ? 'text-base' : 'text-sm')}>
+          {qty}
+        </span>
+      )}
+    </>
+  )
 
   return (
     <div
@@ -133,78 +191,57 @@ export function ListRow({
         </div>
       )}
 
-      <div
-        role="checkbox"
-        aria-checked={item.checked}
-        aria-label={`${item.name}${qty ? `, ${qty}` : ''}`}
-        tabIndex={0}
-        onClick={toggle}
-        onKeyDown={onKeyDown}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchEnd}
-        onMouseDown={gestureHandlers?.onMouseDown}
-        style={{
-          transform: offset ? `translateX(${offset}px)` : undefined,
-          touchAction: 'pan-y',
-        }}
-        className={cn(
-          'touch-row relative flex cursor-pointer items-center gap-3 bg-white px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          animating && 'transition-transform duration-200',
-          large ? 'min-h-[60px] py-3' : 'min-h-[52px] py-2.5',
-        )}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            'flex shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-            large ? 'size-7' : 'size-6',
-            item.checked ? 'border-primary bg-primary text-ink' : 'border-ink-faint bg-white',
-          )}
-        >
-          {item.checked && <Check className={large ? 'size-4' : 'size-3.5'} strokeWidth={3} />}
-        </span>
-
-        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-          <span
-            className={cn(
-              'break-words',
-              large ? 'text-lg' : 'text-base',
-              item.checked ? 'text-ink-muted line-through decoration-ink-muted/60' : 'text-ink',
-            )}
+      {onEdit ? (
+        <div {...rowProps}>
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={item.checked}
+            aria-label={label}
+            onClick={toggle}
+            className={cn('flex shrink-0 cursor-pointer items-center self-stretch px-3 focus-visible:ring-inset', focusRing)}
           >
-            {item.name}
-          </span>
-          {recipeCount > 1 && (
-            <span className="rounded-full bg-cream px-2 py-0.5 text-xs text-ink-muted">
-              {recipeCount} meals
-            </span>
-          )}
-        </span>
-
-        {qty && (
-          <span className={cn('shrink-0 tabular-nums text-ink-muted', large ? 'text-base' : 'text-sm')}>
-            {qty}
-          </span>
-        )}
-
-        {onEdit && (
+            {circle}
+          </button>
           <button
             type="button"
             aria-label={`Edit ${item.name}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              onEdit()
-            }}
-            onTouchStart={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="-mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-sand hover:text-ink"
+            onClick={guarded(onEdit)}
+            className={cn(
+              'flex min-w-0 flex-1 cursor-pointer items-center gap-3 self-stretch pr-3 text-left focus-visible:ring-inset',
+              padY,
+              focusRing,
+            )}
           >
-            <ChevronRight className="size-5" />
+            {details}
+            <span
+              aria-hidden
+              className="-mr-2 flex size-11 shrink-0 items-center justify-center text-ink-muted"
+            >
+              <ChevronRight className="size-5" />
+            </span>
           </button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div
+          {...rowProps}
+          role="checkbox"
+          aria-checked={item.checked}
+          aria-label={label}
+          tabIndex={0}
+          onClick={toggle}
+          onKeyDown={(e) => {
+            if (e.key === ' ' || e.key === 'Enter') {
+              e.preventDefault()
+              onToggle()
+            }
+          }}
+          className={cn(rowProps.className, 'cursor-pointer gap-3 px-3', padY, focusRing)}
+        >
+          {circle}
+          {details}
+        </div>
+      )}
     </div>
   )
 }

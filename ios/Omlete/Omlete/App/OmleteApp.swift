@@ -16,16 +16,18 @@ struct OmleteApp: App {
         let library = Library(deps: StoreDependencies(
             api: api, disk: ReplicaDisk(), undo: undo, connectivity: connectivity))
         let kitchen = Kitchen(deps: KitchenDependencies(
-            api: api, disk: CookDisk(), recipeSaved: { [weak library] in library?.adopt($0) }))
-        connectivity.onRegain = { [weak library, weak kitchen] in
+            api: api, disk: CookDisk(), recipeSaved: { [weak library] in library?.recipeEdited($0) }))
+        let intake = RecipeIntake(deps: IntakeDependencies(api: api, library: library))
+        connectivity.onRegain = { [weak library, weak kitchen, weak intake] in
             library?.syncAll()
             kitchen?.resume()
+            intake?.resume()
         }
         connectivity.start()
         _library = State(initialValue: library)
         _kitchen = State(initialValue: kitchen)
         _chef = State(initialValue: Chef(deps: ChefDependencies(api: api, undo: undo, library: library)))
-        _intake = State(initialValue: RecipeIntake(library: library))
+        _intake = State(initialValue: intake)
         _undo = State(initialValue: undo)
     }
 

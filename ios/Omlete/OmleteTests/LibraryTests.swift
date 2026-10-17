@@ -38,9 +38,10 @@ import Testing
         serverAnswers()
 
         await phone.library.refresh()
+        await phone.aislesSettle()
 
         #expect(phone.library.rows.map(\.name) == ["Week", "Party"])
-        #expect(phone.library.aisleOrder == ["Bakery", "Dairy"])
+        #expect(phone.library.aisles.order.names == ["Bakery", "Dairy"])
         #expect(phone.library.units == ["g", "tin"])
         #expect(phone.library.meal("curry") == RecipeSummary(
             id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg"), totalMinutes: 35))
@@ -49,7 +50,7 @@ import Testing
         phone.relaunch()
 
         #expect(phone.library.rows.map(\.name) == ["Week", "Party"])
-        #expect(phone.library.aisleOrder == ["Bakery", "Dairy"])
+        #expect(phone.library.aisles.order.names == ["Bakery", "Dairy"])
     }
 
     @Test func aRefreshMadeDuringAnotherJoinsIt() async {
@@ -244,6 +245,95 @@ import Testing
         undo.undoTapped()
 
         #expect(log == ["commit"])
+    }
+
+    @Test func theSameNewsIsSaidOnce() async {
+        let undo = UndoCenter(duration: .milliseconds(20))
+        undo.offer("Removed", undo: {})
+        undo.inform("Couldn't reach Omlete")
+        undo.inform("Couldn't reach Omlete")
+        undo.undoTapped()
+        #expect(undo.banner?.message == "Couldn't reach Omlete")
+
+        undo.inform("Couldn't reach Omlete")
+        let said = undo.banner?.id
+
+        // The next banner would take its place the moment its time is up.
+        await eventually { undo.banner?.id != said }
+        #expect(undo.banner == nil)
+    }
+
+    @Test func newsWaitsBehindAnUndoAndIsSaidInOrderOnceItHasSettled() async {
+        let undo = UndoCenter(duration: .milliseconds(20))
+        undo.offer("Removed", undo: {})
+
+        undo.inform("First")
+        undo.inform("Second")
+        #expect(undo.banner?.message == "Removed")
+
+        undo.undoTapped()
+        #expect(undo.banner?.message == "First")
+        await eventually { undo.banner?.message == "Second" }
+        await eventually { undo.banner == nil }
+    }
+
+    /// Putting a meal back inside its Undo window settles that banner and offers "Added" in the same turn.
+    @Test func newsCutShortByAnOfferIsSaidAgainAfterIt() async {
+        let undo = UndoCenter(duration: .milliseconds(20))
+        undo.offer("Removed", undo: {})
+        undo.inform("Couldn't save")
+
+        undo.undoTapped()
+        undo.offer("Added", undo: {})
+
+        #expect(undo.banner?.message == "Added")
+        await eventually { undo.banner?.message == "Couldn't save" }
+    }
+
+    @Test func aMessageWithNothingToUndoGivesWayToNewsAtOnce() {
+        let undo = UndoCenter()
+        undo.offer("Saving")
+
+        undo.inform("Couldn't save")
+
+        #expect(undo.banner?.message == "Couldn't save")
+    }
+
+    @Test func newsThatComesWhileTheAppIsAwayIsSaidWhenItIsBack() {
+        let undo = UndoCenter()
+        undo.appLeftFront()
+
+        undo.inform("Couldn't save")
+        #expect(undo.banner == nil)
+
+        undo.appCameToFront()
+        #expect(undo.banner?.message == "Couldn't save")
+    }
+
+    @Test func leavingTheAppCommitsWhatCouldBeUndoneAndKeepsTheNewsBehindItForTheReturn() {
+        let undo = UndoCenter()
+        var log: [String] = []
+        undo.offer("Removed", undo: { log.append("undo") }, commit: { log.append("commit") })
+        undo.inform("Couldn't save")
+
+        undo.appLeftFront()
+        #expect(log == ["commit"])
+        #expect(undo.banner == nil)
+
+        undo.appCameToFront()
+        #expect(undo.banner?.message == "Couldn't save")
+    }
+
+    @Test func newsStillUpWhenTheAppLeavesIsSaidAgainOnTheReturn() {
+        let undo = UndoCenter()
+        undo.inform("Couldn't save")
+        #expect(undo.banner?.message == "Couldn't save")
+
+        undo.appLeftFront()
+        #expect(undo.banner == nil)
+
+        undo.appCameToFront()
+        #expect(undo.banner?.message == "Couldn't save")
     }
 }
 

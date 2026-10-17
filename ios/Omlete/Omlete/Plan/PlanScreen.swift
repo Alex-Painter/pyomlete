@@ -45,7 +45,7 @@ struct PlanScreen: View {
     }
 
     private func items(of list: ListDetail, in store: ListStore) -> some View {
-        let layout = ListLayout(list, aisleOrder: library.aisleOrder)
+        let layout = ListLayout(list, aisleOrder: library.aisles.order.names)
         let meals = list.recipes.compactMap(library.meal)
         return List {
             if store.syncStatus == .offline {
@@ -72,17 +72,20 @@ struct PlanScreen: View {
                 HStack {
                     Text("Meals (\(meals.count))")
                     Spacer()
-                    Button {
-                        isAddingMeals = true
-                    } label: {
-                        // Laid out by hand: in a List header a Label leaves a wide gutter after its icon.
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                            Text("Add meals")
+                    // With no meals the row below is the way in, and one is enough.
+                    if !meals.isEmpty {
+                        Button {
+                            isAddingMeals = true
+                        } label: {
+                            // Laid out by hand: in a List header a Label leaves a wide gutter after its icon.
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                Text("Add meals")
+                            }
                         }
+                        .font(.subheadline)
+                        .accessibilityIdentifier("plan.addMealsButton")
                     }
-                    .font(.subheadline)
-                    .accessibilityIdentifier("plan.addMealsButton")
                 }
             }
 
@@ -107,9 +110,7 @@ struct PlanScreen: View {
                 Section {
                     if showsGotIt {
                         ForEach(layout.got) { item in
-                            ItemRow(item: item, identifier: "plan.itemRow.\(item.id.rawValue)") {
-                                store.setChecked(item.id, false)
-                            }
+                            row(item, in: store)
                         }
                     }
                 } header: {
@@ -117,8 +118,10 @@ struct PlanScreen: View {
                 }
             }
         }
+        .accessibilityIdentifier("plan.list")
         .animation(.default, value: layout)
         .contentMargins(.bottom, 72, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle(list.name)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -143,7 +146,7 @@ struct PlanScreen: View {
         }
         .sheet(item: $editing) { id in
             if let item = list.items.first(where: { $0.id == id }) {
-                ItemSheet(item: item, aisles: library.aisleOrder, units: library.units) {
+                ItemSheet(item: item, aisles: library.aisles.order.names, units: library.units) {
                     store.update(id, $0)
                 } onDelete: {
                     store.remove([id], saying: "Removed \(item.name)")
@@ -151,7 +154,7 @@ struct PlanScreen: View {
             }
         }
         .sheet(isPresented: $isAddingMeals) {
-            MealsSheet(list: list, store: store)
+            MealsSheet(list: list)
         }
         .sheet(isPresented: $isRenaming) {
             RenameListSheet(name: list.name) { store.rename($0) }
@@ -159,18 +162,10 @@ struct PlanScreen: View {
     }
 
     private func row(_ item: ListItem, in store: ListStore) -> some View {
-        HStack(spacing: 4) {
-            ItemRow(item: item, identifier: "plan.itemRow.\(item.id.rawValue)") {
-                store.setChecked(item.id, true)
-            }
-            Button("Edit \(item.name)", systemImage: "chevron.right") { editing = item.id }
-                .labelStyle(.iconOnly)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("plan.itemEdit.\(item.id.rawValue)")
+        ItemRow(item: item, identifier: "plan.itemRow.\(item.id.rawValue)") {
+            store.setChecked(item.id, !item.checked)
+        } onEdit: {
+            editing = item.id
         }
         .swipeActions(edge: .trailing) {
             Button("Delete", systemImage: "trash", role: .destructive) {

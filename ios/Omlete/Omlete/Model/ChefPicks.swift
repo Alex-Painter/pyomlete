@@ -1,6 +1,7 @@
 import Foundation
 
-/// Home's taste of Discover: the ideas nobody has acted on yet. A card that
+/// Home's taste of Discover: the ideas nobody has acted on yet, counting one
+/// whose save could not be sent. A card that
 /// is saving, saved or failed has been answered already, and is Discover's to
 /// show. Where they sit on Home is `HomeContent`'s to decide.
 nonisolated struct ChefPicks: Sendable {
@@ -13,6 +14,6 @@ nonisolated struct ChefPicks: Sendable {
     var shown: [Suggestion] { Array(fresh.prefix(Self.mostShown)) }
 
     init(cards: [Suggestion]) {
-        fresh = cards.filter { $0.stage == .fresh }
+        fresh = cards.filter { $0.stage == .fresh || $0.stage == .unsent }
     }
 }
