@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from beanie import init_beanie
 from httpx import ASGITransport, AsyncClient
+import mongomock
 from mongomock_motor import AsyncMongoMockClient
 
 import main
@@ -38,8 +39,12 @@ async def api():
             SuggestionDocument,
         ],
     )
+    # Deleting a recipe clears its planned days with arrayFilters, which
+    # mongomock lacks. No list here has days, so that update matches nothing.
+    mongomock.ignore_feature("array_filters")
     async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://t") as c:
         yield c
+    mongomock.warn_on_feature("array_filters")
 
 
 async def make_recipe(title="Dal", **kw) -> RecipeDocument:
@@ -64,10 +69,17 @@ def strip_ids(items: list[dict]) -> list[dict]:
 async def test_list_lifecycle(api):
     created = (await api.post("/api/lists/")).json()
     lid = created["id"]
-    assert set(created) == {"id", "name", "created_at"}
+    assert created == {
+        "id": lid, "name": created["name"], "created_at": created["created_at"],
+        "week_start": None, "days": [],
+    }
 
     r = await api.patch(f"/api/lists/{lid}", json={"name": "Week 1"})
-    assert r.json() == {"id": lid, "name": "Week 1"}
+    renamed = r.json()
+    assert renamed.pop("created_at")
+    assert renamed == {
+        "id": lid, "name": "Week 1", "recipes": [], "items": [], "week_start": None, "days": [],
+    }
 
     dal = await make_recipe()
     soup = await make_recipe("Soup")
@@ -128,6 +140,7 @@ async def test_list_lifecycle(api):
         lid: (2, [{"id": str(soup.id), "title": "Soup"}]),
         copy["id"]: (2, [{"id": str(soup.id), "title": "Soup"}]),
     }
+    assert all((s["week_start"], s["days"]) == (None, []) for s in summaries)
 
     assert (await api.delete(f"/api/lists/{lid}")).json() == {"ok": True}
     r = await api.get(f"/api/lists/{lid}")
@@ -147,6 +160,7 @@ async def test_list_lifecycle(api):
         ("put", "/api/lists/{m}/items/reorder", {"category": "x", "item_ids": []}),
         ("patch", "/api/lists/{m}/items/x", {"checked": True}),
         ("delete", "/api/lists/{m}/items/x", None),
+        ("put", "/api/lists/{m}/days/2026-10-17", {"recipe_id": None}),
     ],
 )
 async def test_missing_list_is_404(api, method, path, body):
@@ -169,6 +183,9 @@ async def test_recipe_routes(api):
     assert [(r["id"], r["title"], r["ingredient_count"], r["servings"]) for r in listed] == [
         (rid, "Dal", 3, 4)
     ]
+    assert (listed[0]["ingredient_names"], listed[0]["cuisine"], listed[0]["last_planned_on"]) == (
+        ["lentils", "onion", "salt"], None, None
+    )
     assert (await api.get(f"/api/recipes/{rid}")).json()["title"] == "Dal"
 
     r = await api.patch(f"/api/recipes/{rid}/rating", json={"rating": 5})

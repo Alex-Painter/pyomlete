@@ -1,4 +1,4 @@
-"""The household's aisle order, and which aisle an item belongs in."""
+"""The household's aisle order, which aisle an item belongs in, and the day its week starts."""
 
 import re
 
@@ -24,6 +24,13 @@ async def set_categories(categories: list[CategoryConfig]) -> list[CategoryConfi
     settings.categories = categories
     await settings.save()
     return settings.categories
+
+
+async def set_week_start_weekday(weekday: int) -> int:
+    settings = await get_or_create()
+    settings.week_start_weekday = weekday
+    await settings.save()
+    return settings.week_start_weekday
 
 
 async def categorize(name: str) -> str:
