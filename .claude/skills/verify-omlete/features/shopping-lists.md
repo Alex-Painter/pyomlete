@@ -1,25 +1,31 @@
 # Shopping lists
 
-Lists are the Plan and Shop modes. Plan (`/list/<id>`) is where a list is built: quick-add typed or pasted items, add meals from the library or Discover, edit items in a sheet, delete with Undo. Shop (`/shop/<id>`) is a fullscreen, offline-first check-off view. Neither mode moves you into another when something finishes (see `docs/PRINCIPLES.md`).
+Lists are the Plan and Shop modes. A list is usually a week: Plan a week on Home creates a list with seven evenings (`week_start` and `days` in the API), and Plan (`/list/<id>`) opens on that week, where each dinner is picked from the meal library inline on the page. The shopping list is still built from the meals, and List shows it: quick-add typed or pasted items, edit items in a sheet, delete with Undo. A plain list (no `week_start`) shows its meals and items side by side as before. Shop (`/shop/<id>`) is a fullscreen, offline-first check-off view. Neither mode moves you into another when something finishes (see `docs/PRINCIPLES.md`).
 
 ## Sub-features
 
 - `lists-cook` shows `Cook from <current list>` on Home (`/`): each meal on the current list links straight to `/cook/<recipeId>?list=<id>`.
 - `lists-index` shows every list on Home (`/`, headed `Home`, section `Lists`) as a card; its `…` button opens an action sheet with Rename, Duplicate and Delete (Delete has an Undo toast, no confirm dialog).
-- `list-create` uses `New list` to create a list and open it.
+- `list-create` uses `Plan a week` on Home to open the week list for the week to plan, creating it if there is none. That week starts on the most recent `week_start_weekday` (from `GET /api/settings/plan`, Saturday by default or when that call fails) on or before today, or a week later when today is the last day of that week. If a list with that `week_start` already exists, the tap opens it and sends no `POST`. The server names a new one like `Week of Sat 10 Oct`. The rule is `weekToPlan` in `client/src/lib/week.ts`.
+- `week-strip` shows seven day buttons pinned under the header on a phone, each named like `Tuesday 13 October, Carbonara` (or `nothing planned`, or `out`; today's starts `Today, `). A filled dot means planned, a ring open, a moon out. The selected day has an amber outline. Above it a `Week` / `List` switch; `List` is the items view.
+- `week-day` is the selected day's card, headed like `Tuesday 13 October`: its meal with `Cook` (to `/cook/<recipeId>?list=<id>`), `Swap` (jumps to the library search) and `Remove` (instant, with an Undo toast `Took <meal> off Tuesday`; the meal stays on the list under `This week, any day`). An empty day says `Nothing planned yet` and has an `Out on <Day>` button; an out day says `Out this evening` with `Plan anyway`.
+- `week-library` is the library under the day, headed `Pick for <Day>`: a search box (`Search meals or ingredients`, matching title, ingredient names and cuisine), a sort select (`Not had lately` default, `Your favourites`, `Quickest`, `Newest`, `A to Z`) and filter chips (`Quick` 30 min or less, `Not had lately` nothing in 21 days, `Favourites` 4 stars and up). Each row shows time, rating and a line like `Last had 5 weeks ago`, `Never planned` or `Planned for Thu 15 Oct`. Tapping a row sends `PUT /api/lists/<id>/days/<date>` and moves the selection to the next open day. The rules live in `client/src/lib/libraryQuery.ts`.
+- `week-any-day` lists the week's meals with no day under `This week, any day`; tapping one opens an action sheet with `Plan for <Day>`, Cook this, Open recipe and Remove from list.
+- `week-desktop` at 1024px and wider shows the days as seven columns (pinned while the library scrolls), the library below and the items in a right-hand panel, with no switch. Dragging a library row onto a column plans that day.
 - `list-quick-add` parses the `Add items` field: `2 onions, 500g mince, oat milk` becomes three items with amounts and units. Pasting several lines adds them all. A local guess files the item under a category at once; `/api/categorize` corrects it afterwards if it can.
 - `list-edit-item` taps a row in Plan (a button named `Edit <name>`, rows under `Got it` included) or swipes right to open the edit sheet: name, quantity stepper, unit chips, aisle chips, Delete and Done.
 - `list-check` in Plan taps the circle at the start of a row (a checkbox named after the item); a tap elsewhere on the row edits. In Shop a tap anywhere on the row checks it. Checked items move to `Got it (n)` with `Clear checked`.
 - `list-delete-undo` swipes left (or uses Delete in the sheet). The item disappears at once; the DELETE is only sent when the Undo toast expires.
-- `list-add-meals` uses `Add meals` (`?sheet=meals`), which stays open for several picks and offers search, Discover picks and the library.
+- `list-add-meals` on a plain list uses the same library inline, headed `Add meals` (the `Add meals` button scrolls to it). A tap adds the meal and its ingredients (`POST /api/lists/<id>/recipes`, with Undo); a tap on a meal already on the list removes it. Tapping it again while that removal's Undo toast is up is that Undo: no `POST`, and the `DELETE` is never sent. Planning a meal on a day during its removal's Undo does the same on a week list, except the meal stays off the days it was removed from (a `PUT .../days/<date>` clearing each one). There is no meals sheet any more.
 - `list-shop` uses `Start shopping` to open `/shop/<id>`: large rows, wake lock, `Spotted something? Add it`, an offline/syncing badge, and `Leave shopping mode`.
-- `list-offline` queues every change in localStorage (`omlete:queue:v1`) and replays it when back online.
+- `list-offline` queues every change in localStorage (`omlete:queue:v1`) and replays it when back online. Day changes are `setDay` ops in the same queue. A list's ops are sent in the order they were made, so during a removal's Undo window later changes to that list wait behind it (a few seconds) before they reach the API. Whichever flush sends them, the list (and, after a day change, the library) is refetched, so a meal planned in that window shows its ingredients once it lands.
 
 ## How to get to it (user POV)
 
 - The `Home` tab (phone) or nav link (desktop) goes to `/`.
-- `New list` creates one and opens it in Plan.
-- On a list: the `Add items` field, `Add meals`, the item rows, and `Start shopping` in the header.
+- `Plan a week` opens this week's list in Plan, creating it first if there is none.
+- On a week list: the day strip, the day card, the library, `List` for the items, and `Start shopping` in the header.
+- On a plain list: the `Add items` field, `Add meals`, the item rows, and `Start shopping`.
 
 ## Driving it with omlete-verify browse
 
@@ -27,7 +33,10 @@ Preconditions:
 
 - `$V seed` just ran, so `milk` and `bananas` have cached categories (`Dairy & Eggs` and `Fresh Produce`).
 
-- **Create a list and quick-add items.** Run `$V browse / --label lists-add-item --click-button "New list" --expect-url '^/list/' --fill "Add items=milk, 2 bananas" --press Enter --expect "milk" --expect "bananas" --expect "Dairy & Eggs"`. `run.log` shows `POST /api/lists/ -> 200` and two `POST /api/lists/<id>/items -> 200`.
+- **Plan a week and fill a day.** Run `$V browse / --label week-fill --click-button "Plan a week" --expect-url '^/list/' --expect "Pick for" --click-sel 'button[aria-label^="Tuesday"]:visible' --expect "Pick for Tuesday" --click-button "Verify Fixture Shakshuka" --expect "Pick for Wednesday"`. A library row's accessible name is its title followed by time, rating and context, and `--click-button` matches a substring, so the title alone finds it. `run.log` shows `POST /api/lists/ -> 200` (only when no list for the week existed yet) and `PUT /api/lists/<id>/days/<date> -> 200`; the API shows that day's `recipe_id` and the recipe's items.
+- **Remove with Undo.** On that list, `--click-sel 'button[aria-label^="Tuesday"]:visible' --click-button "Remove" --expect "Took" --click-button "Undo"`. The API shows Tuesday's meal again and the same items.
+- **Out and Plan anyway.** `--click-sel 'button[aria-label^="Wednesday"]:visible' --click-button "Out on Wednesday" --expect "Out this evening" --click-button "Plan anyway" --expect "Nothing planned yet"`.
+- **Create a list and quick-add items.** Plan a week, then `--click-button "List" --fill "Add items=milk, 2 bananas" --press Enter --expect "milk" --expect "bananas" --expect "Dairy & Eggs"`. `run.log` shows two `POST /api/lists/<id>/items -> 200`. (`browse` uses a 1280px viewport, where the items are in the right-hand panel and there is no `List` button: skip that step there.)
 - **Confirm persistence.** Take the list id from the final URL in `run.log` and run `curl -s http://127.0.0.1:8000/api/lists/<id>`. The items include `{"name": "bananas", "amount": 2, ...}`.
 - **Check in Plan through the circle.** Run `$V browse /list/<id> --label lists-plan-check --click-sel '[role=checkbox][aria-label^="bananas"]' --expect "Got it (1)"`. The API then shows bananas `"checked": true`.
 - **Uncheck from Got it.** Run `$V browse /list/<id> --label lists-plan-uncheck --expect "Got it (1)" --click-sel '[role=checkbox][aria-checked=true]' --absent "Got it"`. The API shows `"checked": false` again.
@@ -38,5 +47,7 @@ Preconditions:
 
 - With the placeholder key `/api/categorize` returns a 500 that the browser reports as a CORS error. Items are still added under the locally guessed category; only the correction is lost. Seeded names (`milk`, `bananas`) categorise correctly.
 - Deletes are deferred by the Undo window (a few seconds). Check the API after the toast has gone, or the item is still there.
-- Lists are not reset by `$V seed`. Each run adds a new list to the local DB, which `$V down` throws away.
+- Lists are not reset by `$V seed`, and `Plan a week` reopens the week's list from an earlier run instead of making a new one, so a day filled before may already be planned. `$V down` throws the local DB away.
+- `browse` drives at 1280px, so it sees the desktop week (columns, items on the right, no `Week` / `List` switch, the phone strip hidden). The day columns and the hidden phone strip use the same accessible names, so add `:visible` to a `--click-sel` that picks a day (`--click-sel` takes the first match, hidden or not).
+- Removing a meal from a day doesn't take it off the list: it moves to `This week, any day` and keeps its items. Use `Remove from list` in that row's action sheet to drop the meal and its ingredients.
 - The service worker only registers in production builds, so offline page loads can't be tested against the dev server; offline edits on an already open page can (Playwright `context.setOffline(true)`).
