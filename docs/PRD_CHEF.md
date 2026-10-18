@@ -28,7 +28,7 @@ Each phase is its own PR.
 2. Move recipe and list logic out of the routes into `server/services/`, so the routes and Chef's tools share it.
 3. Chef chat with its tools, web search, streaming and Undo.
 4. Memory: a meal log from Cook, told and inferred preferences, and What Chef knows in Settings.
-5. A rough nutrition profile on each recipe, so Chef can balance a week.
+5. Parked on 18 Oct 2026 at Alex's request: a rough nutrition profile on each recipe, so Chef can balance a week. Until it comes back, the weekly plan balances on variety and the household's taste alone.
 6. Week cards and Make the list.
 7. The `omlete-chef` Railway cron service runs the week on its own.
 8. iOS notifications. Alex creates the APNs key and turns on the Push capability in Xcode first.
