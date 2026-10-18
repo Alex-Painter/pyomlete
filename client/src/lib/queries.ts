@@ -4,6 +4,7 @@ import { fetchListWithPending } from '@/lib/offline'
 import type {
   CategoryConfig,
   ListSummary,
+  PlanSettings,
   RecipeDetail,
   RecipeSummary,
   Suggestion,
@@ -37,10 +38,34 @@ export function useCategories() {
   })
 }
 
+type WeekFields = 'ingredient_names' | 'cuisine' | 'last_planned_on'
+// A server from before week plans leaves these out.
+type RecipeRow = Omit<RecipeSummary, WeekFields> & Partial<Pick<RecipeSummary, WeekFields>>
+
 export function useRecipes() {
   return useQuery({
     queryKey: ['recipes'],
-    queryFn: () => apiJson<RecipeSummary[]>('/api/recipes/'),
+    queryFn: async () =>
+      (await apiJson<RecipeRow[]>('/api/recipes/')).map(
+        (r): RecipeSummary => ({
+          ...r,
+          ingredient_names: r.ingredient_names ?? [],
+          cuisine: r.cuisine ?? null,
+          last_planned_on: r.last_planned_on ?? null,
+        }),
+      ),
+  })
+}
+
+const DEFAULT_PLAN_SETTINGS: PlanSettings = { week_start_weekday: 5 }
+
+/** Which weekday a week starts on. Falls back to Saturday when unreachable. */
+export function usePlanSettings() {
+  return useQuery({
+    queryKey: ['settings', 'plan'],
+    queryFn: () => apiJson<PlanSettings>('/api/settings/plan'),
+    placeholderData: DEFAULT_PLAN_SETTINGS,
+    staleTime: 60 * 60 * 1000,
   })
 }
 

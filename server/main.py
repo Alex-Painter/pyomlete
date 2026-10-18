@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable
 from uuid import UUID
 
@@ -29,12 +29,15 @@ from lib.types import (
     CategoriesUpdateRequest,
     CategorizeRequest,
     CategorizeResponse,
+    DayUpdateRequest,
     ExcludeUpdateRequest,
     ImportFromUrlRequest,
     ItemCreateRequest,
     ItemReorderRequest,
     ItemUpdateRequest,
+    ListCreateRequest,
     ListUpdateRequest,
+    PlanSettingsRequest,
     RatingUpdate,
     RecipeJobEnd,
     RecipeJobKind,
@@ -122,11 +125,15 @@ async def import_recipe_from_url(body: ImportFromUrlRequest):
 @router.get("/recipes/")
 async def list_recipes():
     found = await RecipeDocument.find_all().sort("-created_at").to_list()
+    last_planned = await lists.last_planned_on()
     return [
         {
             "id": str(r.id),
             "title": r.title,
             "ingredient_count": len(r.ingredients),
+            "ingredient_names": [i.name for i in r.ingredients],
+            "cuisine": r.cuisine,
+            "last_planned_on": last_planned.get(str(r.id)),
             "rating": r.rating,
             # Enough for a card without shipping the whole document.
             "image_url": r.image_url,
@@ -180,8 +187,10 @@ def _list_out(lst: ListDocument) -> dict:
     return {
         "id": str(lst.id),
         "name": lst.name,
+        "created_at": lst.created_at.isoformat() if lst.created_at else None,
         "recipes": lst.recipes,
         "items": [item.model_dump() for item in lst.items],
+        **lists.week_out(lst),
     }
 
 
@@ -191,27 +200,24 @@ async def get_lists():
 
 
 @router.post("/lists/")
-async def create_list():
-    lst = await lists.create()
-    return {"id": str(lst.id), "name": lst.name, "created_at": lst.created_at.isoformat()}
+async def create_list(body: ListCreateRequest | None = None):
+    lst = await lists.create(body.week_start if body else None)
+    return {
+        "id": str(lst.id),
+        "name": lst.name,
+        "created_at": lst.created_at.isoformat(),
+        **lists.week_out(lst),
+    }
 
 
 @router.get("/lists/{list_id}")
 async def get_list(list_id: PydanticObjectId):
-    lst = await lists.get(list_id)
-    return {
-        "id": str(lst.id),
-        "name": lst.name,
-        "created_at": lst.created_at.isoformat() if lst.created_at else None,
-        "recipes": lst.recipes,
-        "items": [item.model_dump() for item in lst.items],
-    }
+    return _list_out(await lists.get(list_id))
 
 
 @router.patch("/lists/{list_id}")
 async def update_list(list_id: PydanticObjectId, body: ListUpdateRequest):
-    lst = await lists.rename(list_id, body.name)
-    return {"id": str(lst.id), "name": lst.name}
+    return _list_out(await lists.rename(list_id, body.name))
 
 
 @router.delete("/lists/{list_id}")
@@ -243,6 +249,17 @@ async def update_categories(body: CategoriesUpdateRequest):
     return [c.model_dump() for c in saved]
 
 
+@router.get("/settings/plan")
+async def get_plan_settings():
+    current = await settings.get_or_create()
+    return {"week_start_weekday": current.week_start_weekday}
+
+
+@router.put("/settings/plan")
+async def update_plan_settings(body: PlanSettingsRequest):
+    return {"week_start_weekday": await settings.set_week_start_weekday(body.week_start_weekday)}
+
+
 # --- Categorization ---
 
 
@@ -266,6 +283,14 @@ async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
 @router.delete("/lists/{list_id}/recipes/{recipe_id}")
 async def remove_recipe_from_list(list_id: PydanticObjectId, recipe_id: str):
     return _list_out(await lists.remove_recipe(list_id, recipe_id))
+
+
+# --- Week days ---
+
+
+@router.put("/lists/{list_id}/days/{day}")
+async def update_day(list_id: PydanticObjectId, day: date, body: DayUpdateRequest):
+    return _list_out(await lists.set_day(list_id, day, body.recipe_id, body.status))
 
 
 # --- List Items ---

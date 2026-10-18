@@ -149,6 +149,11 @@ def _list_view(lst: ListDocument) -> dict:
         "id": str(lst.id),
         "name": lst.name,
         "recipe_ids": lst.recipes,
+        "week_start": lst.week_start.isoformat() if lst.week_start else None,
+        "days": [
+            {"date": d.date.isoformat(), "recipe_id": d.recipe_id, "eating_out": d.status == "out"}
+            for d in lst.days
+        ],
         "items": [
             {
                 "id": i.id,
@@ -326,9 +331,15 @@ async def set_ingredient_on_lists(
 
 @agent.tool
 @_reported
-async def create_list(ctx: RunContext[ChatDeps], name: str | None = None) -> dict:
-    """Start a new, empty shopping list. Without a name it is named for today."""
-    lst = await lists.create()
+async def create_list(
+    ctx: RunContext[ChatDeps], name: str | None = None, week_start: date | None = None
+) -> dict:
+    """Start a new, empty shopping list. Without a name it is named for today.
+
+    With `week_start` it is a week plan: seven days from that date, each of
+    which can hold a dinner (see plan_day).
+    """
+    lst = await lists.create(week_start)
     if name:
         lst = await lists.rename(lst.id, name)
     change = Change()
@@ -452,7 +463,48 @@ async def delete_item(ctx: RunContext[ChatDeps], list_id: str, item_id: str) -> 
     return await _done(ctx, change, f"Removed {name}")
 
 
+@agent.tool
+@_reported
+async def plan_day(
+    ctx: RunContext[ChatDeps],
+    list_id: str,
+    day: date,
+    recipe_id: str | None = None,
+    eating_out: bool = False,
+) -> dict:
+    """Set one day of a week plan: the dinner to cook (its ingredients go on the list),
+    or eating_out for no cooking that night. With neither, the day is cleared and its
+    recipe stays on the list as an any-day meal."""
+    change = Change()
+    await change.touching(ListDocument, list_id)
+    await lists.set_day(_oid(list_id), day, recipe_id, "out" if eating_out else "open")
+    if eating_out:
+        summary = f"Marked {day:%A} as eating out"
+    elif recipe_id:
+        recipe = await recipes.get(_oid(recipe_id))
+        summary = f"Planned {recipe.title} for {day:%A}"
+    else:
+        summary = f"Cleared {day:%A}"
+    return await _done(ctx, change, summary)
+
+
 # --- Settings ---
+
+
+_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+@agent.tool
+@_reported
+async def set_week_start(ctx: RunContext[ChatDeps], weekday: int) -> dict:
+    """Choose the day their planning week starts on, 0 for Monday to 6 for Sunday."""
+    if not 0 <= weekday <= 6:
+        return {"error": "weekday goes from 0 (Monday) to 6 (Sunday)"}
+    current = await settings.get_or_create()
+    change = Change()
+    await change.touching(UserSettingsDocument, current.id)
+    await settings.set_week_start_weekday(weekday)
+    return await _done(ctx, change, f"Your week now starts on {_WEEKDAYS[weekday]}")
 
 
 @agent.tool

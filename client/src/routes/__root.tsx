@@ -24,6 +24,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { ChefProvider, useChef } from '@/components/Chef'
 import { UndoProvider } from '@/components/UndoToast'
 import { flushQueue, makeAllDue } from '@/lib/offline'
+import { useRefreshOnSend } from '@/hooks/useRefreshOnSend'
 import { cn } from '@/lib/utils'
 
 interface MyRouterContext {
@@ -231,10 +232,11 @@ function TabLink({
 
 /**
  * Keep list changes flowing: send queued changes when the connection comes
- * back, and send deferred deletes (still inside their Undo window) before
- * the page closes.
+ * back, send deferred deletes (still inside their Undo window) before the
+ * page closes, and refetch what the server worked out from them.
  */
 function OfflineSync() {
+  useRefreshOnSend()
   useEffect(() => {
     const flush = () => void flushQueue()
     const onHide = () => {

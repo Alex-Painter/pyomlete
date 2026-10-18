@@ -68,11 +68,41 @@ function useWide() {
   return wide
 }
 
+/** Set when someone closes the sidebar, so it stays closed on their next visit. */
+const SIDEBAR_CLOSED_KEY = 'omlete.chef.sidebarClosed'
+
+function rememberSidebar(open: boolean) {
+  try {
+    if (open) localStorage.removeItem(SIDEBAR_CLOSED_KEY)
+    else localStorage.setItem(SIDEBAR_CLOSED_KEY, '1')
+  } catch {
+    // Storage can be off (private windows); the sidebar just opens again.
+  }
+}
+
 export function ChefProvider({ children }: { children: ReactNode }) {
-  const [height, setHeight] = useState<ChefHeight>('closed')
+  const [height, setHeightState] = useState<ChefHeight>('closed')
+
+  // On a wide window Chef starts open beside the page, unless it was closed
+  // there before. Phones start with it closed: the sheet would cover the page.
+  useEffect(() => {
+    if (!window.matchMedia(WIDE).matches) return
+    let closedBefore = false
+    try {
+      closedBefore = localStorage.getItem(SIDEBAR_CLOSED_KEY) === '1'
+    } catch {
+      // As above.
+    }
+    if (!closedBefore) setHeightState('half')
+  }, [])
+
+  const setHeight = useCallback((h: ChefHeight) => {
+    if (window.matchMedia(WIDE).matches) rememberSidebar(h !== 'closed')
+    setHeightState(h)
+  }, [])
   const toggle = useCallback(
-    () => setHeight((h) => (h === 'closed' ? 'half' : 'closed')),
-    [],
+    () => setHeight(height === 'closed' ? 'half' : 'closed'),
+    [height, setHeight],
   )
   const open = height !== 'closed'
   return (

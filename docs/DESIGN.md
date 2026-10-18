@@ -86,6 +86,12 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | Renaming or deleting an aisle moves no item, on iOS as on the web | The server keeps each item's aisle as text and does not rewrite it. Those items stay grouped under the old name, after every aisle still in the order, and the item's aisle picker still offers the old name, until they are moved. Settings says so under the list. Rewriting them belongs on the server, where every list and recipe can be reached. |
 | On iOS an aisle is moved by dragging its handle | It is how a list is reordered on iOS. The web has a handle and an up and a down arrow on each aisle. |
 | Settings behind a cog, Add as a plain tab | A profile icon promised more than it did, and a raised plus button looked out of place. |
+| Plan is organised around the week. A week is a list with seven days, each of which can hold a meal | The shopping list stays built from the meals, so planning dinners and making the list are one job. A list with no week works as before. |
+| Meals without a day stay on the list as any-day meals, and clearing a day keeps its meal on the list | Many people shop for five meals and decide on the night which one to cook. |
+| The week starts on the usual shop day, Saturday unless changed in Settings | The plan runs from one shop to the next, not from Monday to Sunday. |
+| The calendar and suggestions only ever suggest a day's status. They never hide or move a meal | Nothing moves on its own. A meal stays where the person put it until they move it. |
+| Plan a week plans this week, or next week on the day before the shop, and opens that week's list if it already exists | People plan the evening before they shop, and a second tap should never make a second copy of the same week. |
+| Plan shows the meal library inline, searchable and sorted by Not had lately, instead of the Add meals sheet | Scanning a modal list in no useful order was the slowest part of planning. Not had lately gives variety without remembering what you ate. Discover picks are no longer shown on Plan; they stay on Discover and Home. |
 
 ## Home plus four modes
 
