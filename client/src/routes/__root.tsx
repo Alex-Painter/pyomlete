@@ -12,7 +12,7 @@ import {
   createRootRouteWithContext,
   useRouterState,
 } from '@tanstack/react-router'
-import { BookOpen, Compass, House, Plus, Settings } from 'lucide-react'
+import { BookOpen, ChefHat, Compass, House, Plus, Settings } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
@@ -21,6 +21,7 @@ import TanStackQueryProvider from '../integrations/tanstack-query/root-provider'
 
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 import type { QueryClient } from '@tanstack/react-query'
+import { ChefProvider, useChef } from '@/components/Chef'
 import { UndoProvider } from '@/components/UndoToast'
 import { flushQueue, makeAllDue } from '@/lib/offline'
 import { useRefreshOnSend } from '@/hooks/useRefreshOnSend'
@@ -126,6 +127,7 @@ function NavBar() {
             </Link>
           ))}
           <div className="flex-1" />
+          <ChefButton />
           <Link
             to="/create"
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3 min-h-[40px] text-sm font-semibold text-ink shadow-sm hover:bg-primary/90"
@@ -144,7 +146,7 @@ function NavBar() {
         </div>
       </nav>
 
-      {/* Mobile tab bar: Lists, Discover, the central Add, Recipes */}
+      {/* Mobile tab bar: Home, Discover, the central Chef, Recipes */}
       <nav
         aria-label="Main"
         className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-line safe-area-bottom"
@@ -153,11 +155,47 @@ function NavBar() {
           {TABS.slice(0, 2).map((t) => (
             <TabLink key={t.to} {...t} className={mobileLink} />
           ))}
-          <TabLink to="/create" label="Add" icon={Plus} exact={false} className={mobileLink} />
+          <ChefTab className={mobileLink} />
           <TabLink {...TABS[2]} className={mobileLink} />
         </div>
       </nav>
     </>
+  )
+}
+
+/** Chef opens beside the page on wide windows and as a sheet on narrower ones. */
+function ChefButton() {
+  const { height, toggle } = useChef()
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-pressed={height !== 'closed'}
+      className={cn(
+        'flex items-center gap-1.5 rounded-lg px-3 min-h-[40px] text-sm font-semibold',
+        height !== 'closed' ? 'bg-sand text-ink' : 'text-ink-muted hover:text-ink',
+      )}
+    >
+      <ChefHat className="size-4" />
+      Chef
+    </button>
+  )
+}
+
+/** The central tab. It used to be Add; Chef adds recipes and much else. */
+function ChefTab({ className }: { className: string }) {
+  const { height, toggle } = useChef()
+  const open = height !== 'closed'
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-pressed={open}
+      className={cn(className, open ? 'text-ink' : 'text-ink-muted')}
+    >
+      <ChefHat className="size-6" strokeWidth={open ? 2.4 : 1.8} />
+      Chef
+    </button>
   )
 }
 
@@ -237,9 +275,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body className={cn('bg-cream', fullscreen ? '' : 'pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0')}>
         <TanStackQueryProvider>
           <UndoProvider fullscreen={fullscreen}>
-            {!fullscreen && <NavBar />}
-            {children}
-            <OfflineSync />
+            <ChefProvider>
+              {!fullscreen && <NavBar />}
+              {children}
+              <OfflineSync />
+            </ChefProvider>
           </UndoProvider>
           {import.meta.env.DEV && (
             <TanStackDevtools
