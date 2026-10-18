@@ -92,6 +92,7 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | The calendar and suggestions only ever suggest a day's status. They never hide or move a meal | Nothing moves on its own. A meal stays where the person put it until they move it. |
 | Plan a week plans this week, or next week on the day before the shop, and opens that week's list if it already exists | People plan the evening before they shop, and a second tap should never make a second copy of the same week. |
 | Plan shows the meal library inline, searchable and sorted by Not had lately, instead of the Add meals sheet | Scanning a modal list in no useful order was the slowest part of planning. Not had lately gives variety without remembering what you ate. Discover picks are no longer shown on Plan; they stay on Discover and Home. |
+| On a phone, while you type in Chef's sheet it fills the space above the keyboard, whatever height it was at, and goes back on blur | Mobile Safari opens the keyboard without shrinking the layout viewport, so the sheet stayed on top of the tab bar with a blank band between it and the keyboard. Typing is when you want to see the conversation, and the tab bar is no use then. |
 
 ## Home plus four modes
 
