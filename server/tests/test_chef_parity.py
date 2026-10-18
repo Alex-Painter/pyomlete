@@ -25,6 +25,8 @@ ROUTE_TOOLS = {
     ("DELETE", "/api/lists/{list_id}"): "delete_list",
     ("POST", "/api/lists/{list_id}/duplicate"): "duplicate_list",
     ("PUT", "/api/settings/categories"): "set_aisles",
+    ("PUT", "/api/settings/plan"): "set_week_start",
+    ("PUT", "/api/lists/{list_id}/days/{day}"): "plan_day",
     ("POST", "/api/lists/{list_id}/recipes"): "add_recipe_to_list",
     ("DELETE", "/api/lists/{list_id}/recipes/{recipe_id}"): "remove_recipe_from_list",
     ("POST", "/api/lists/{list_id}/items"): "add_item",

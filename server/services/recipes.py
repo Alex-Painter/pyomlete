@@ -16,7 +16,7 @@ from beanie.operators import In
 from bs4 import BeautifulSoup
 from pydantic import TypeAdapter
 
-from data_models import IngredientDocument, RecipeDocument
+from data_models import IngredientDocument, ListDocument, RecipeDocument
 from ingredient_structurer import structure_ingredients
 from lib.claude import async_claude
 from lib.db import vo
@@ -344,7 +344,13 @@ async def update(
 
 
 async def delete(recipe_id: PydanticObjectId) -> None:
+    """Delete a recipe and clear the days it was planned for in every week."""
     await (await get(recipe_id)).delete()
+    await ListDocument.get_motor_collection().update_many(
+        {"days.recipe_id": str(recipe_id)},
+        {"$set": {"days.$[d].recipe_id": None}},
+        array_filters=[{"d.recipe_id": str(recipe_id)}],
+    )
 
 
 async def set_excluded(recipe_id: PydanticObjectId, index: int, excluded: bool) -> None:

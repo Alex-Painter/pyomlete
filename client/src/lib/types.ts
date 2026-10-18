@@ -15,12 +15,32 @@ export type ListItem = {
   sources: ItemSource[]
 }
 
+/** A calendar date as the API sends it, `YYYY-MM-DD`, with no time zone. */
+export type ISODate = string
+
+export type DayStatus = 'open' | 'out'
+
+/**
+ * One evening of a week list. Every `recipe_id` here is also in the list's
+ * `recipes`; a recipe on the list with no day is an any-day meal.
+ */
+export type PlanDay = {
+  date: ISODate
+  recipe_id: string | null
+  status: DayStatus
+  origin: 'user' | 'calendar' | 'chef'
+}
+
 export type ListDetail = {
   id: string
   name: string
   created_at: string | null
   recipes: string[]
   items: ListItem[]
+  /** Set on a week list, null on a plain list. */
+  week_start: ISODate | null
+  /** Seven consecutive days on a week list, empty on a plain list. */
+  days: PlanDay[]
 }
 
 export type ListSummary = {
@@ -30,6 +50,13 @@ export type ListSummary = {
   item_count: number
   checked_count: number
   recipes: { id: string; title: string }[]
+  week_start: ISODate | null
+  days: PlanDay[]
+}
+
+export type PlanSettings = {
+  /** 0 is Monday. Defaults to 5, Saturday: the week runs from one shop to the next. */
+  week_start_weekday: number
 }
 
 export type CategoryConfig = {
@@ -48,6 +75,10 @@ export type RecipeSummary = {
   total_minutes: number | null
   servings: number | null
   source_name: string | null
+  ingredient_names: string[]
+  cuisine: string | null
+  /** The latest day this recipe was planned on, across every list. */
+  last_planned_on: ISODate | null
 }
 
 export type RecipeIngredient = {

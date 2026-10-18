@@ -9,15 +9,22 @@
  *
  * Deletes ride the same queue with a `notBefore` time. Until then they hide
  * the item locally but haven't reached the server, so Undo just drops the op.
+ *
+ * Setting a day of a week list rides the queue too. Last write wins per day,
+ * the same rule as items.
+ *
+ * Ops for one list reach the server in the order they were made: a later op
+ * waits behind an earlier one that isn't due yet.
  */
 import { ApiError, apiFetch, apiJson } from '@/lib/api'
-import type { ListDetail, ListItem } from '@/lib/types'
+import type { DayStatus, ISODate, ListDetail, ListItem } from '@/lib/types'
 
 export type QueuedOp = { opId: string; listId: string; notBefore?: number } & (
   | { kind: 'add'; item: ListItem }
   | { kind: 'patch'; itemId: string; updates: Partial<ListItem> }
   | { kind: 'delete'; itemId: string }
   | { kind: 'removeRecipe'; recipeId: string }
+  | { kind: 'setDay'; date: ISODate; recipeId: string | null; status: DayStatus }
 )
 
 // Distributive, so each variant keeps its own fields.
@@ -57,8 +64,8 @@ export function saveListSnapshot(list: ListDetail) {
   writeJson(SNAPSHOT_PREFIX + list.id, list)
 }
 
-export function loadListSnapshot(listId: string): ListDetail | null {
-  return readJson<ListDetail>(SNAPSHOT_PREFIX + listId)
+export function loadListSnapshot(listId: string): StoredList | null {
+  return readJson<StoredList>(SNAPSHOT_PREFIX + listId)
 }
 
 // --- queue ---
@@ -91,9 +98,19 @@ export function newId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+/** The op `sendDue` is sending. It can no longer change or be cancelled. */
+let inFlight: string | null = null
+
 export function enqueue(op: NewOp): string {
   const queued = { ...op, opId: newId() } as QueuedOp
-  const queue = readQueue()
+  let queue = readQueue()
+
+  // Planning a meal whose removal is still waiting out its Undo is that Undo:
+  // otherwise the removal, sent later, would take the meal off its new day.
+  if (queued.kind === 'setDay' && queued.recipeId != null) {
+    const removal = pendingRemoval(queued.listId, queued.recipeId)
+    if (removal) queue = queue.filter((o) => o.opId !== removal.opId)
+  }
 
   // Fold a patch into an earlier, not-yet-sent patch or add of the same item,
   // so a row checked and unchecked ten times offline sends one request.
@@ -106,13 +123,30 @@ export function enqueue(op: NewOp): string {
           ((o.kind === 'patch' && o.itemId === queued.itemId) ||
             (o.kind === 'add' && o.item.id === queued.itemId)),
       )
-    if (target?.kind === 'patch') {
+    if (target?.kind === 'patch' && target.opId !== inFlight) {
       target.updates = { ...target.updates, ...queued.updates }
       writeQueue(queue)
       return target.opId
     }
-    if (target?.kind === 'add') {
+    if (target?.kind === 'add' && target.opId !== inFlight) {
       target.item = { ...target.item, ...queued.updates }
+      writeQueue(queue)
+      return target.opId
+    }
+  }
+
+  // Tapping through meals for one day offline sends one request. Only fold
+  // into the list's latest op, so a removal queued in between keeps its order.
+  if (queued.kind === 'setDay') {
+    const target = queue.filter((o) => o.listId === queued.listId).at(-1)
+    if (
+      target?.kind === 'setDay' &&
+      target.date === queued.date &&
+      !target.notBefore &&
+      target.opId !== inFlight
+    ) {
+      target.recipeId = queued.recipeId
+      target.status = queued.status
       writeQueue(queue)
       return target.opId
     }
@@ -124,6 +158,20 @@ export function enqueue(op: NewOp): string {
     setTimeout(() => void flushQueue(), queued.notBefore - Date.now() + 50)
   }
   return queued.opId
+}
+
+/** A meal's removal that hasn't been sent and can still be undone. */
+export function pendingRemoval(listId: string, recipeId: string): QueuedOp | undefined {
+  const now = Date.now()
+  return readQueue().find(
+    (o) =>
+      o.kind === 'removeRecipe' &&
+      o.listId === listId &&
+      o.recipeId === recipeId &&
+      o.opId !== inFlight &&
+      o.notBefore != null &&
+      o.notBefore > now,
+  )
 }
 
 /** Drop an op that hasn't been sent yet. Returns false if it already went. */
@@ -179,42 +227,88 @@ async function send(op: QueuedOp, keepalive: boolean): Promise<Response> {
         method: 'DELETE',
         keepalive,
       })
+    case 'setDay':
+      return apiFetch(`${base}/days/${op.date}`, {
+        method: 'PUT',
+        ...json({ recipe_id: op.recipeId, status: op.status }, keepalive),
+      })
+  }
+}
+
+type SentListener = (ops: QueuedOp[]) => void
+const sentListeners = new Set<SentListener>()
+
+/** Hear about ops that reached the server, after each flush that sent any. */
+export function onSent(fn: SentListener) {
+  sentListeners.add(fn)
+  return () => {
+    sentListeners.delete(fn)
   }
 }
 
 let flushing: Promise<number> | null = null
+/** Flushes asked for while one was running, which may have read the queue already. */
+let flushRequests = 0
 
 /**
  * Send every op that is due, in order. Stops at the first network failure and
  * leaves the rest for next time. Resolves to the number of ops sent.
  */
 export function flushQueue(opts: { keepalive?: boolean } = {}): Promise<number> {
-  // `.finally` always runs asynchronously, so `flushing` is cleared after it
-  // has been assigned, even when there was nothing to send.
-  flushing ??= sendDue(opts.keepalive ?? false).finally(() => {
-    flushing = null
-  })
+  if (flushing) {
+    flushRequests++
+    return flushing
+  }
+  flushing = (async () => {
+    const sent: QueuedOp[] = []
+    try {
+      for (;;) {
+        const requests = flushRequests
+        await sendDue(opts.keepalive ?? false, sent)
+        if (flushRequests === requests) break
+      }
+    } finally {
+      // After an await, so `flushing` has been assigned, and with none after
+      // the last check, so no caller can slip in between.
+      flushing = null
+    }
+    if (sent.length > 0) sentListeners.forEach((fn) => fn(sent))
+    return sent.length
+  })()
   return flushing
 }
 
-async function sendDue(keepalive: boolean): Promise<number> {
-  let sent = 0
+/** The first op that is due and has nothing for its list still waiting before it. */
+function nextDue(queue: QueuedOp[], now: number): QueuedOp | undefined {
+  const waiting = new Set<string>()
+  return queue.find((o) => {
+    if (waiting.has(o.listId)) return false
+    if (o.notBefore && o.notBefore > now) {
+      waiting.add(o.listId)
+      return false
+    }
+    return true
+  })
+}
+
+async function sendDue(keepalive: boolean, sent: QueuedOp[]) {
   for (;;) {
-    const now = Date.now()
-    const op = readQueue().find((o) => !o.notBefore || o.notBefore <= now)
+    const op = nextDue(readQueue(), Date.now())
     if (!op) break
     let res: Response
+    inFlight = op.opId
     try {
       res = await send(op, keepalive)
     } catch {
       break // offline: try again later
+    } finally {
+      inFlight = null
     }
     if (res.status >= 500) break
     // 2xx, or a 4xx that retrying can't fix (the item or list is gone).
     cancelOp(op.opId)
-    sent++
+    sent.push(op)
   }
-  return sent
 }
 
 // --- applying pending ops on top of a list ---
@@ -230,6 +324,7 @@ function totalAmount(item: ListItem): number | null {
 export function applyOps(list: ListDetail, ops: QueuedOp[]): ListDetail {
   let items = list.items
   let recipes = list.recipes
+  let days = list.days
   for (const op of ops) {
     switch (op.kind) {
       case 'add':
@@ -245,6 +340,7 @@ export function applyOps(list: ListDetail, ops: QueuedOp[]): ListDetail {
         // Mirrors the server: drop this recipe's share of each item, and any
         // item nothing else asked for.
         recipes = recipes.filter((r) => r !== op.recipeId)
+        days = days.map((d) => (d.recipe_id === op.recipeId ? { ...d, recipe_id: null } : d))
         items = items.flatMap((i) => {
           if (!i.sources.some((s) => s.recipe_id === op.recipeId)) return [i]
           const sources = i.sources.filter((s) => s.recipe_id !== op.recipeId)
@@ -253,9 +349,28 @@ export function applyOps(list: ListDetail, ops: QueuedOp[]): ListDetail {
           return [{ ...next, amount: totalAmount(next) }]
         })
         break
+      case 'setDay':
+        // Mirrors the server: a meal set on a day joins the list (its
+        // ingredients arrive with the server's answer), and clearing a day
+        // leaves the meal on the list for any day.
+        days = days.map((d) =>
+          d.date === op.date
+            ? { ...d, recipe_id: op.recipeId, status: op.status, origin: 'user' as const }
+            : d,
+        )
+        if (op.recipeId && !recipes.includes(op.recipeId)) recipes = [...recipes, op.recipeId]
+        break
     }
   }
-  return { ...list, items, recipes }
+  return { ...list, items, recipes, days }
+}
+
+type WeekFields = 'week_start' | 'days'
+/** A list from a server, or a phone, from before week plans. */
+type StoredList = Omit<ListDetail, WeekFields> & Partial<Pick<ListDetail, WeekFields>>
+
+function normalizeList(list: StoredList): ListDetail {
+  return { ...list, week_start: list.week_start ?? null, days: list.days ?? [] }
 }
 
 /**
@@ -266,14 +381,14 @@ export async function fetchListWithPending(listId: string): Promise<ListDetail> 
   await flushQueue()
   let list: ListDetail
   try {
-    list = await apiJson<ListDetail>(`/api/lists/${listId}`)
+    list = normalizeList(await apiJson<StoredList>(`/api/lists/${listId}`))
     saveListSnapshot(list)
   } catch (err) {
     // The server answered (404, 500): that's the truth, not a signal problem.
     if (err instanceof ApiError) throw err
     const snapshot = loadListSnapshot(listId)
     if (!snapshot) throw err
-    list = snapshot
+    list = normalizeList(snapshot)
   }
   return applyOps(list, pendingOpsFor(listId))
 }

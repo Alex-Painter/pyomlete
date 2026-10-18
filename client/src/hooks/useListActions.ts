@@ -1,6 +1,6 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { apiFetch, apiJson } from '@/lib/api'
+import { ApiError, apiFetch, apiJson } from '@/lib/api'
 import {
   applyOps,
   cancelOp,
@@ -8,11 +8,13 @@ import {
   flushQueue,
   newId,
   pendingOpsFor,
+  pendingRemoval,
 } from '@/lib/offline'
 import type { NewOp, QueuedOp } from '@/lib/offline'
 import { guessCategory } from '@/lib/guessCategory'
 import type { ParsedItem } from '@/lib/parseItems'
-import type { ListDetail, ListItem } from '@/lib/types'
+import type { DayStatus, ISODate, ListDetail, ListItem, PlanDay } from '@/lib/types'
+import { dayLong } from '@/lib/week'
 import { useUndo } from '@/components/UndoToast'
 
 const UNDO_WINDOW_MS = 5000
@@ -30,6 +32,8 @@ export function useListActions(listId: string) {
   const key = ['list', listId]
 
   const current = () => queryClient.getQueryData<ListDetail>(key)
+  /** The list as it was before each meal removal, by the removal's op. */
+  const beforeRemoval = useRef(new Map<string, ListDetail | undefined>())
 
   const setList = useCallback(
     (fn: (l: ListDetail) => ListDetail) =>
@@ -37,29 +41,21 @@ export function useListActions(listId: string) {
     [queryClient, listId],
   )
 
-  const sync = useCallback(async () => {
-    const sent = await flushQueue()
-    if (sent > 0 && pendingOpsFor(listId).length === 0) {
-      void queryClient.invalidateQueries({ queryKey: ['list', listId] })
-    }
-    if (sent > 0) void queryClient.invalidateQueries({ queryKey: ['lists'] })
-  }, [queryClient, listId])
-
   const apply = useCallback(
     (op: NewOp) => {
       const opId = enqueue(op)
       setList((l) => applyOps(l, [{ ...op, opId } as QueuedOp]))
-      void sync()
+      void flushQueue()
       return opId
     },
-    [setList, sync],
+    [setList],
   )
 
   const restore = useCallback(
     (opIds: string[], previous: ListDetail | undefined) => {
       opIds.forEach(cancelOp)
       if (previous) {
-        queryClient.setQueryData<ListDetail>(['list', listId], applyOps(previous, []))
+        queryClient.setQueryData<ListDetail>(['list', listId], applyOps(previous, pendingOpsFor(listId)))
       }
       void queryClient.invalidateQueries({ queryKey: ['list', listId] })
     },
@@ -143,6 +139,7 @@ export function useListActions(listId: string) {
         recipeId,
         notBefore: Date.now() + UNDO_WINDOW_MS + 500,
       })
+      beforeRemoval.current.set(opId, previous)
       showUndo({
         message: `Removed ${title} and its ingredients`,
         onUndo: () => restore([opId], previous),
@@ -150,6 +147,88 @@ export function useListActions(listId: string) {
       })
     },
     [apply, listId, restore, showUndo],
+  )
+
+  /**
+   * Putting a meal back while its removal can still be undone is that Undo.
+   * The server still has the meal, so adding it again would be refused and
+   * the removal would go through anyway. Returns the list as it was before
+   * the removal, or null if there was no removal to undo.
+   */
+  const undoRemoval = useCallback(
+    (recipeId: string): { previous: ListDetail | undefined } | null => {
+      const removal = pendingRemoval(listId, recipeId)
+      if (!removal) return null
+      const previous = beforeRemoval.current.get(removal.opId)
+      restore([removal.opId], previous)
+      return { previous }
+    },
+    [listId, restore],
+  )
+
+  /** Put a meal on a day, or clear it. Works offline; last write wins. */
+  const setDay = useCallback(
+    ({ date, recipeId, status }: { date: ISODate; recipeId: string | null; status?: DayStatus }) => {
+      const undone = recipeId ? undoRemoval(recipeId) : null
+      // The meal was taken off its days, and planning it now says where it
+      // goes instead: the server never saw the removal, so clear them there.
+      for (const d of undone?.previous?.days ?? []) {
+        if (d.recipe_id === recipeId && d.date !== date) {
+          apply({ kind: 'setDay', listId, date: d.date, recipeId: null, status: d.status })
+        }
+      }
+      return apply({ kind: 'setDay', listId, date, recipeId, status: status ?? 'open' })
+    },
+    [apply, listId, undoRemoval],
+  )
+
+  /** Out for the evening, or back in. Keeps whatever meal the day had. */
+  const markOut = useCallback(
+    (day: PlanDay, out: boolean) =>
+      setDay({ date: day.date, recipeId: day.recipe_id, status: out ? 'out' : 'open' }),
+    [setDay],
+  )
+
+  /**
+   * Take a meal off its day at once, with Undo. The meal and its items stay
+   * on the list as an any-day meal, so Undo only has to put the day back.
+   */
+  const clearDay = useCallback(
+    (day: PlanDay, title: string) => {
+      setDay({ date: day.date, recipeId: null, status: day.status })
+      showUndo({
+        message: `Took ${title} off ${dayLong(day.date)}`,
+        onUndo: () => setDay({ date: day.date, recipeId: day.recipe_id, status: day.status }),
+      })
+    },
+    [setDay, showUndo],
+  )
+
+  /** Put a meal and its ingredients on a plain list. Needs signal. */
+  const addRecipe = useCallback(
+    async (recipeId: string, title: string) => {
+      if (undoRemoval(recipeId)) {
+        showUndo({ message: `Added ${title}`, onUndo: () => removeRecipe(recipeId, title) })
+        return
+      }
+      try {
+        await apiJson(`/api/lists/${listId}/recipes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipe_id: recipeId }),
+        })
+      } catch (err) {
+        // A 400 means it's already on the list, which is what was asked for.
+        if (!(err instanceof ApiError && err.status === 400)) {
+          showUndo({ message: `Couldn't add ${title}. Check your connection.` })
+          return
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: ['list', listId] })
+      void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      showUndo({ message: `Added ${title}`, onUndo: () => removeRecipe(recipeId, title) })
+    },
+    [queryClient, listId, showUndo, removeRecipe, undoRemoval],
   )
 
   const reorder = useCallback(
@@ -172,5 +251,16 @@ export function useListActions(listId: string) {
     [setList, listId],
   )
 
-  return { setChecked, update, addItems, removeItems, removeRecipe, reorder, sync }
+  return {
+    setChecked,
+    update,
+    addItems,
+    removeItems,
+    removeRecipe,
+    addRecipe,
+    setDay,
+    markOut,
+    clearDay,
+    reorder,
+  }
 }

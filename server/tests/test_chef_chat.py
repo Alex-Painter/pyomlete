@@ -268,3 +268,25 @@ async def test_a_bad_chat_body_is_a_422(api):
 async def test_undo_of_nothing_is_a_404(api):
     r = await api.post("/api/chef/actions/5f0000000000000000000000/undo")
     assert r.status_code == 404
+
+
+async def test_plans_a_day_and_undo_clears_it(api):
+    from datetime import date
+
+    recipe = await a_recipe()
+    model, seen = calling(("create_list", {"week_start": "2026-10-17"}))
+    await say(api, model, "start this week")
+    week_id = seen["returns"][0]["list_id"]
+
+    model, seen = calling(
+        ("plan_day", {"list_id": week_id, "day": "2026-10-19", "recipe_id": str(recipe.id)}),
+    )
+    await say(api, model, "dal on monday")
+    assert seen["returns"][0]["done"] == "Planned Dal for Monday"
+    week = await ListDocument.get(week_id)
+    assert [d.recipe_id for d in week.days if d.date == date(2026, 10, 19)] == [str(recipe.id)]
+    assert week.recipes == [str(recipe.id)]
+
+    await api.post(f"/api/chef/actions/{seen['returns'][0]['undo']}/undo")
+    week = await ListDocument.get(week_id)
+    assert all(d.recipe_id is None for d in week.days) and week.recipes == []
