@@ -15,6 +15,9 @@ The full plan, with the data model, the tool list and a diagram, is the [Chef pl
 | Chef can do anything the user can, deletes included, and a test fails when a route changes data with no matching Chef tool | The end goal is that Chef can control the whole app. Every delete already has Undo, and the test means a new feature reaches Chef the day it ships. |
 | Chef sits beside every screen: a right-hand sidebar on wide web windows. On phones, web and iOS, it is a sheet over the current screen with three heights (a slim status bar, half height with the screen behind still usable, full height), opened from the Add tab, which becomes Chef. Messages carry the current route and its ids | Chef should be with you wherever you are, and "put this on my list" should need no names. Revised on 11 Oct 2026 from a Chef tab of its own. |
 | Chat runs on Sonnet for now, the weekly plan on Opus | Chat needs to answer quickly. The weekly plan runs once and quality matters more. |
+| Chef's Undo puts back the documents a tool changed, as they were, and refuses (409) when anything has changed them since | Undoing over a later edit would lose it without a word. Each tool call is one action, so the client undoes a whole reply by undoing its actions newest first. |
+| Messages carry only the path of the screen (`page: {"path": "/list/<id>"}`); the server reads the ids from it | The web and iOS then send the same thing, and a new screen needs no new field. |
+| Recipe jobs and Discover cards have no Chef tools | A job is the same recipe making as `create_recipe`, `import_recipe` and `create_recipe_from_photos`, started for a phone that may drop a long request. Discover cards are Chef's own ideas; in chat it suggests in its reply. `tests/test_chef_parity.py` lists each exemption with its reason. |
 | Notifications, iOS first: week ready, recipe ready, Cook timer done | The timer is a local notification. The others are APNs pushes from the server. Permission is asked the first time one is useful, not at launch. |
 
 ## Phases
@@ -25,7 +28,7 @@ Each phase is its own PR.
 2. Move recipe and list logic out of the routes into `server/services/`, so the routes and Chef's tools share it.
 3. Chef chat with its tools, web search, streaming and Undo.
 4. Memory: a meal log from Cook, told and inferred preferences, and What Chef knows in Settings.
-5. A rough nutrition profile on each recipe, so Chef can balance a week.
+5. Parked on 18 Oct 2026 at Alex's request: a rough nutrition profile on each recipe, so Chef can balance a week. Until it comes back, the weekly plan balances on variety and the household's taste alone.
 6. Week cards and Make the list.
 7. The `omlete-chef` Railway cron service runs the week on its own.
 8. iOS notifications. Alex creates the APNs key and turns on the Push capability in Xcode first.
