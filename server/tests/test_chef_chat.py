@@ -21,6 +21,8 @@ from data_models import (
     IngredientDocument,
     ListDocument,
     ListItem,
+    MealLogDocument,
+    PreferenceDocument,
     RecipeDocument,
     UserSettingsDocument,
 )
@@ -38,6 +40,8 @@ async def api():
             ListDocument,
             UserSettingsDocument,
             ChefActionDocument,
+            MealLogDocument,
+            PreferenceDocument,
         ],
     )
     async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://t") as c:
