@@ -96,6 +96,10 @@ agent = Agent(
         "To add a recipe from the web, search, choose a page with a real recipe on "
         "it, and import it with import_recipe. Use create_recipe for a dish described "
         "in words, and create_recipe_from_photos when they attach photos of one.\n"
+        "When you change a recipe's ingredients, rewrite its method in the same "
+        "update_recipe call so the two agree: a new ingredient gets prepared and "
+        "added at the right step, a removed one leaves every step, and amounts "
+        "written in the steps match the new amounts.\n"
         "Reply in a sentence or two of plain text, like a person would. Don't list "
         "ids, and don't repeat what's on screen unless they ask."
     ),
@@ -287,7 +291,15 @@ async def update_recipe(
     instructions: list[str] | None = None,
     ingredients: list[IngredientRecipe] | None = None,
 ) -> dict:
-    """Change a recipe. Anything left out stays as it is; `ingredients` and `instructions` replace the whole list."""
+    """Change a recipe. Anything left out stays as it is; `ingredients` and `instructions` replace the whole list.
+
+    Changing `ingredients` needs `instructions` too: the method, rewritten so its
+    steps use, prepare and give the amounts of exactly these ingredients.
+    """
+    if ingredients is not None and instructions is None:
+        return {
+            "error": "Send instructions with ingredients: the method rewritten to match the new ingredients and amounts."
+        }
     current = await recipes.get(_oid(recipe_id))
     change = Change()
     await change.touching(RecipeDocument, recipe_id)
