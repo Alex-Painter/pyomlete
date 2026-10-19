@@ -32,6 +32,7 @@ import { useUndo } from '@/components/UndoToast'
 import { ApiError } from '@/lib/api'
 import { askChef, changesIn, newChatId, undoChange } from '@/lib/chef'
 import type { ChefChange, ChefMessage, ChefPart } from '@/lib/chef'
+import { useAreaAboveKeyboard } from '@/lib/keyboard'
 import { cn } from '@/lib/utils'
 
 /** closed, or the sheet's height on a phone. A wide window shows it whole. */
@@ -286,6 +287,8 @@ const SHEET_HEIGHTS: Record<Exclude<ChefHeight, 'closed'>, string> = {
 /**
  * The phone sheet. It has no backdrop, so at half height the screen above
  * still scrolls and taps. Drag the grabber, or tap it, to change height.
+ * While you type in it, it fills the space above the keyboard, so the
+ * message box sits on the keyboard and the tab bar hides behind it.
  */
 function PhoneSheet({
   height,
@@ -297,6 +300,9 @@ function PhoneSheet({
   convo: ReturnType<typeof useConversation>
 }) {
   const drag = useRef<{ y: number } | null>(null)
+  const [typing, setTyping] = useState(false)
+  const keyboard = useAreaAboveKeyboard()
+  const aboveKeyboard = typing && keyboard
   const order: Exclude<ChefHeight, 'closed'>[] = ['bar', 'half', 'full']
 
   const end = (y: number) => {
@@ -323,9 +329,21 @@ function PhoneSheet({
       aria-label="Chef"
       className={cn(
         'fixed inset-x-0 z-[55] flex flex-col rounded-t-2xl border-t border-line bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.08)] transition-[height] duration-200',
-        'bottom-[calc(3.5rem+env(safe-area-inset-bottom))] sm:bottom-0',
-        SHEET_HEIGHTS[height],
+        !aboveKeyboard && [
+          'bottom-[calc(3.5rem+env(safe-area-inset-bottom))] sm:bottom-0',
+          SHEET_HEIGHTS[height],
+        ],
       )}
+      style={
+        aboveKeyboard
+          ? {
+              top: `calc(${keyboard.top}px + env(safe-area-inset-top) + 0.5rem)`,
+              height: `calc(${keyboard.height}px - env(safe-area-inset-top) - 0.5rem)`,
+            }
+          : undefined
+      }
+      onFocus={(e) => setTyping(e.target instanceof HTMLTextAreaElement)}
+      onBlur={() => setTyping(false)}
     >
       <button
         type="button"
