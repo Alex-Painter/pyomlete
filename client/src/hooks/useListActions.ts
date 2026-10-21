@@ -13,7 +13,7 @@ import {
 import type { NewOp, QueuedOp } from '@/lib/offline'
 import { guessCategory } from '@/lib/guessCategory'
 import type { ParsedItem } from '@/lib/parseItems'
-import type { DayStatus, ISODate, ListDetail, ListItem, PlanDay } from '@/lib/types'
+import type { DayStatus, ISODate, ListDetail, ListItem, ListSummary, PlanDay } from '@/lib/types'
 import { dayLong } from '@/lib/week'
 import { useUndo } from '@/components/UndoToast'
 
@@ -204,6 +204,25 @@ export function useListActions(listId: string) {
     [setDay, showUndo],
   )
 
+  /**
+   * Mark a meal cooked, or not. Works offline; last write wins. Nothing else
+   * on the list moves or hides because of it.
+   */
+  const setCooked = useCallback(
+    (recipeId: string, cooked: boolean) => {
+      apply({ kind: 'setCooked', listId, recipeId, cooked })
+      // Home's copy too, so Cook from your list shows it with no signal.
+      queryClient.setQueryData<ListSummary[]>(['lists'], (lists) =>
+        lists?.map((l) =>
+          l.id !== listId
+            ? l
+            : { ...l, recipes: l.recipes.map((r) => (r.id === recipeId ? { ...r, cooked } : r)) },
+        ),
+      )
+    },
+    [apply, listId, queryClient],
+  )
+
   /** Put a meal and its ingredients on a plain list. Needs signal. */
   const addRecipe = useCallback(
     async (recipeId: string, title: string) => {
@@ -261,6 +280,7 @@ export function useListActions(listId: string) {
     setDay,
     markOut,
     clearDay,
+    setCooked,
     reorder,
   }
 }
