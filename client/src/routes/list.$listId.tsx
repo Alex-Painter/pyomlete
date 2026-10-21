@@ -7,11 +7,13 @@ import {
   ChefHat,
   ChevronDown,
   ChevronUp,
+  CircleCheck,
   ExternalLink,
   Loader2,
   Plus,
   ShoppingCart,
   Trash2,
+  Undo2,
   WifiOff,
   X,
 } from 'lucide-react'
@@ -32,6 +34,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { ActionSheet } from '@/components/BottomSheet'
 import { BackLink } from '@/components/BackLink'
 import type { SheetAction } from '@/components/BottomSheet'
+import { CookedBadge, CookedToggle } from '@/components/Cooked'
 import { DayCard } from '@/components/DayCard'
 import { DayLibrary } from '@/components/DayLibrary'
 import type { RowMark } from '@/components/DayLibrary'
@@ -213,6 +216,17 @@ function PlanPage() {
               search: { list: listId },
             }),
         },
+        list.cooked.includes(mealActions.id)
+          ? {
+              label: 'Not cooked yet',
+              icon: <Undo2 className="size-5 text-ink-muted" />,
+              onSelect: () => actions.setCooked(mealActions.id, false),
+            }
+          : {
+              label: 'Mark cooked',
+              icon: <CircleCheck className="size-5 text-ink-muted" />,
+              onSelect: () => actions.setCooked(mealActions.id, true),
+            },
         {
           label: 'Open recipe',
           icon: <ExternalLink className="size-5 text-ink-muted" />,
@@ -298,6 +312,7 @@ function PlanPage() {
         <PlainPlan
           listId={listId}
           meals={meals}
+          cooked={list.cooked}
           recipes={recipes}
           recipesLoading={recipesLoading}
           today={today}
@@ -445,7 +460,7 @@ function WeekPlan({
             />
           </div>
 
-          <AnyDayRow meals={anyDay} onOpen={onMealActions} />
+          <AnyDayRow meals={anyDay} cooked={list.cooked} onOpen={onMealActions} />
 
           <div className="pt-4">
             <DayCard
@@ -453,6 +468,8 @@ function WeekPlan({
               recipe={recipe}
               listId={list.id}
               today={today}
+              cooked={day.recipe_id != null && list.cooked.includes(day.recipe_id)}
+              onCooked={(cooked) => day.recipe_id && actions.setCooked(day.recipe_id, cooked)}
               onSwap={swap}
               onRemove={() => actions.clearDay(day, recipe?.title ?? 'the meal')}
               onOut={(out) => actions.markOut(day, out)}
@@ -503,9 +520,11 @@ function WeekPlan({
 /** Meals on the week with no day yet. They're on the list all the same. */
 function AnyDayRow({
   meals,
+  cooked,
   onOpen,
 }: {
   meals: RecipeSummary[]
+  cooked: string[]
   onOpen: (r: RecipeSummary) => void
 }) {
   if (meals.length === 0) return null
@@ -517,7 +536,7 @@ function AnyDayRow({
       <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
         {meals.map((r) => (
           <li key={r.id} className="shrink-0 snap-start">
-            <MealChip recipe={r} onClick={() => onOpen(r)} />
+            <MealChip recipe={r} cooked={cooked.includes(r.id)} onClick={() => onOpen(r)} />
           </li>
         ))}
       </ul>
@@ -525,14 +544,23 @@ function AnyDayRow({
   )
 }
 
-function MealChip({ recipe, onClick }: { recipe: RecipeSummary; onClick: () => void }) {
+function MealChip({
+  recipe,
+  cooked,
+  onClick,
+}: {
+  recipe: RecipeSummary
+  cooked: boolean
+  onClick: () => void
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-14 max-w-[15rem] items-center gap-2 rounded-xl border border-line bg-white pr-3 text-left shadow-sm"
+      className="relative flex h-14 max-w-[15rem] items-center gap-2 rounded-xl border border-line bg-white pr-3 text-left shadow-sm"
     >
       <RecipeThumb src={recipe.image_url} title={recipe.title} className="h-full w-14 shrink-0 rounded-l-xl" />
+      <CookedBadge cooked={cooked} compact />
       <span className="line-clamp-2 text-sm font-medium leading-tight">{recipe.title}</span>
     </button>
   )
@@ -546,6 +574,7 @@ function MealChip({ recipe, onClick }: { recipe: RecipeSummary; onClick: () => v
 function PlainPlan({
   listId,
   meals,
+  cooked,
   recipes,
   recipesLoading,
   today,
@@ -555,6 +584,7 @@ function PlainPlan({
 }: {
   listId: string
   meals: RecipeSummary[]
+  cooked: string[]
   recipes: RecipeSummary[] | undefined
   recipesLoading: boolean
   today: ISODate
@@ -589,6 +619,8 @@ function PlainPlan({
       <div className="lg:col-start-1 lg:row-start-1">
         <MealsPanel
           meals={meals}
+          cooked={cooked}
+          onCooked={actions.setCooked}
           onAdd={showLibrary}
           onMealActions={onMealActions}
           onRemove={(r) => actions.removeRecipe(r.id, r.title)}
@@ -686,12 +718,16 @@ function BackButton() {
 
 function MealsPanel({
   meals,
+  cooked,
+  onCooked,
   onAdd,
   onMealActions,
   onRemove,
   listId,
 }: {
   meals: RecipeSummary[]
+  cooked: string[]
+  onCooked: (recipeId: string, cooked: boolean) => void
   onAdd: () => void
   onMealActions: (r: RecipeSummary) => void
   onRemove: (r: RecipeSummary) => void
@@ -728,14 +764,7 @@ function MealsPanel({
           <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
             {meals.map((r) => (
               <li key={r.id} className="shrink-0 snap-start">
-                <button
-                  type="button"
-                  onClick={() => onMealActions(r)}
-                  className="flex h-14 max-w-[15rem] items-center gap-2 rounded-xl border border-line bg-white pr-3 text-left shadow-sm"
-                >
-                  <RecipeThumb src={r.image_url} title={r.title} className="h-full w-14 shrink-0 rounded-l-xl" />
-                  <span className="line-clamp-2 text-sm font-medium leading-tight">{r.title}</span>
-                </button>
+                <MealChip recipe={r} cooked={cooked.includes(r.id)} onClick={() => onMealActions(r)} />
               </li>
             ))}
           </ul>
@@ -756,7 +785,15 @@ function MealsPanel({
                   >
                     {r.title}
                   </Link>
-                  <p className="text-sm text-ink-muted">{r.ingredient_count} ingredients</p>
+                  <div className="flex items-center gap-2">
+                    <p className="whitespace-nowrap text-sm text-ink-muted">{r.ingredient_count} ingredients</p>
+                    <CookedToggle
+                      cooked={cooked.includes(r.id)}
+                      title={r.title}
+                      onChange={(c) => onCooked(r.id, c)}
+                      className="-my-1 min-h-[32px] px-2"
+                    />
+                  </div>
                 </div>
                 <Link
                   to="/cook/$recipeId"

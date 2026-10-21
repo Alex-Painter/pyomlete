@@ -14,6 +14,7 @@ const server: ListDetail = {
   name: 'Groceries',
   created_at: null,
   recipes: ['r1'],
+  cooked: [],
   items: [
     {
       id: 'a',

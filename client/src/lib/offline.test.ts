@@ -17,6 +17,7 @@ const list: ListDetail = {
   name: 'Week',
   created_at: null,
   recipes: ['r1', 'r2'],
+  cooked: [],
   items: [
     {
       id: 'a',
@@ -195,6 +196,71 @@ describe('setDay in the queue', () => {
     const reloaded = await fetchListWithPending('L')
     expect(reloaded.week_start).toBeNull()
     expect(reloaded.days).toEqual([])
+  })
+})
+
+describe('setCooked', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    fetchMock.mockReset()
+    vi.unstubAllGlobals()
+  })
+
+  const offline = () => fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+  it('marks a meal cooked and back, and moves nothing else', () => {
+    const cooked = applyOps(weekList, [
+      { opId: '1', listId: 'L', kind: 'setCooked', recipeId: 'r1', cooked: true },
+    ])
+    expect(cooked.cooked).toEqual(['r1'])
+    expect(cooked.recipes).toEqual(weekList.recipes)
+    expect(cooked.days).toEqual(weekList.days)
+    expect(cooked.items).toEqual(weekList.items)
+
+    const back = applyOps(cooked, [
+      { opId: '2', listId: 'L', kind: 'setCooked', recipeId: 'r1', cooked: false },
+    ])
+    expect(back.cooked).toEqual([])
+  })
+
+  it('only a meal on the list can be cooked, and removing one forgets it', () => {
+    const next = applyOps(list, [
+      { opId: '1', listId: 'L', kind: 'setCooked', recipeId: 'nope', cooked: true },
+      { opId: '2', listId: 'L', kind: 'setCooked', recipeId: 'r2', cooked: true },
+      { opId: '3', listId: 'L', kind: 'removeRecipe', recipeId: 'r2' },
+    ])
+    expect(next.cooked).toEqual([])
+  })
+
+  it('is sent with no signal once back online, folded to the last tap', async () => {
+    offline()
+    saveListSnapshot(list)
+    enqueue({ kind: 'setCooked', listId: 'L', recipeId: 'r1', cooked: true })
+    enqueue({ kind: 'setCooked', listId: 'L', recipeId: 'r1', cooked: false })
+    enqueue({ kind: 'setCooked', listId: 'L', recipeId: 'r1', cooked: true })
+    expect(pendingOpsFor('L')).toHaveLength(1)
+    expect((await fetchListWithPending('L')).cooked).toEqual(['r1'])
+
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    expect(await flushQueue()).toBe(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/lists/L/recipes/r1/cooked')
+    expect(init?.method).toBe('PUT')
+    expect(JSON.parse(String(init?.body))).toEqual({ cooked: true })
+  })
+
+  it('reads a list saved before the cooked flag as nothing cooked', async () => {
+    offline()
+    const { cooked: _c, ...old } = list
+    window.localStorage.setItem('omlete:list:v1:L', JSON.stringify(old))
+    expect((await fetchListWithPending('L')).cooked).toEqual([])
   })
 })
 

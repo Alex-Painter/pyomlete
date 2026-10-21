@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { ArrowLeftRight, ChefHat, Clock, Moon, Star, X } from 'lucide-react'
+import { CookedToggle } from '@/components/Cooked'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { formatMinutes } from '@/components/RecipeMetaRow'
 import { dayKind, dayLong, longDate } from '@/lib/week'
@@ -10,13 +11,16 @@ const actionClass =
 
 /**
  * The selected evening: its meal with Cook, Swap and Remove, an empty slot,
- * or Out. Nothing here changes on its own when the meal is cooked.
+ * or Out. Cooked is a tick the person sets (Finish in Cook sets it too), and
+ * nothing else here changes when the meal is cooked.
  */
 export function DayCard({
   day,
   recipe,
   listId,
   today,
+  cooked,
+  onCooked,
   onSwap,
   onRemove,
   onOut,
@@ -25,6 +29,8 @@ export function DayCard({
   recipe: RecipeSummary | undefined
   listId: string
   today: string
+  cooked: boolean
+  onCooked: (cooked: boolean) => void
   onSwap: () => void
   onRemove: () => void
   onOut: (out: boolean) => void
@@ -70,6 +76,7 @@ export function DayCard({
                 )}
               </p>
             </div>
+            <CookedToggle cooked={cooked} title={recipe?.title ?? 'Meal'} onChange={onCooked} />
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             <Link
