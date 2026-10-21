@@ -5,6 +5,7 @@ import type {
   CategoryConfig,
   ListSummary,
   PlanSettings,
+  Preference,
   RecipeDetail,
   RecipeSummary,
   Suggestion,
@@ -91,5 +92,13 @@ export function useSuggestions() {
     // every one has landed.
     refetchInterval: (query) =>
       query.state.data?.some((s) => s.status === 'saving') ? 3000 : false,
+  })
+}
+
+/** What Chef knows: told preferences first, then what it noticed. */
+export function usePreferences() {
+  return useQuery({
+    queryKey: ['preferences'],
+    queryFn: () => apiJson<Preference[]>('/api/preferences'),
   })
 }

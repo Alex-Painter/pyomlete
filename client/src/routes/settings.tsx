@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Check, GripVertical, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChefHat, GripVertical, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
   DndContext,
   KeyboardSensor,
@@ -23,10 +23,12 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import { ActionSheet } from '@/components/BottomSheet'
+import { useChef } from '@/components/Chef'
 import { ErrorState } from '@/components/ErrorState'
+import { useUndo } from '@/components/UndoToast'
 import { apiJson } from '@/lib/api'
-import { useCategories } from '@/lib/queries'
-import type { CategoryConfig } from '@/lib/types'
+import { useCategories, usePreferences } from '@/lib/queries'
+import type { CategoryConfig, Preference, Stance } from '@/lib/types'
 
 export const Route = createFileRoute('/settings')({ component: SettingsPage })
 
@@ -149,6 +151,8 @@ function SettingsPage() {
             </Button>
           </form>
         </section>
+
+        <WhatChefKnows />
       </div>
 
       <ActionSheet
@@ -258,5 +262,111 @@ function CategoryRow({
         </>
       )}
     </li>
+  )
+}
+
+const STANCE_LABEL: Record<Stance, string> = {
+  never: 'Never',
+  avoid: 'Avoid',
+  less: 'Less',
+  more: 'More',
+  prefer: 'Likes',
+}
+
+/**
+ * What Chef goes by when it suggests and plans: what you told it, then what it
+ * noticed, each with what it's based on. Forget applies at once, with Undo.
+ */
+function WhatChefKnows() {
+  const queryClient = useQueryClient()
+  const showUndo = useUndo()
+  const { setHeight } = useChef()
+  const { data: prefs = [], isLoading, error, refetch } = usePreferences()
+
+  const setForgotten = useMutation({
+    mutationFn: ({ id, forgotten }: { id: string; forgotten: boolean }) =>
+      apiJson(`/api/preferences/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forgotten }),
+      }),
+    onMutate: ({ id, forgotten }) => {
+      if (forgotten) queryClient.setQueryData<Preference[]>(['preferences'], (old) => old?.filter((p) => p.id !== id))
+    },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['preferences'] }),
+  })
+
+  const forget = (p: Preference) => {
+    setForgotten.mutate({ id: p.id, forgotten: true })
+    showUndo({
+      message: `Forgot ${p.subject}`,
+      onUndo: () => setForgotten.mutate({ id: p.id, forgotten: false }),
+    })
+  }
+
+  const told = prefs.filter((p) => p.source === 'told')
+  const noticed = prefs.filter((p) => p.source === 'inferred')
+
+  return (
+    <section className="mt-10 max-w-xl">
+      <h2 className="mb-1 text-lg font-semibold">What Chef knows</h2>
+      <p className="mb-4 text-sm text-ink-muted">
+        Chef goes by this when it suggests meals. Tell it more in chat, like "no mushrooms" or
+        "more fish".
+      </p>
+
+      {isLoading && <Loader2 className="mx-auto size-6 animate-spin text-ink-muted" />}
+      {error && <ErrorState error={error} onRetry={() => void refetch()} />}
+
+      {!isLoading && !error && prefs.length === 0 && (
+        <div className="rounded-2xl border border-line bg-white p-4 text-sm text-ink-muted shadow-sm">
+          Nothing yet. Chef learns from what you cook and rate, and from what you tell it.
+        </div>
+      )}
+
+      {told.length > 0 && <PreferenceGroup title="You told Chef" prefs={told} onForget={forget} />}
+      {noticed.length > 0 && <PreferenceGroup title="Chef noticed" prefs={noticed} onForget={forget} />}
+
+      <Button variant="outline" className="mt-1 min-h-[44px]" onClick={() => setHeight('half')}>
+        <ChefHat className="size-4" />
+        Tell Chef
+      </Button>
+    </section>
+  )
+}
+
+function PreferenceGroup({
+  title,
+  prefs,
+  onForget,
+}: {
+  title: string
+  prefs: Preference[]
+  onForget: (p: Preference) => void
+}) {
+  return (
+    <>
+      <h3 className="mb-2 text-sm font-medium text-ink-muted">{title}</h3>
+      <ul className="mb-4 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+        {prefs.map((p) => (
+          <li key={p.id} className="flex min-h-[52px] items-center gap-2 py-2 pr-2 pl-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-base">
+                <span className="font-medium">{STANCE_LABEL[p.stance]}</span> {p.subject}
+              </p>
+              <p className="text-sm text-ink-muted">{p.evidence}</p>
+            </div>
+            <button
+              type="button"
+              aria-label={`Forget ${p.subject}`}
+              onClick={() => onForget(p)}
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg text-ink-muted hover:bg-sand hover:text-ink"
+            >
+              <X className="size-4" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }

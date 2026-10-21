@@ -287,3 +287,17 @@ class SuggestionsClearRequest(BaseModel):
 class SuggestionSaveRequest(BaseModel):
     # Also put the recipe on this list once it exists.
     list_id: Optional[str] = None
+
+
+class MealLogRequest(BaseModel):
+    recipe_id: str
+    rating: Optional[int] = Field(default=None, ge=1, le=5)
+
+
+class PreferenceRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=80)
+    stance: Literal["never", "avoid", "prefer", "more", "less"]
+
+
+class PreferenceUpdate(BaseModel):
+    forgotten: bool
