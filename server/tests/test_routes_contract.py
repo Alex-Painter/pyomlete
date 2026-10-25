@@ -78,7 +78,7 @@ async def test_list_lifecycle(api):
     renamed = r.json()
     assert renamed.pop("created_at")
     assert renamed == {
-        "id": lid, "name": "Week 1", "recipes": [], "items": [], "week_start": None, "days": [],
+        "id": lid, "name": "Week 1", "recipes": [], "cooked": [], "items": [], "week_start": None, "days": [],
     }
 
     dal = await make_recipe()
@@ -137,8 +137,8 @@ async def test_list_lifecycle(api):
 
     summaries = (await api.get("/api/lists/")).json()
     assert {s["id"]: (s["item_count"], s["recipes"]) for s in summaries} == {
-        lid: (2, [{"id": str(soup.id), "title": "Soup"}]),
-        copy["id"]: (2, [{"id": str(soup.id), "title": "Soup"}]),
+        lid: (2, [{"id": str(soup.id), "title": "Soup", "cooked": False}]),
+        copy["id"]: (2, [{"id": str(soup.id), "title": "Soup", "cooked": False}]),
     }
     assert all((s["week_start"], s["days"]) == (None, []) for s in summaries)
 

@@ -57,7 +57,10 @@ async def summaries() -> list[dict]:
         if lst.recipes:
             oids = [PydanticObjectId(rid) for rid in lst.recipes]
             found = await RecipeDocument.find(In(RecipeDocument.id, oids)).to_list()
-            recipes_summary = [{"id": str(r.id), "title": r.title} for r in found]
+            recipes_summary = [
+                {"id": str(r.id), "title": r.title, "cooked": str(r.id) in lst.cooked}
+                for r in found
+            ]
         results.append({
             "id": str(lst.id),
             "name": lst.name,
@@ -181,6 +184,8 @@ async def remove_recipe(list_id: PydanticObjectId, recipe_id: str) -> ListDocume
         raise NotFound("Recipe not on this list")
 
     lst.recipes.remove(recipe_id)
+    if recipe_id in lst.cooked:
+        lst.cooked.remove(recipe_id)
     # A day's recipe is always on the list (see set_day), so its day goes too.
     for d in lst.days:
         if d.recipe_id == recipe_id:
@@ -196,6 +201,19 @@ async def remove_recipe(list_id: PydanticObjectId, recipe_id: str) -> ListDocume
         # Items with no remaining sources are dropped
     lst.items = remaining_items
 
+    await lst.save()
+    return lst
+
+
+async def set_cooked(list_id: PydanticObjectId, recipe_id: str, cooked: bool) -> ListDocument:
+    """Mark a meal on a list cooked, or not. Setting what is already set is fine."""
+    lst = await get(list_id)
+    if recipe_id not in lst.recipes:
+        raise NotFound("Recipe not on this list")
+    if cooked and recipe_id not in lst.cooked:
+        lst.cooked.append(recipe_id)
+    elif not cooked and recipe_id in lst.cooked:
+        lst.cooked.remove(recipe_id)
     await lst.save()
     return lst
 

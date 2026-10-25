@@ -60,6 +60,10 @@ class ListDocument(Document):
     name: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     recipes: list[str] = []
+    # The meals on this list that have been cooked, a subset of `recipes`.
+    # Only a person (or Chef asked by one) sets it; nothing moves or hides
+    # because a meal was cooked.
+    cooked: list[str] = []
     items: list[ListItem] = []
     # A week list has seven consecutive days from week_start. A list with no
     # week_start is a plain list. Every day's recipe_id is also in `recipes`;

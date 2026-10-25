@@ -200,6 +200,7 @@ def _list_out(lst: ListDocument) -> dict:
         "name": lst.name,
         "created_at": lst.created_at.isoformat() if lst.created_at else None,
         "recipes": lst.recipes,
+        "cooked": lst.cooked,
         "items": [item.model_dump() for item in lst.items],
         **lists.week_out(lst),
     }
@@ -398,6 +399,15 @@ async def add_recipe_to_list(list_id: PydanticObjectId, body: AddRecipeRequest):
 @router.delete("/lists/{list_id}/recipes/{recipe_id}")
 async def remove_recipe_from_list(list_id: PydanticObjectId, recipe_id: str):
     return _list_out(await lists.remove_recipe(list_id, recipe_id))
+
+
+class CookedRequest(BaseModel):
+    cooked: bool
+
+
+@router.put("/lists/{list_id}/recipes/{recipe_id}/cooked")
+async def set_recipe_cooked(list_id: PydanticObjectId, recipe_id: str, body: CookedRequest):
+    return _list_out(await lists.set_cooked(list_id, recipe_id, body.cooked))
 
 
 # --- Week days ---

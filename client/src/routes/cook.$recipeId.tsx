@@ -3,11 +3,13 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Check, Loader2, Minus, Plus, Star, Timer, X } from 'lucide-react'
 import { BackLink } from '@/components/BackLink'
+import { CookedToggle } from '@/components/Cooked'
 import { ErrorState } from '@/components/ErrorState'
+import { useListActions } from '@/hooks/useListActions'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { apiJson } from '@/lib/api'
 import { formatQuantity } from '@/lib/parseItems'
-import { useRecipe } from '@/lib/queries'
+import { useList, useRecipe } from '@/lib/queries'
 import { scaleAmount, scaleText } from '@/lib/scale'
 import { detectTimers, formatClock } from '@/lib/timers'
 import type { RecipeIngredient } from '@/lib/types'
@@ -65,7 +67,8 @@ function beep() {
  * Cook: one step at a time, big type, only the ingredients that step uses,
  * timers you start with a tap, and a servings control that scales every
  * amount. Opened from any recipe or any meal on a list, whatever has or
- * hasn't been checked off. Finishing asks "How was it?", which feeds Discover.
+ * hasn't been checked off. Finishing asks "How was it?", which feeds Discover,
+ * and opened from a list it marks the meal cooked there, with the tick to undo.
  */
 function CookPage() {
   const { recipeId } = Route.useParams()
@@ -274,6 +277,9 @@ function CookPage() {
 
         {step != null && step >= steps.length && (
           <Finished
+            recipeId={recipeId}
+            title={recipe.title}
+            listId={search.list}
             rating={recipe.rating}
             onRate={(r) => rate.mutate(r)}
             rated={rate.isSuccess}
@@ -404,11 +410,17 @@ function Overview({
 }
 
 function Finished({
+  recipeId,
+  title,
+  listId,
   rating,
   onRate,
   rated,
   exit,
 }: {
+  recipeId: string
+  title: string
+  listId: string | undefined
   rating: number | null
   onRate: (r: number) => void
   rated: boolean
@@ -445,12 +457,43 @@ function Finished({
       <p className="min-h-[1.5rem] text-ink-muted" role="status">
         {rated ? 'Thanks. Discover will suggest more like this, or less.' : 'One tap. It shapes what Discover suggests.'}
       </p>
+      {listId && <CookedOnList listId={listId} recipeId={recipeId} title={title} />}
       <BackLink
         {...exit}
         className="flex min-h-[48px] items-center rounded-xl border border-line bg-white px-5 font-medium hover:bg-sand"
       >
         Done
       </BackLink>
+    </div>
+  )
+}
+
+/**
+ * Finishing a meal opened from a list marks it cooked there, once, and shows
+ * the tick so a Finish tapped to look ahead is one tap to take back. Works
+ * offline like every list change.
+ */
+function CookedOnList({ listId, recipeId, title }: { listId: string; recipeId: string; title: string }) {
+  const { data: list } = useList(listId)
+  const { setCooked } = useListActions(listId)
+  const marked = useRef(false)
+  const onList = list?.recipes.includes(recipeId) ?? false
+
+  useEffect(() => {
+    if (marked.current || !list || !onList) return
+    marked.current = true
+    if (!list.cooked.includes(recipeId)) setCooked(recipeId, true)
+  }, [list, onList, recipeId, setCooked])
+
+  if (!list || !onList) return null
+  return (
+    <div className="flex items-center gap-2 rounded-2xl border border-line bg-white py-1 pl-4 pr-1">
+      <span className="text-sm text-ink-muted">On {list.name}</span>
+      <CookedToggle
+        cooked={list.cooked.includes(recipeId)}
+        title={title}
+        onChange={(cooked) => setCooked(recipeId, cooked)}
+      />
     </div>
   )
 }

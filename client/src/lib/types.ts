@@ -36,6 +36,8 @@ export type ListDetail = {
   name: string
   created_at: string | null
   recipes: string[]
+  /** The meals on the list that have been cooked, a subset of `recipes`. */
+  cooked: string[]
   items: ListItem[]
   /** Set on a week list, null on a plain list. */
   week_start: ISODate | null
@@ -49,7 +51,7 @@ export type ListSummary = {
   created_at: string | null
   item_count: number
   checked_count: number
-  recipes: { id: string; title: string }[]
+  recipes: { id: string; title: string; cooked: boolean }[]
   week_start: ISODate | null
   days: PlanDay[]
 }

@@ -7,6 +7,7 @@ import { ActionSheet } from '@/components/BottomSheet'
 import { ErrorState } from '@/components/ErrorState'
 import { PageHeader } from '@/components/PageHeader'
 import { useUndo } from '@/components/UndoToast'
+import { CookedBadge } from '@/components/Cooked'
 import { WeekCard } from '@/components/WeekCard'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { RenameListSheet } from '@/components/RenameListSheet'
@@ -210,7 +211,8 @@ function HomePage() {
 
 /**
  * The meals on the current list, one tap from Cook. Opening the app to cook
- * shouldn't mean opening the list first (less to think about at 6pm).
+ * shouldn't mean opening the list first (less to think about at 6pm). A
+ * cooked meal keeps its place and gets a mark, so what's left is easy to see.
  */
 function CookFromList({ hidden }: { hidden: Set<string> }) {
   const current = useCurrentList()
@@ -232,10 +234,11 @@ function CookFromList({ hidden }: { hidden: Set<string> }) {
                 to="/cook/$recipeId"
                 params={{ recipeId: r.id }}
                 search={{ list: current.id }}
-                aria-label={`Cook ${r.title}`}
-                className="block overflow-hidden rounded-2xl border border-line bg-white shadow-sm transition-all hover:border-primary hover:shadow-md"
+                aria-label={`Cook ${r.title}${r.cooked ? ', cooked' : ''}`}
+                className="relative block overflow-hidden rounded-2xl border border-line bg-white shadow-sm transition-all hover:border-primary hover:shadow-md"
               >
                 <RecipeThumb src={d?.image_url} title={r.title} className="aspect-[4/3] w-full" />
+                <CookedBadge cooked={r.cooked} className="left-2 top-2" />
                 <div className="p-3">
                   <p className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5">{r.title}</p>
                   <p className="mt-2 flex items-center gap-3 text-sm text-ink-muted">

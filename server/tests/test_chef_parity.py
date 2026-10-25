@@ -29,6 +29,7 @@ ROUTE_TOOLS = {
     ("PUT", "/api/lists/{list_id}/days/{day}"): "plan_day",
     ("POST", "/api/lists/{list_id}/recipes"): "add_recipe_to_list",
     ("DELETE", "/api/lists/{list_id}/recipes/{recipe_id}"): "remove_recipe_from_list",
+    ("PUT", "/api/lists/{list_id}/recipes/{recipe_id}/cooked"): "mark_cooked",
     ("POST", "/api/lists/{list_id}/items"): "add_item",
     ("PUT", "/api/lists/{list_id}/items/reorder"): "reorder_items",
     ("PATCH", "/api/lists/{list_id}/items/{item_id}"): "update_item",

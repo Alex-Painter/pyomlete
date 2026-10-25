@@ -169,6 +169,7 @@ def _list_view(lst: ListDocument) -> dict:
         "id": str(lst.id),
         "name": lst.name,
         "recipe_ids": lst.recipes,
+        "cooked_recipe_ids": lst.cooked,
         "week_start": lst.week_start.isoformat() if lst.week_start else None,
         "days": [
             {"date": d.date.isoformat(), "recipe_id": d.recipe_id, "eating_out": d.status == "out"}
@@ -427,6 +428,20 @@ async def remove_recipe_from_list(ctx: RunContext[ChatDeps], list_id: str, recip
     recipe = await RecipeDocument.get(_oid(recipe_id))
     title = recipe.title if recipe else "that meal"
     return await _done(ctx, change, f"Took {title} off {lst.name}")
+
+
+@agent.tool
+@_reported
+async def mark_cooked(
+    ctx: RunContext[ChatDeps], list_id: str, recipe_id: str, cooked: bool = True
+) -> dict:
+    """Mark a meal on a list as cooked, or with cooked=False as not cooked yet."""
+    change = Change()
+    await change.touching(ListDocument, list_id)
+    await lists.set_cooked(_oid(list_id), recipe_id, cooked)
+    recipe = await RecipeDocument.get(_oid(recipe_id))
+    title = recipe.title if recipe else "that meal"
+    return await _done(ctx, change, f"Marked {title} {'cooked' if cooked else 'not cooked'}")
 
 
 @agent.tool

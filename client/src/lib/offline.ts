@@ -11,7 +11,7 @@
  * the item locally but haven't reached the server, so Undo just drops the op.
  *
  * Setting a day of a week list rides the queue too. Last write wins per day,
- * the same rule as items.
+ * the same rule as items. So does marking a meal cooked, last write per meal.
  *
  * Ops for one list reach the server in the order they were made: a later op
  * waits behind an earlier one that isn't due yet.
@@ -25,6 +25,7 @@ export type QueuedOp = { opId: string; listId: string; notBefore?: number } & (
   | { kind: 'delete'; itemId: string }
   | { kind: 'removeRecipe'; recipeId: string }
   | { kind: 'setDay'; date: ISODate; recipeId: string | null; status: DayStatus }
+  | { kind: 'setCooked'; recipeId: string; cooked: boolean }
 )
 
 // Distributive, so each variant keeps its own fields.
@@ -152,6 +153,21 @@ export function enqueue(op: NewOp): string {
     }
   }
 
+  // Ticking a meal cooked and back sends one request. As with days, only
+  // fold into the list's latest op, so nothing queued in between reorders.
+  if (queued.kind === 'setCooked') {
+    const target = queue.filter((o) => o.listId === queued.listId).at(-1)
+    if (
+      target?.kind === 'setCooked' &&
+      target.recipeId === queued.recipeId &&
+      target.opId !== inFlight
+    ) {
+      target.cooked = queued.cooked
+      writeQueue(queue)
+      return target.opId
+    }
+  }
+
   queue.push(queued)
   writeQueue(queue)
   if (queued.notBefore) {
@@ -231,6 +247,11 @@ async function send(op: QueuedOp, keepalive: boolean): Promise<Response> {
       return apiFetch(`${base}/days/${op.date}`, {
         method: 'PUT',
         ...json({ recipe_id: op.recipeId, status: op.status }, keepalive),
+      })
+    case 'setCooked':
+      return apiFetch(`${base}/recipes/${op.recipeId}/cooked`, {
+        method: 'PUT',
+        ...json({ cooked: op.cooked }, keepalive),
       })
   }
 }
@@ -325,6 +346,7 @@ export function applyOps(list: ListDetail, ops: QueuedOp[]): ListDetail {
   let items = list.items
   let recipes = list.recipes
   let days = list.days
+  let cooked = list.cooked
   for (const op of ops) {
     switch (op.kind) {
       case 'add':
@@ -340,6 +362,7 @@ export function applyOps(list: ListDetail, ops: QueuedOp[]): ListDetail {
         // Mirrors the server: drop this recipe's share of each item, and any
         // item nothing else asked for.
         recipes = recipes.filter((r) => r !== op.recipeId)
+        cooked = cooked.filter((r) => r !== op.recipeId)
         days = days.map((d) => (d.recipe_id === op.recipeId ? { ...d, recipe_id: null } : d))
         items = items.flatMap((i) => {
           if (!i.sources.some((s) => s.recipe_id === op.recipeId)) return [i]
@@ -360,17 +383,27 @@ export function applyOps(list: ListDetail, ops: QueuedOp[]): ListDetail {
         )
         if (op.recipeId && !recipes.includes(op.recipeId)) recipes = [...recipes, op.recipeId]
         break
+      case 'setCooked':
+        // Mirrors the server: only a meal still on the list can be cooked.
+        cooked = cooked.filter((r) => r !== op.recipeId)
+        if (op.cooked && recipes.includes(op.recipeId)) cooked = [...cooked, op.recipeId]
+        break
     }
   }
-  return { ...list, items, recipes, days }
+  return { ...list, items, recipes, days, cooked }
 }
 
-type WeekFields = 'week_start' | 'days'
-/** A list from a server, or a phone, from before week plans. */
+type WeekFields = 'week_start' | 'days' | 'cooked'
+/** A list from a server, or a phone, from before week plans or the cooked flag. */
 type StoredList = Omit<ListDetail, WeekFields> & Partial<Pick<ListDetail, WeekFields>>
 
 function normalizeList(list: StoredList): ListDetail {
-  return { ...list, week_start: list.week_start ?? null, days: list.days ?? [] }
+  return {
+    ...list,
+    week_start: list.week_start ?? null,
+    days: list.days ?? [],
+    cooked: list.cooked ?? [],
+  }
 }
 
 /**
