@@ -26,13 +26,15 @@ LIST_ID = "64b7f0c2a1b2c3d4e5f60799"
 
 
 def _matches(doc: dict, query: dict) -> bool:
-    """Equality, `$in` and `$nin`: all the endpoints ask Mongo to decide."""
+    """Equality, `$in`, `$nin` and `$ne`: all the endpoints ask Mongo to decide."""
     for key, wanted in query.items():
         have = doc.get(key)
         if not isinstance(wanted, dict):
             found = have == wanted
         elif "$in" in wanted:
             found = have in wanted["$in"]
+        elif "$ne" in wanted:
+            found = have != wanted["$ne"]
         else:
             found = have not in wanted["$nin"]
         if not found:
@@ -292,7 +294,7 @@ class TestASaveOntoAList:
             await save(api, card, LIST_ID)
             await saves_have_ended()
 
-        main._add_recipe_to_list_id.assert_awaited_once_with(LIST_ID, made.return_value)
+        main._add_recipe_to_list_id.assert_awaited_once_with(LIST_ID, made.return_value, None)
         assert statuses_at_the_add == ["saving"]
         assert statuses_written(card) == ["saving", "saved"]
 
@@ -341,7 +343,7 @@ class TestSavingACardThatAlreadyHasItsRecipe:
         after = await in_the_feed(api, card)
 
         assert (after["status"], after["recipe_id"], after["error"]) == ("saved", RECIPE_ID, None)
-        main._add_recipe_to_list_id.assert_awaited_once_with(LIST_ID, recipe)
+        main._add_recipe_to_list_id.assert_awaited_once_with(LIST_ID, recipe, None)
         claude.beta.messages.tool_runner.assert_not_called()
         save_recipe.assert_not_called()
 
