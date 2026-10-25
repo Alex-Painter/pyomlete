@@ -20,9 +20,11 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
+  BookOpen,
   ChefHat,
   Globe,
   ImagePlus,
+  ListChecks,
   Loader2,
   RotateCcw,
   SquarePen,
@@ -30,9 +32,10 @@ import {
 } from 'lucide-react'
 import { useUndo } from '@/components/UndoToast'
 import { ApiError } from '@/lib/api'
-import { askChef, changesIn, newChatId, undoChange } from '@/lib/chef'
+import { askChef, changesIn, focusOf, newChatId, undoChange } from '@/lib/chef'
 import type { ChefChange, ChefMessage, ChefPart } from '@/lib/chef'
 import { useAreaAboveKeyboard } from '@/lib/keyboard'
+import { useList, useRecipe } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 /** closed, or the sheet's height on a phone. A wide window shows it whole. */
@@ -521,6 +524,7 @@ function Conversation({
           </div>
         )}
         {photoError && <p className="mb-1 text-xs text-danger">{photoError}</p>}
+        <Focus />
         <div className="flex items-end gap-2">
           <button
             type="button"
@@ -566,6 +570,31 @@ function Conversation({
         </div>
       </form>
     </>
+  )
+}
+
+/** The recipe, list or page Chef is looking at, above the message box. */
+function Focus() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const focus = focusOf(pathname)
+  const id = focus.kind === 'page' ? '' : focus.id
+  // Both read the cache the page itself filled, so this rarely fetches.
+  const recipe = useRecipe(id, { enabled: focus.kind === 'recipe' })
+  const list = useList(id, { enabled: focus.kind === 'list' })
+
+  const [Icon, label, name] =
+    focus.kind === 'recipe'
+      ? [BookOpen, 'Recipe', recipe.data?.title]
+      : focus.kind === 'list'
+        ? [ListChecks, 'List', list.data?.name]
+        : [Globe, 'Page', focus.name]
+
+  return (
+    <p className="mb-1.5 flex min-w-0 items-center gap-1.5 px-1 text-xs text-ink-muted">
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      <span className="sr-only">Chef is looking at: </span>
+      <span className="truncate">{name ?? label}</span>
+    </p>
   )
 }
 

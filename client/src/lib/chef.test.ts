@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { applyEvent, changesIn, readEvents, toRequestMessages } from './chef'
+import {
+  applyEvent,
+  changesIn,
+  focusOf,
+  readEvents,
+  toRequestMessages,
+} from './chef'
 import type { ChefMessage } from './chef'
 
 const empty = (): ChefMessage => ({ id: 'r1', role: 'assistant', parts: [] })
@@ -120,5 +126,28 @@ describe('readEvents', () => {
     const seen = []
     for await (const ev of readEvents(body)) seen.push(ev.type)
     expect(seen).toEqual(['start', 'finish'])
+  })
+})
+
+describe('focusOf', () => {
+  const id = '6527f1c2a1b2c3d4e5f60718'
+
+  it('reads the recipe from the recipe and cook pages', () => {
+    expect(focusOf(`/recipe/${id}`)).toEqual({ kind: 'recipe', id })
+    expect(focusOf(`/cook/${id}`)).toEqual({ kind: 'recipe', id })
+  })
+
+  it('reads the list from the list and shop pages', () => {
+    expect(focusOf(`/list/${id}`)).toEqual({ kind: 'list', id })
+    expect(focusOf(`/shop/${id}`)).toEqual({ kind: 'list', id })
+  })
+
+  it('names the page when nothing in particular is open', () => {
+    expect(focusOf('/')).toEqual({ kind: 'page', name: 'Home' })
+    expect(focusOf('/recipes/')).toEqual({ kind: 'page', name: 'Recipes' })
+    expect(focusOf('/recipe/not-an-id')).toEqual({
+      kind: 'page',
+      name: 'Omlete',
+    })
   })
 })
