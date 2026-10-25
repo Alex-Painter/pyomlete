@@ -11,6 +11,7 @@ import functools
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from uuid import uuid4
 
 from beanie import PydanticObjectId
 from bson.errors import InvalidId
@@ -20,14 +21,22 @@ from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.messages import BinaryContent, ModelRequest, UserPromptPart
 
 from chef.actions import Change
-from data_models import CategoryConfig, ListDocument, RecipeDocument, UserSettingsDocument
+from data_models import (
+    CategoryConfig,
+    ListDocument,
+    MealLogDocument,
+    PreferenceDocument,
+    RecipeDocument,
+    Stance,
+    UserSettingsDocument,
+)
 from lib.types import (
     CategoriesUpdateRequest,
     CategoryConfigRequest,
     IngredientRecipe,
     ItemUpdateRequest,
 )
-from services import lists, recipes, settings
+from services import lists, memory, recipes, settings
 from services.errors import AlreadyImported
 from services.recipes import RecipeImage
 
@@ -93,6 +102,9 @@ agent = Agent(
         "When they ask for something, do it straight away with your tools. Don't ask "
         "them to confirm: every change you make shows them an Undo. Ask a question "
         "only when you can't tell what they mean.\n"
+        "When they tell you something lasting about their taste (\"no mushrooms\", "
+        "\"more fish\"), keep it with remember. Go by what you know about them, and "
+        "never suggest or add a recipe that names something they said never to.\n"
         "To add a recipe from the web, search, choose a page with a real recipe on "
         "it, and import it with import_recipe. Use create_recipe for a dish described "
         "in words, and create_recipe_from_photos when they attach photos of one.\n"
@@ -121,6 +133,8 @@ async def _where_they_are(ctx: RunContext[ChatDeps]) -> str:
             lines.append(f'"This recipe" is "{recipe.title}" (id {recipe.id}).')
     if ctx.deps.photos:
         lines.append(f"They attached {len(ctx.deps.photos)} photo(s) to this message.")
+    if known := memory.prompt_text(await memory.active()):
+        lines.append(known)
     return " ".join(lines)
 
 
@@ -534,3 +548,62 @@ async def set_aisles(ctx: RunContext[ChatDeps], aisles: list[str]) -> dict:
         [CategoryConfig(name=c.name, order=c.order) for c in body.categories]
     )
     return await _done(ctx, change, "Changed your aisles")
+
+
+# --- Memory ---
+
+
+_STANCE_SAID = {
+    "never": "Never {}",
+    "avoid": "Avoid {}",
+    "less": "Less {}",
+    "more": "More {}",
+    "prefer": "You like {}",
+}
+
+
+@agent.tool
+@_reported
+async def remember(ctx: RunContext[ChatDeps], subject: str, stance: Stance) -> dict:
+    """Keep a lasting preference they told you, like "no mushrooms" (never) or "more fish" (more).
+
+    `never` is a hard rule: nothing naming the subject is ever suggested.
+    `avoid` and `less` steer away, `prefer` and `more` steer towards. Saying
+    it again about the same subject replaces what was there.
+    """
+    existing = await PreferenceDocument.find_one(
+        PreferenceDocument.source == "told", PreferenceDocument.key == memory.key_for(subject)
+    )
+    change = Change()
+    if existing:
+        await change.touching(PreferenceDocument, existing.id)
+    pref = await memory.remember(subject, stance)
+    if not existing:
+        change.creating(PreferenceDocument, pref.id)
+    return await _done(ctx, change, _STANCE_SAID[stance].format(pref.subject))
+
+
+@agent.tool
+@_reported
+async def forget(ctx: RunContext[ChatDeps], subject: str) -> dict:
+    """Forget what you know about a subject, whether they told you or you noticed it."""
+    pref = await memory.find(subject)
+    if not pref:
+        return {"error": f"Nothing remembered about {subject}"}
+    change = Change()
+    await change.touching(PreferenceDocument, pref.id)
+    await memory.set_forgotten(pref.id, True)
+    return await _done(ctx, change, f"Forgot {pref.subject}")
+
+
+@agent.tool
+@_reported
+async def log_meal(ctx: RunContext[ChatDeps], recipe_id: str, stars: int | None = None) -> dict:
+    """Record that they cooked one of their recipes, as finishing Cook does, with an optional 1 to 5 star rating of how it went."""
+    if stars is not None and not 1 <= stars <= 5:
+        return {"error": "Stars go from 1 to 5"}
+    meal = await memory.log_meal(str(uuid4()), recipe_id, stars)
+    change = Change()
+    change.creating(MealLogDocument, meal.id)
+    recipe = await recipes.get(_oid(recipe_id))
+    return await _done(ctx, change, f"Noted you cooked {recipe.title}")

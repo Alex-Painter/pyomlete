@@ -187,3 +187,50 @@ class ChefActionDocument(Document):
         indexes = [
             IndexModel([("created_at", ASCENDING)], expireAfterSeconds=7 * 24 * 60 * 60),
         ]
+
+
+class MealLogDocument(Document):
+    """A dinner that was cooked: one row each time Cook is finished.
+
+    The key is chosen by the client, so finishing Cook and then rating it
+    write the same row however often either is sent.
+    """
+
+    id: str
+    recipe_id: str
+    cooked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # The "How was it?" answer, kept per cook.
+    rating: Optional[int] = None
+
+    class Settings:
+        name = "meal_log"
+        indexes = [IndexModel([("cooked_at", ASCENDING)])]
+
+
+Stance = Literal["never", "avoid", "prefer", "more", "less"]
+
+
+class PreferenceDocument(Document):
+    """Something Chef knows about the household's taste.
+
+    Told preferences are what they said and change only when they say so.
+    Inferred ones are rewritten as a whole from what they cook, rate and
+    dismiss (chef/memory.py). A told one wins over an inferred one on the same
+    subject. Forgetting sets `retired_at`, so a forgotten inference stays
+    forgotten when the set is rewritten.
+    """
+
+    subject: str
+    stance: Stance
+    # Shown to them: "You said so on 18 Oct", "Rated 4 curries 5 stars".
+    evidence: str
+    source: Literal["told", "inferred"]
+    # The subject, normalised: one row per subject and source.
+    key: str
+    strength: float = 1.0
+    retired_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "preferences"
+        indexes = [IndexModel([("source", ASCENDING), ("key", ASCENDING)], unique=True)]

@@ -127,3 +127,16 @@ export type Suggestion = {
   error: string | null
   created_at: string | null
 }
+
+export type Stance = 'never' | 'avoid' | 'prefer' | 'more' | 'less'
+
+/** Something Chef knows about the household's taste, told or inferred. */
+export type Preference = {
+  id: string
+  subject: string
+  stance: Stance
+  /** What it's based on, shown under it: "You said so on 18 Oct". */
+  evidence: string
+  source: 'told' | 'inferred'
+  forgotten: boolean
+}
