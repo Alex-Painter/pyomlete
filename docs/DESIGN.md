@@ -94,6 +94,7 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | Plan a week plans this week, or next week on the day before the shop, and opens that week's list if it already exists | People plan the evening before they shop, and a second tap should never make a second copy of the same week. |
 | Plan shows the meal library inline, searchable and sorted by Not had lately, instead of the Add meals sheet | Scanning a modal list in no useful order was the slowest part of planning. Not had lately gives variety without remembering what you ate. Discover picks are no longer shown on Plan; they stay on Discover and Home. |
 | On a phone, while you type in Chef's sheet it fills the space above the keyboard, whatever height it was at, and goes back on blur | Mobile Safari opens the keyboard without shrinking the layout viewport, so the sheet stayed on top of the tab bar with a blank band between it and the keyboard. Typing is when you want to see the conversation, and the tab bar is no use then. |
+| Above Chef's message box a line shows what Chef is looking at: the recipe or list on screen by name (Recipe and List until the name loads), or else the page with a globe | Chef already reads the page it was asked from, so "this list" needs no name. Showing it makes that visible, so you know what "this" means before you send. |
 
 ## Home plus four modes
 

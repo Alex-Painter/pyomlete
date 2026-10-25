@@ -21,6 +21,8 @@ from data_models import (
     IngredientDocument,
     ListDocument,
     ListItem,
+    MealLogDocument,
+    PreferenceDocument,
     RecipeDocument,
     UserSettingsDocument,
 )
@@ -38,6 +40,8 @@ async def api():
             ListDocument,
             UserSettingsDocument,
             ChefActionDocument,
+            MealLogDocument,
+            PreferenceDocument,
         ],
     )
     async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://t") as c:
@@ -290,3 +294,24 @@ async def test_plans_a_day_and_undo_clears_it(api):
     await api.post(f"/api/chef/actions/{seen['returns'][0]['undo']}/undo")
     week = await ListDocument.get(week_id)
     assert all(d.recipe_id is None for d in week.days) and week.recipes == []
+
+
+async def test_changing_ingredients_needs_the_method_too(api):
+    recipe = await a_recipe()
+    peppers = [
+        {"name": "lentils", "unit": "g", "amount": 200, "category": "Pantry & Dry Goods"},
+        {"name": "red pepper", "unit": "whole", "amount": 1, "category": "Fruit & Veg"},
+    ]
+    model, seen = calling(
+        ("update_recipe", {"recipe_id": str(recipe.id), "ingredients": peppers}),
+        ("update_recipe", {
+            "recipe_id": str(recipe.id),
+            "ingredients": peppers,
+            "instructions": ["Dice the 1 red pepper.", "Cook it with the 200g lentils."],
+        }),
+    )
+    await say(api, model, "add a red pepper")
+    assert "error" in seen["returns"][0]
+    after = await RecipeDocument.get(recipe.id)
+    assert [i.name for i in after.ingredients] == ["lentils", "red pepper"]
+    assert after.instructions == ["Dice the 1 red pepper.", "Cook it with the 200g lentils."]

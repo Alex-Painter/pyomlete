@@ -5,6 +5,7 @@ import type {
   CategoryConfig,
   ListSummary,
   PlanSettings,
+  Preference,
   RecipeDetail,
   RecipeSummary,
   Suggestion,
@@ -22,11 +23,12 @@ export function useLists() {
  * `networkMode: 'always'` so a phone with no signal still runs the query and
  * falls back to its saved copy instead of sitting in a paused state.
  */
-export function useList(listId: string) {
+export function useList(listId: string, { enabled = true } = {}) {
   return useQuery({
     queryKey: ['list', listId],
     queryFn: () => fetchListWithPending(listId),
     networkMode: 'always',
+    enabled,
   })
 }
 
@@ -69,10 +71,11 @@ export function usePlanSettings() {
   })
 }
 
-export function useRecipe(recipeId: string) {
+export function useRecipe(recipeId: string, { enabled = true } = {}) {
   return useQuery({
     queryKey: ['recipe', recipeId],
     queryFn: () => apiJson<RecipeDetail>(`/api/recipes/${recipeId}`),
+    enabled,
   })
 }
 
@@ -91,5 +94,13 @@ export function useSuggestions() {
     // every one has landed.
     refetchInterval: (query) =>
       query.state.data?.some((s) => s.status === 'saving') ? 3000 : false,
+  })
+}
+
+/** What Chef knows: told preferences first, then what it noticed. */
+export function usePreferences() {
+  return useQuery({
+    queryKey: ['preferences'],
+    queryFn: () => apiJson<Preference[]>('/api/preferences'),
   })
 }

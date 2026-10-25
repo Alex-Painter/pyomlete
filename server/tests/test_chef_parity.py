@@ -34,6 +34,9 @@ ROUTE_TOOLS = {
     ("PUT", "/api/lists/{list_id}/items/reorder"): "reorder_items",
     ("PATCH", "/api/lists/{list_id}/items/{item_id}"): "update_item",
     ("DELETE", "/api/lists/{list_id}/items/{item_id}"): "delete_item",
+    ("PUT", "/api/meals/{key}"): "log_meal",
+    ("POST", "/api/preferences"): "remember",
+    ("PATCH", "/api/preferences/{pref_id}"): "forget",
 }
 
 # Routes that change data with no tool of their own, and why.

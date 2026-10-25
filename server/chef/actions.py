@@ -14,6 +14,8 @@ from data_models import (
     ChefActionDocument,
     ChefActionStep,
     ListDocument,
+    MealLogDocument,
+    PreferenceDocument,
     RecipeDocument,
     UserSettingsDocument,
 )
@@ -21,7 +23,8 @@ from services.errors import Conflict, NotFound
 
 # Every document type a Chef tool can change, by collection name.
 MODELS: dict[str, type[Document]] = {
-    m.Settings.name: m for m in (RecipeDocument, ListDocument, UserSettingsDocument)
+    m.Settings.name: m
+    for m in (RecipeDocument, ListDocument, UserSettingsDocument, PreferenceDocument, MealLogDocument)
 }
 
 
@@ -29,8 +32,13 @@ def _dump(doc: Document) -> dict:
     return doc.model_dump(mode="json", exclude={"revision_id"})
 
 
+def _id(model: type[Document], doc_id: str | PydanticObjectId) -> str | PydanticObjectId:
+    # A meal is keyed by the client's string; the rest by ObjectId.
+    return str(doc_id) if model.model_fields["id"].annotation is str else PydanticObjectId(doc_id)
+
+
 async def state(model: type[Document], doc_id: str | PydanticObjectId) -> dict | None:
-    doc = await model.get(PydanticObjectId(doc_id))
+    doc = await model.get(_id(model, doc_id))
     return None if doc is None else _dump(doc)
 
 
@@ -77,7 +85,7 @@ async def undo(action_id: PydanticObjectId) -> ChefActionDocument:
     for step in reversed(action.steps):
         model = MODELS[step.collection]
         if step.before is None:
-            doc = await model.get(PydanticObjectId(step.doc_id))
+            doc = await model.get(_id(model, step.doc_id))
             if doc:
                 await doc.delete()
         else:

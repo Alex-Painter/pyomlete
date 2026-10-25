@@ -4,13 +4,28 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from beanie import init_beanie
 from mongomock_motor import AsyncMongoMockClient
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 import main
 from chef import discover
-from data_models import ListDocument, ListItem, RecipeDocument, SuggestionDocument
+from chef import memory as chef_memory
+from data_models import (
+    ListDocument,
+    ListItem,
+    MealLogDocument,
+    PreferenceDocument,
+    RecipeDocument,
+    SuggestionDocument,
+)
 from lib.types import SuggestionRefreshRequest
+from services import memory
 
 IDEAS = [
     {
@@ -48,9 +63,28 @@ async def db():
     client = AsyncMongoMockClient()
     await init_beanie(
         database=client["omlete_test"],
-        document_models=[RecipeDocument, ListDocument, SuggestionDocument],
+        document_models=[
+            RecipeDocument,
+            ListDocument,
+            SuggestionDocument,
+            MealLogDocument,
+            PreferenceDocument,
+        ],
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+def nothing_inferred():
+    """Distil runs before each refresh; here it finds nothing (tests/test_chef_memory.py covers it)."""
+
+    async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[ToolCallPart(info.output_tools[0].name, {"preferences": []})]
+        )
+
+    with chef_memory.agent.override(model=FunctionModel(respond)):
+        yield
 
 
 async def seed():
@@ -102,3 +136,13 @@ async def test_refresh_with_no_signals_or_constraints(db):
 
     assert "Taste signals: No taste signals yet.\nConstraints: None.\n" in seen[0]
     assert "Do NOT suggest" not in seen[0]
+
+
+async def test_a_card_naming_something_they_said_never_to_is_dropped(db):
+    await memory.remember("idea 2", "never")
+    seen: list[str] = []
+    with fake_claude(seen):
+        cards = await main.refresh_suggestions(SuggestionRefreshRequest())
+
+    assert "They told you: Never idea 2." in seen[0]
+    assert [c["title"] for c in cards] == [i["title"] for i in IDEAS if i["title"] != "Idea 2"]

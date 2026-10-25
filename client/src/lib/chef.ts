@@ -33,6 +33,35 @@ export type ChefChange = { done: string; undo: string }
 
 type StreamEvent = { type: string; [key: string]: unknown }
 
+/**
+ * What Chef is looking at: the recipe or list on screen, or else the page.
+ * Matches the ids `server/chef/chat.py` reads from the same path.
+ */
+export type ChefFocus =
+  | { kind: 'recipe'; id: string }
+  | { kind: 'list'; id: string }
+  | { kind: 'page'; name: string }
+
+const PAGE_NAMES: Record<string, string> = {
+  '/': 'Home',
+  '/discover': 'Discover',
+  '/recipes': 'Recipes',
+  '/create': 'New recipe',
+  '/settings': 'Settings',
+}
+
+export function focusOf(path: string): ChefFocus {
+  const item = /^\/(list|shop|recipe|cook)\/([0-9a-f]{24})/.exec(path)
+  if (item) {
+    const kind = item[1] === 'list' || item[1] === 'shop' ? 'list' : 'recipe'
+    return { kind, id: item[2] }
+  }
+  return {
+    kind: 'page',
+    name: PAGE_NAMES[path.replace(/(.)\/$/, '$1')] ?? 'Omlete',
+  }
+}
+
 export function newChatId(): string {
   return crypto.randomUUID()
 }

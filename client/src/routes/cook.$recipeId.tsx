@@ -98,13 +98,35 @@ function CookPage() {
     }
   }, [now, timers])
 
+  // Finishing records the dinner for Chef's memory, and rating it after
+  // updates the same meal, so the key is made once per visit.
+  const mealKey = useRef(crypto.randomUUID())
+  const logged = useRef(false)
+  const logMeal = (rating?: number) =>
+    apiJson(`/api/meals/${mealKey.current}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipe_id: recipeId, rating }),
+    }).catch(() => {
+      // Memory is a nice-to-have: a meal that fails to log costs nothing here.
+    })
+  const finished = recipe != null && search.step != null && search.step >= recipe.instructions.length
+  useEffect(() => {
+    if (finished && !logged.current) {
+      logged.current = true
+      void logMeal()
+    }
+  }, [finished])
+
   const rate = useMutation({
-    mutationFn: (rating: number) =>
-      apiJson(`/api/recipes/${recipeId}/rating`, {
+    mutationFn: async (rating: number) => {
+      void logMeal(rating)
+      return apiJson(`/api/recipes/${recipeId}/rating`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rating }),
-      }),
+      })
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
       void queryClient.invalidateQueries({ queryKey: ['recipes'] })

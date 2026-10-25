@@ -19,6 +19,8 @@ from data_models import (
     ChefActionDocument,
     IngredientDocument,
     ListDocument,
+    MealLogDocument,
+    PreferenceDocument,
     RecipeDocument,
     RecipeJobDocument,
     SuggestionDocument,
@@ -37,7 +39,10 @@ from lib.types import (
     ItemUpdateRequest,
     ListCreateRequest,
     ListUpdateRequest,
+    MealLogRequest,
     PlanSettingsRequest,
+    PreferenceRequest,
+    PreferenceUpdate,
     RatingUpdate,
     RecipeJobEnd,
     RecipeJobKind,
@@ -49,7 +54,7 @@ from lib.types import (
     SuggestionsClearRequest,
     SuggestionsCreateRequest,
 )
-from services import lists, recipes, settings
+from services import lists, memory, recipes, settings
 from services.errors import AlreadyImported
 from services.recipes import RecipeImage
 
@@ -69,6 +74,8 @@ async def lifespan(app: FastAPI):
             SuggestionDocument,
             RecipeJobDocument,
             ChefActionDocument,
+            MealLogDocument,
+            PreferenceDocument,
         ],
     )
     yield
@@ -259,6 +266,51 @@ async def get_plan_settings():
 @router.put("/settings/plan")
 async def update_plan_settings(body: PlanSettingsRequest):
     return {"week_start_weekday": await settings.set_week_start_weekday(body.week_start_weekday)}
+
+
+# --- Memory ---
+# What Chef remembers (docs/PRD_CHEF.md, phase 4): a row for each dinner
+# cooked, and the preferences shown in Settings under What Chef knows.
+
+
+@router.put("/meals/{key}")
+async def log_meal(key: UUID, body: MealLogRequest):
+    """Finishing Cook records the dinner, and rating it after updates the same row."""
+    meal = await memory.log_meal(str(key), body.recipe_id, body.rating)
+    return {
+        "id": meal.id,
+        "recipe_id": meal.recipe_id,
+        "cooked_at": meal.cooked_at.isoformat(),
+        "rating": meal.rating,
+    }
+
+
+def _preference_out(p: PreferenceDocument) -> dict:
+    return {
+        "id": str(p.id),
+        "subject": p.subject,
+        "stance": p.stance,
+        "evidence": p.evidence,
+        "source": p.source,
+        "forgotten": p.retired_at is not None,
+    }
+
+
+@router.get("/preferences")
+async def list_preferences():
+    """What Chef goes by: what they told it, then what it noticed that nothing they said overrides."""
+    return [_preference_out(p) for p in await memory.active()]
+
+
+@router.post("/preferences")
+async def add_preference(body: PreferenceRequest):
+    return _preference_out(await memory.remember(body.subject, body.stance))
+
+
+@router.patch("/preferences/{pref_id}")
+async def update_preference(pref_id: PydanticObjectId, body: PreferenceUpdate):
+    """Forget a preference, or bring it back (Undo)."""
+    return _preference_out(await memory.set_forgotten(pref_id, body.forgotten))
 
 
 # --- Categorization ---
