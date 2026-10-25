@@ -128,6 +128,9 @@ class SuggestionDocument(Document):
     # running. It also names that save: a save ends a card only while the card
     # still carries the start it was given.
     saving_since: Optional[datetime] = None
+    # A new idea from a week plan (origin "week") lands on this day of its
+    # list once saved. Those cards are not shown in the feed.
+    plan_day: Optional[date] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
@@ -234,3 +237,38 @@ class PreferenceDocument(Document):
     class Settings:
         name = "preferences"
         indexes = [IndexModel([("source", ASCENDING), ("key", ASCENDING)], unique=True)]
+
+
+class PlannedMeal(BaseModel):
+    """One dinner in a week plan: a recipe they have, or a new idea."""
+
+    day: date
+    title: str
+    # One line of why, shown on the card.
+    reason: str
+    # From their recipes...
+    recipe_id: Optional[str] = None
+    # ...or a new idea, made into a recipe when the list is made.
+    description: Optional[str] = None
+    source_url: Optional[str] = None
+    # The card saving the idea, once the list is made.
+    suggestion_id: Optional[str] = None
+
+
+class WeekPlanDocument(Document):
+    """A week of dinners Chef proposes. Nothing changes until they make the list.
+
+    One per week: planning again replaces it (docs/PRD_CHEF.md, phase 6).
+    """
+
+    week_of: date
+    note: str
+    meals: list[PlannedMeal]
+    # new -> made (list_id set), or skipped ("Not this week", which teaches Chef nothing).
+    status: Literal["new", "made", "skipped"] = "new"
+    list_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "week_plans"
+        indexes = [IndexModel([("week_of", ASCENDING)], unique=True)]

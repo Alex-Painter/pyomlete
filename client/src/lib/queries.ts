@@ -9,6 +9,7 @@ import type {
   RecipeDetail,
   RecipeSummary,
   Suggestion,
+  WeekPlan,
 } from '@/lib/types'
 
 export function useLists() {
@@ -102,5 +103,13 @@ export function usePreferences() {
   return useQuery({
     queryKey: ['preferences'],
     queryFn: () => apiJson<Preference[]>('/api/preferences'),
+  })
+}
+
+/** The week Chef proposes, while it waits for Make the list; null when there isn't one. */
+export function useWeekPlan() {
+  return useQuery({
+    queryKey: ['week'],
+    queryFn: () => apiJson<WeekPlan | null>('/api/weeks/current'),
   })
 }
