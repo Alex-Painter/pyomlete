@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { SuggestionCard, SuggestionCardSkeleton } from '@/components/SuggestionCard'
 import { Button } from '@/components/ui/button'
 import { useUndo } from '@/components/UndoToast'
+import { WeekCard } from '@/components/WeekCard'
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import { useSuggestionActions } from '@/hooks/useSuggestionActions'
 import { apiJson } from '@/lib/api'
@@ -123,6 +124,8 @@ function DiscoverPage() {
             </div>
           }
         />
+
+        <WeekCard offerToPlan />
 
         {error && <ErrorState error={error} onRetry={() => void refetch()} />}
 

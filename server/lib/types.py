@@ -301,3 +301,8 @@ class PreferenceRequest(BaseModel):
 
 class PreferenceUpdate(BaseModel):
     forgotten: bool
+
+
+class WeekPlanRequest(BaseModel):
+    # Plan again even though a plan is waiting.
+    fresh: bool = False

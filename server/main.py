@@ -6,6 +6,7 @@ from typing import Awaitable, Callable
 from uuid import UUID
 
 from beanie import PydanticObjectId, UpdateResponse, init_beanie
+from beanie.operators import In
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
@@ -13,7 +14,7 @@ from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pymongo.errors import DuplicateKeyError
 
 from chef import actions as chef_actions
-from chef import chat, discover
+from chef import chat, discover, week
 from data_models import (
     CategoryConfig,
     ChefActionDocument,
@@ -25,6 +26,7 @@ from data_models import (
     RecipeJobDocument,
     SuggestionDocument,
     UserSettingsDocument,
+    WeekPlanDocument,
 )
 from lib.db import get_motor_client
 from lib.types import (
@@ -53,6 +55,7 @@ from lib.types import (
     SuggestionStatusUpdate,
     SuggestionsClearRequest,
     SuggestionsCreateRequest,
+    WeekPlanRequest,
 )
 from services import lists, memory, recipes, settings
 from services.errors import AlreadyImported
@@ -76,6 +79,7 @@ async def lifespan(app: FastAPI):
             ChefActionDocument,
             MealLogDocument,
             PreferenceDocument,
+            WeekPlanDocument,
         ],
     )
     yield
@@ -265,6 +269,65 @@ async def get_plan_settings():
 @router.put("/settings/plan")
 async def update_plan_settings(body: PlanSettingsRequest):
     return {"week_start_weekday": await settings.set_week_start_weekday(body.week_start_weekday)}
+
+
+# --- Week plans ---
+# Chef proposes a week of dinners on a card; one tap makes the list, with Undo
+# (docs/PRD_CHEF.md, phase 6). Nothing changes until that tap.
+
+
+async def _week_out(w: WeekPlanDocument) -> dict:
+    ids = [PydanticObjectId(m.recipe_id) for m in w.meals if m.recipe_id]
+    found = {str(r.id): r for r in await RecipeDocument.find(In(RecipeDocument.id, ids)).to_list()}
+    return {
+        "id": str(w.id),
+        "week_of": w.week_of.isoformat(),
+        "note": w.note,
+        "status": w.status,
+        "list_id": w.list_id,
+        "meals": [
+            {
+                "day": m.day.isoformat(),
+                "title": m.title,
+                "reason": m.reason,
+                "recipe_id": m.recipe_id,
+                "is_new": m.recipe_id is None,
+                "image_url": found[m.recipe_id].image_url if m.recipe_id in found else None,
+                "source_url": m.source_url,
+            }
+            for m in w.meals
+        ],
+    }
+
+
+@router.get("/weeks/current")
+async def current_week_plan():
+    """The week Chef proposes for the week being planned, while it waits for a tap; null otherwise."""
+    w = await WeekPlanDocument.find_one(
+        WeekPlanDocument.week_of == await week.current_week(), WeekPlanDocument.status == "new"
+    )
+    return await _week_out(w) if w else None
+
+
+@router.post("/weeks/plan")
+async def plan_week(body: WeekPlanRequest):
+    """Ask Chef for this week's dinners. Waits for the plan; one already waiting is returned unless `fresh`."""
+    w, _ = await week.plan(fresh=body.fresh)
+    return await _week_out(w)
+
+
+@router.post("/weeks/{plan_id}/make")
+async def make_week_list(plan_id: PydanticObjectId):
+    """Make the week's list from the plan. `undo` is the id `POST /chef/actions/{id}/undo` takes."""
+    lst, undo = await week.make_list(plan_id)
+    return {"list_id": str(lst.id), "name": lst.name, "undo": undo}
+
+
+@router.post("/weeks/{plan_id}/skip")
+async def skip_week(plan_id: PydanticObjectId):
+    """Not this week: hide the card, without it counting as a taste signal."""
+    await week.skip(plan_id)
+    return {"ok": True}
 
 
 # --- Memory ---
@@ -551,12 +614,17 @@ async def _get_suggestion(suggestion_id: PydanticObjectId) -> SuggestionDocument
 # "dismissed" is "Not for me", a taste signal Chef learns from. "cleared" is
 # just tidying the feed: hidden, but it says nothing about what you like.
 HIDDEN_SUGGESTION_STATUSES = ("dismissed", "cleared")
+# A week plan's new ideas are cards too, so they save the same way, but they
+# belong to the week card and stay out of the feed and out of Clear.
+WEEK_ORIGIN = "week"
 
 
 @router.get("/suggestions/")
 async def list_suggestions():
     suggestions = (
-        await SuggestionDocument.find({"status": {"$nin": list(HIDDEN_SUGGESTION_STATUSES)}})
+        await SuggestionDocument.find(
+            {"status": {"$nin": list(HIDDEN_SUGGESTION_STATUSES)}, "origin": {"$ne": WEEK_ORIGIN}}
+        )
         .sort("-created_at")
         .limit(60)
         .to_list()
@@ -586,7 +654,9 @@ async def clear_suggestions(body: SuggestionsClearRequest):
     A card whose save may be running is left: the card is that save's to end.
     With `only_new`, so is every card that has been acted on, a lost save included.
     """
-    named = {} if body.ids is None else {"_id": {"$in": [PydanticObjectId(i) for i in body.ids]}}
+    named = {"origin": {"$ne": WEEK_ORIGIN}}
+    if body.ids is not None:
+        named["_id"] = {"$in": [PydanticObjectId(i) for i in body.ids]}
     clearable = ["new"] if body.only_new else ["new", "saved", "failed"]
     result = await SuggestionDocument.find(
         {"status": {"$in": clearable}, **named}
@@ -611,10 +681,10 @@ async def update_suggestion(suggestion_id: PydanticObjectId, body: SuggestionSta
     return _suggestion_out(s)
 
 
-async def _add_recipe_to_list_id(list_id: str, recipe: RecipeDocument) -> None:
-    lst = await ListDocument.get(PydanticObjectId(list_id))
-    if lst and str(recipe.id) not in lst.recipes:
-        await lists.put_recipe(lst, recipe)
+async def _add_recipe_to_list_id(
+    list_id: str, recipe: RecipeDocument, day: date | None = None
+) -> None:
+    await lists.place_recipe(PydanticObjectId(list_id), recipe, day)
 
 
 async def _recipe_for(s: SuggestionDocument) -> RecipeDocument:
@@ -657,7 +727,13 @@ async def _end_save(
             logger.info("Suggestion %s was no longer this save's to end, so nothing was written", s.id)
             return
         try:
-            await asyncio.wait_for(_add_recipe_to_list_id(list_id, recipe), END_WRITE_TIMEOUT)
+            if s.origin == WEEK_ORIGIN and not await week.still_wanted(s):
+                # Its week's list was undone: the recipe is kept but goes on no list.
+                logger.info("Suggestion %s: its week is no longer made, so the list is left alone", s.id)
+            else:
+                await asyncio.wait_for(
+                    _add_recipe_to_list_id(list_id, recipe, s.plan_day), END_WRITE_TIMEOUT
+                )
         except Exception:
             logger.exception("Suggestion %s: recipe %s could not be put on list %s", s.id, recipe.id, list_id)
             # Keeps the recipe, so saving the card again only has the list left to do.
@@ -710,16 +786,26 @@ async def save_suggestion(suggestion_id: PydanticObjectId, body: SuggestionSaveR
     if _save_may_be_running(s):
         return _suggestion_out(s)
 
-    claimed = await _write_if_unchanged(
-        s, {"status": "saving", "saving_since": datetime.now(timezone.utc), "error": None}
-    )
+    claimed = await _start_suggestion_save(s, body.list_id)
     if claimed is None:
         # Another request got to the card between the read and the claim.
         return _suggestion_out(await _get_suggestion(suggestion_id))
-    task = asyncio.create_task(_realise_suggestion(claimed, body.list_id))
-    _suggestion_save_tasks.add(task)
-    task.add_done_callback(_suggestion_save_tasks.discard)
     return _suggestion_out(claimed)
+
+
+async def _start_suggestion_save(s: SuggestionDocument, list_id: str | None) -> SuggestionDocument | None:
+    """Claim the card for a new save and start it, or None if another request got there first."""
+    claimed = await _write_if_unchanged(
+        s, {"status": "saving", "saving_since": datetime.now(timezone.utc), "error": None}
+    )
+    if claimed is not None:
+        task = asyncio.create_task(_realise_suggestion(claimed, list_id))
+        _suggestion_save_tasks.add(task)
+        task.add_done_callback(_suggestion_save_tasks.discard)
+    return claimed
+
+
+week.start_save = _start_suggestion_save
 
 
 # --- Recipe jobs ---

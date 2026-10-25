@@ -16,6 +16,8 @@ type UndoOptions = {
   /** Leave out for a plain confirmation with no Undo. */
   onUndo?: () => void
   onCommit?: () => void
+  /** A second button beside Undo, such as Open. */
+  action?: { label: string; onSelect: () => void }
   /** Defaults to 5s. */
   duration?: number
 }
@@ -87,6 +89,19 @@ export function UndoProvider({
             className="pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-xl bg-ink px-4 py-3 text-sm text-white shadow-lg animate-in fade-in slide-in-from-bottom-2"
           >
             <span className="min-w-0 flex-1 line-clamp-2">{entry.message}</span>
+            {entry.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  const current = entryRef.current
+                  settle(true)
+                  current?.action?.onSelect()
+                }}
+                className="-my-2 min-h-[44px] rounded-md px-3 font-semibold text-white"
+              >
+                {entry.action.label}
+              </button>
+            )}
             {entry.onUndo && (
               <button
                 type="button"

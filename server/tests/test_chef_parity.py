@@ -36,6 +36,9 @@ ROUTE_TOOLS = {
     ("PUT", "/api/meals/{key}"): "log_meal",
     ("POST", "/api/preferences"): "remember",
     ("PATCH", "/api/preferences/{pref_id}"): "forget",
+    ("POST", "/api/weeks/plan"): "plan_week",
+    ("POST", "/api/weeks/{plan_id}/make"): "make_week_list",
+    ("POST", "/api/weeks/{plan_id}/skip"): "skip_week",
 }
 
 # Routes that change data with no tool of their own, and why.

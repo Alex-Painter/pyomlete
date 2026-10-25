@@ -7,6 +7,7 @@ import { ActionSheet } from '@/components/BottomSheet'
 import { ErrorState } from '@/components/ErrorState'
 import { PageHeader } from '@/components/PageHeader'
 import { useUndo } from '@/components/UndoToast'
+import { WeekCard } from '@/components/WeekCard'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { RenameListSheet } from '@/components/RenameListSheet'
 import { createList, useCurrentList } from '@/hooks/useAddToList'
@@ -22,7 +23,7 @@ export const Route = createFileRoute('/')({ component: HomePage })
  * Home: where you land, built as a stack of sections so v2 can add more
  * without a redesign. Today: meals to cook from the current list, your lists
  * (Plan a week is the most common action, so it stays above the fold), then
- * Chef's picks (the proactive suggestions agent). Recent activity
+ * Chef's week and Chef's picks (the proactive suggestions agent). Recent activity
  * and stats slot in as further sections below.
  */
 function HomePage() {
@@ -170,6 +171,7 @@ function HomePage() {
           </ul>
         )}
 
+        <WeekCard className="mt-8 mb-0" />
         <ChefPicks />
       </div>
 

@@ -205,6 +205,7 @@ async def set_day(
     day: date,
     recipe_id: str | None,
     status: Literal["open", "out"] = "open",
+    origin: Literal["user", "chef"] = "user",
 ) -> ListDocument:
     """Set or clear one day of a week list.
 
@@ -228,12 +229,27 @@ async def set_day(
     plan_day.recipe_id = recipe_id
     # A meal wins over Out: Out only applies to an empty day.
     plan_day.status = "open" if recipe_id is not None else status
-    plan_day.origin = "user"
+    plan_day.origin = origin
     if recipe:
         await put_recipe(lst, recipe)
     else:
         await lst.save()
     return lst
+
+
+async def place_recipe(list_id: PydanticObjectId, recipe: RecipeDocument, day: date | None) -> None:
+    """Put a recipe on a list: on `day` if that evening is still free, else as an any-day meal.
+
+    For meals Chef plans, so a day the person filled in is never overwritten.
+    """
+    lst = await ListDocument.get(list_id)
+    if not lst:
+        return
+    free = next((d for d in lst.days if d.date == day and d.recipe_id is None), None)
+    if free is not None:
+        await set_day(lst.id, free.date, str(recipe.id), origin="chef")
+    elif str(recipe.id) not in lst.recipes:
+        await put_recipe(lst, recipe)
 
 
 async def last_planned_on() -> dict[str, str]:

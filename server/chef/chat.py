@@ -20,6 +20,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.messages import BinaryContent, ModelRequest, UserPromptPart
 
+from chef import week
 from chef.actions import Change
 from data_models import (
     CategoryConfig,
@@ -29,6 +30,7 @@ from data_models import (
     RecipeDocument,
     Stance,
     UserSettingsDocument,
+    WeekPlanDocument,
 )
 from lib.types import (
     CategoriesUpdateRequest,
@@ -607,3 +609,56 @@ async def log_meal(ctx: RunContext[ChatDeps], recipe_id: str, stars: int | None 
     change.creating(MealLogDocument, meal.id)
     recipe = await recipes.get(_oid(recipe_id))
     return await _done(ctx, change, f"Noted you cooked {recipe.title}")
+
+
+# --- The week ---
+
+
+def _week_view(w: WeekPlanDocument) -> dict:
+    return {
+        "plan_id": str(w.id),
+        "week_of": w.week_of.isoformat(),
+        "note": w.note,
+        "status": w.status,
+        "meals": [
+            {
+                "day": f"{m.day:%A %-d %b}",
+                "title": m.title,
+                "reason": m.reason,
+                "recipe_id": m.recipe_id,
+                "new_idea": m.recipe_id is None,
+                "source_url": m.source_url,
+            }
+            for m in w.meals
+        ],
+    }
+
+
+@agent.tool
+@_reported
+async def plan_week(ctx: RunContext[ChatDeps], fresh: bool = False) -> dict:
+    """Propose this week's dinners as a card on Home and Discover: three of their recipes and two new ideas.
+
+    Nothing goes on a list until they make it (make_week_list). A plan already
+    waiting is returned as it is unless `fresh`, which plans again.
+    """
+    w, undo = await week.plan(fresh=fresh, chat_id=ctx.deps.chat_id)
+    view = _week_view(w)
+    return {"done": f"Planned the week of {w.week_of:%-d %b}", "undo": undo, **view} if undo else view
+
+
+@agent.tool
+@_reported
+async def make_week_list(ctx: RunContext[ChatDeps], plan_id: str) -> dict:
+    """Make the week's shopping list from a plan, as tapping Make the list does. New ideas become recipes in the background."""
+    lst, undo = await week.make_list(_oid(plan_id), chat_id=ctx.deps.chat_id)
+    return {"done": f"Made {lst.name}", "undo": undo, "list_id": str(lst.id)}
+
+
+@agent.tool
+@_reported
+async def skip_week(ctx: RunContext[ChatDeps], plan_id: str) -> dict:
+    """Not this week: hide the plan's card without making a list."""
+    w = await week.get(_oid(plan_id))
+    undo = await week.skip(w.id, chat_id=ctx.deps.chat_id)
+    return {"done": f"Skipped the week of {w.week_of:%-d %b}", "undo": undo}

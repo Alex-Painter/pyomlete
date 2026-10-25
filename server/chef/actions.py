@@ -18,13 +18,21 @@ from data_models import (
     PreferenceDocument,
     RecipeDocument,
     UserSettingsDocument,
+    WeekPlanDocument,
 )
 from services.errors import Conflict, NotFound
 
 # Every document type a Chef tool can change, by collection name.
 MODELS: dict[str, type[Document]] = {
     m.Settings.name: m
-    for m in (RecipeDocument, ListDocument, UserSettingsDocument, PreferenceDocument, MealLogDocument)
+    for m in (
+        RecipeDocument,
+        ListDocument,
+        UserSettingsDocument,
+        PreferenceDocument,
+        MealLogDocument,
+        WeekPlanDocument,
+    )
 }
 
 

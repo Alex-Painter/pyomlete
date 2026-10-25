@@ -140,3 +140,24 @@ export type Preference = {
   source: 'told' | 'inferred'
   forgotten: boolean
 }
+
+/** One dinner on Chef's week card: one of their recipes, or a new idea. */
+export type WeekMeal = {
+  day: ISODate
+  title: string
+  reason: string
+  recipe_id: string | null
+  is_new: boolean
+  image_url: string | null
+  source_url: string | null
+}
+
+/** A week of dinners Chef proposes. Nothing changes until Make the list. */
+export type WeekPlan = {
+  id: string
+  week_of: ISODate
+  note: string
+  status: 'new' | 'made' | 'skipped'
+  list_id: string | null
+  meals: WeekMeal[]
+}
