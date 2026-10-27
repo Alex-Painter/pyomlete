@@ -125,7 +125,7 @@ import Testing
     let ticker = Ticker()
     /// The intake's wait between looks at a job, apart from Chef's so neither wakes the other.
     let pulse = Ticker()
-    private let defaults = UserDefaults(suiteName: "phone-\(UUID().uuidString)")!
+    let defaults = UserDefaults(suiteName: "phone-\(UUID().uuidString)")!
     nonisolated static let apiAddress = "http://phone.test"
     /// The phone's clock, which a test puts forward.
     var now = Date(timeIntervalSinceReferenceDate: 800_000_000)

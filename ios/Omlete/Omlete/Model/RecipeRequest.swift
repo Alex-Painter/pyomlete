@@ -5,10 +5,12 @@ nonisolated struct RecipePhoto: Equatable, Sendable, Identifiable {
     let jpeg: Data
 }
 
-/// What one tap on Add a recipe asks for. Photos win over text; text that is
-/// one web address is a link; anything else is a description.
+/// What one tap on Add a recipe asks for. Photos win over text; text with a
+/// web address in it is a link, and whatever was typed with the address is the
+/// changes to make to that recipe; anything else is a description.
 nonisolated enum RecipeRequest: Equatable, Sendable {
-    case link(String)
+    /// `changes` is nil when the link was typed on its own.
+    case link(String, changes: String?)
     case describe(String)
     /// Read together as one recipe, such as two pages of a cookbook.
     case photos([RecipePhoto])
@@ -30,13 +32,29 @@ nonisolated enum RecipeRequest: Equatable, Sendable {
         let text = text.trimmed
         if !photos.isEmpty {
             self = .photos(photos)
-        } else if text.wholeMatch(of: /https?:\/\/\S+\.\S+/) != nil {
-            self = .link(text)
+        } else if let link = Self.splitLink(text) {
+            self = .link(link.url, changes: link.changes.isEmpty ? nil : link.changes)
         } else if text.count > 2 {
             self = .describe(text)
         } else {
             return nil
         }
+    }
+
+    /// Pulls a recipe link out of whatever was typed with it, so "<link> but
+    /// use quorn mince" imports the page and applies the change in one go. nil
+    /// when there is no link. `splitLink` in `client/src/lib/splitLink.ts`.
+    static func splitLink(_ text: String) -> (url: String, changes: String)? {
+        guard let match = text.firstMatch(of: /https?:\/\/[^\s<>"]+\.[^\s<>"]+/) else { return nil }
+        // Punctuation that ends a sentence isn't part of the link.
+        let url = String(match.output).replacing(/[.,;:!?)\]]+$/, with: "")
+        let urlEnd = text.index(match.range.lowerBound, offsetBy: url.count)
+        let changes = String(text[..<match.range.lowerBound] + text[urlEnd...])
+            .replacing(/\n{3,}/, with: "\n\n")
+            .trimmed
+            // The full stop that ended the link's sentence, now left on its own.
+            .replacing(/\s+[.,;:!?]+$/, with: "")
+        return (url, changes)
     }
 }
 

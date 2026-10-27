@@ -124,9 +124,15 @@ struct IntakeDependencies {
     var submitLabel: String {
         switch request {
         case .photos(let photos): "Read \(photos.count) photo\(photos.count == 1 ? "" : "s")"
-        case .link: "Import recipe"
+        case .link(_, changes: nil): "Import recipe"
+        case .link: "Import with changes"
         case .describe, nil: "Create recipe"
         }
+    }
+
+    /// A link with changes typed alongside it: the server reads the page, then makes them.
+    var makesChanges: Bool {
+        if case .link(_, changes: .some) = request { true } else { false }
     }
 
     private var request: RecipeRequest? { RecipeRequest(text: text, photos: photos) }
