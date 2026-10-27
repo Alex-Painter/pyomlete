@@ -26,11 +26,16 @@ struct HomeScreen: View {
             if case .sections(let lists, let picks) = content {
                 Section("Lists") {
                     if lists.isEmpty {
-                        Label("\(HomeContent.noListsTitle). \(HomeContent.noListsInvitation)", systemImage: "cart")
+                        Label("\(HomeContent.noListsTitle). \(HomeContent.noListsInvitation)", systemImage: "calendar")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(lists) { row in
                         listRow(row)
+                    }
+                }
+                if let week = chef.week.shown {
+                    Section {
+                        WeekCard(plan: week, scope: "home")
                     }
                 }
                 if !picks.isEmpty {
@@ -50,16 +55,16 @@ struct HomeScreen: View {
             SettingsCog(tab: .home)
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    create { try await library.newList() }
+                    create { try await library.planWeek(today: .today()) }
                 } label: {
                     // A toolbar shows a Label as its icon alone, and this is the screen's main action.
                     HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                        Text("New list")
+                        Image(systemName: "calendar.badge.plus")
+                        Text("Plan a week")
                     }
                 }
                 .disabled(isCreating)
-                .accessibilityIdentifier("home.newListButton")
+                .accessibilityIdentifier("home.planWeekButton")
             }
         }
         .refreshable { await refresh() }
@@ -72,14 +77,16 @@ struct HomeScreen: View {
     /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.
     private func appear() async {
         async let ideas: Void = chef.loadIfNeeded()
+        async let week: Void = chef.week.load()
         await library.refresh()
-        await ideas
+        _ = await (ideas, week)
     }
 
     private func refresh() async {
         async let ideas: Bool = chef.load()
+        async let week: Void = chef.week.load()
         await library.refresh()
-        _ = await ideas
+        _ = await (ideas, week)
     }
 
     @ViewBuilder private func cover(for content: HomeContent) -> some View {
@@ -88,7 +95,7 @@ struct HomeScreen: View {
             EmptyView()
         case .noLists:
             ContentUnavailableView(
-                HomeContent.noListsTitle, systemImage: "cart", description: Text(HomeContent.noListsInvitation))
+                HomeContent.noListsTitle, systemImage: "calendar", description: Text(HomeContent.noListsInvitation))
         case .unavailable(let failure):
             ContentUnavailableView {
                 Label(message(for: failure), systemImage: failure == .unreachable ? "wifi.slash" : "exclamationmark.circle")
@@ -113,12 +120,13 @@ struct HomeScreen: View {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(shelf.meals) { meal in
                         Button {
-                            navigation.startCooking(meal.id)
+                            navigation.startCooking(meal.id, from: shelf.listID)
                         } label: {
-                            CookCard(meal: meal)
+                            CookCard(meal: meal, cooked: shelf.cooked.contains(meal.id))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Cook \(meal.title)")
+                        .accessibilityValue(shelf.cooked.contains(meal.id) ? "Cooked" : "")
                         .accessibilityIdentifier("home.cookCard.\(meal.id.rawValue)")
                     }
                 }

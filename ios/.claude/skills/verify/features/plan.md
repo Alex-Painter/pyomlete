@@ -1,21 +1,30 @@
 # Plan
 
-One list: its meals in a strip with Add meals beside the heading, a quick-add field, the items still to get grouped by aisle in the user's aisle order, and a collapsible "Got it" section. Specified by `client/src/routes/list.$listId.tsx` and, for the Add meals sheet, `client/src/components/MealsSheet.tsx`. Every change is saved on the phone first and sent when the API answers.
+One list. A week list opens on its seven evenings: a Week and List switch and a strip of days pinned at the top, then the meals on the list with no day, the selected evening's card, and the meal library inline under it. List shows the items. A plain list (no week) shows its meals in a strip with Add meals beside the heading, a quick-add field, the items still to get grouped by aisle in the user's aisle order, a collapsible "Got it" section, and the same library at the bottom. Specified by `client/src/routes/list.$listId.tsx` and its `WeekStrip`, `DayCard` and `DayLibrary` components. Every change, a day's included, is saved on the phone first and sent when the API answers.
 
 ## Sub-features
 
+- `plan-week-open` opens a week list on Week with today selected when it is in the week, else the first evening still to plan. The choice is held: planning or marking Out never moves it on its own.
+- `plan-week-strip` shows each evening with a dot for a meal, a ring for open and a moon for Out, today labelled Today. A tap selects it.
+- `plan-week-pick` plans the selected evening from the library and moves the selection to the next open evening, wrapping round the week. Tapping the meal already on that evening takes it off, as Clear does.
+- `plan-day-clear` (Clear on the card) takes the meal off its evening at once, with Undo. The meal stays on the list as an any-day meal.
+- `plan-day-out` marks an open evening Out in one tap; an Out evening offers Plan anyway.
+- `plan-day-cook` and `plan-day-open` cook the evening's meal or open its recipe. Swap scrolls to the library. Cook opened here knows the list, so Finish ticks the meal Cooked on it.
+- `plan-cooked` ticks a meal Cooked, or back, from the day card's Cooked button or a meal chip's menu (`PUT /api/lists/<id>/recipes/<recipe>/cooked`). The tick is its own undo, so there is no banner. A cooked meal's chip is marked in place; nothing moves or hides. Works offline like every list change.
+- `plan-any-day` lists the meals on the list with no evening under "This week, any day".
+- `plan-meal-actions` is a meal chip's menu: Plan for <selected day> (week lists only), Cook this, Mark cooked or Not cooked yet, Open recipe, and Remove from list (with Undo; it also clears the meal's days).
+- `plan-library` searches titles, cuisines and ingredients, ignoring case and accents, filters by Quick, Not had lately and Favourites, and sorts by Not had lately (the default), Your favourites, Quickest, Newest or A to Z. Each row says when the meal was last had. A meal on this week counts as had at once.
+- `plan-library-plain` on a plain list: tapping a meal adds it and its ingredients (needs the API); tapping one on the list removes it with Undo. Add meals and "Pick this week's meals" scroll to the library.
+- `plan-library-empty` is the library with no recipes saved: Add a recipe and Browse Discover switch tab and leave Plan open.
 - `plan-quick-add` parses typed text ("2 onions, 500g mince") into items and files each under a guessed aisle.
 - `plan-check` ticks an item off into "Got it" and back from the circle at the start of its row. No Undo banner here: the row is still on screen.
 - `plan-edit` opens the item sheet from a tap anywhere else on the row, "Got it" rows included: name, amount, unit, aisle, and Delete. Tapping a row never checks it; that is Shop.
 - `plan-delete` removes an item (swipe, or the sheet's Delete) and "Clear checked" removes every ticked one. Both hide at once and are sent only after the Undo banner.
 - `plan-rename` renames the list from the pencil button.
-- `plan-meals` shows each meal as a chip whose menu cooks it, or removes it and its ingredients with Undo.
-- `plan-add-meals` opens the picker from Add meals beside the heading, or on a list with no meals from "Pick this week's meals", which is then the only way in. It stays open until Done, and shows the Undo banner itself while it is up.
-- `plan-add-meals-search` narrows both of the picker's sections by title.
-- `plan-add-meals-library` lists every recipe under "Your recipes". Tapping one adds it to this list and ticks it; tapping a ticked one removes it and its ingredients with Undo.
-- `plan-add-meals-picks` lists up to four Discover cards that are not yet recipes under "Discover picks". Tapping one saves it onto this list. A pick whose save never reached the server stays, to be tapped again; one the server could not save leaves.
-- `plan-add-meals-empty` is the picker with no recipes saved: Add a recipe and Browse Discover close it and switch tab.
+- `plan-offline-day` plans an evening with the API stopped; it shows at once and reaches the server when the API is back.
 - `plan-start-shopping` opens Shop.
+
+Plan shows no Discover picks. They are on Discover and Home.
 
 ## How to get to it (user POV)
 
@@ -25,7 +34,46 @@ One list: its meals in a strip with Add meals beside the heading, a quick-add fi
 
 Preconditions:
 
-- `$V up` just ran, `$V doctor` prints no `FAIL`, and `$V tap home.listRow.<listID>` has opened the fixture list.
+- `$V up` just ran and `$V doctor` prints no `FAIL`. The seed leaves two lists: `Verify Fixture Week` (`<weekID>`, a week list starting on the Saturday on or before today, with `Verify Fixture Traybake` on its first evening, its sixth evening Out, and `Verify Fixture Soft Egg` on it with no day) and `Verify Fixture List` (`<listID>`, a plain list, Home's first row). `up` prints both ids, and `curl -s http://127.0.0.1:8765/api/lists/ | jq -r '.[] | "\(.id) \(.name) \(.week_start)"'` lists them.
+- Day buttons are `plan.day.<YYYY-MM-DD>`, labelled like `Today, Tuesday 27 October, nothing planned`, `Saturday 24 October, Verify Fixture Traybake` or `Thursday 29 October, out`. That label is how to prove what an evening holds.
+
+The week:
+
+- **Open on today.** `$V tap home.listRow.<weekID>`, then `$V expect "Today, Tuesday 27 October, nothing planned"` (today's date). The screenshot shows Today ringed and "Pick for Tuesday" over the library.
+- **Pick a meal.** `$V tap plan.library.recipe.<Shakshuka>`, then `$V expect "Today, Tuesday 27 October, Verify Fixture Shakshuka"`. The card moves to the next open evening: `$V expect-id plan.day.outButton` and its label `Out on Wednesday`. The API's `.days` has the recipe on today, and `.verify-run/api.log` has `PUT /api/lists/<weekID>/days/<today>`.
+- **Clear with Undo.** Select the planned evening (`$V tap plan.day.<date>`), then `$V tap plan.day.clearButton then undo.button` and `$V expect "<label with the meal>"`. Without `then undo.button`, the tap's `NN-tap.json` holds `Took <title> off <Day>`, the label says `nothing planned`, the meal shows as `plan.mealChip.<recipeID>` under "This week, any day", and the API keeps it in `.recipes` with the day's `recipe_id` null.
+- **Take a meal off by tapping it again.** On a planned evening its library row has the value `Planned for <Day>`; tapping it holds `Took <title> off <Day>` as Clear does.
+- **Out and Plan anyway.** On an open evening `$V tap plan.day.outButton`, then `$V expect "<date>, out"` and `$V expect-id plan.day.planAnywayButton`; the API's day has `status` `out`. `$V tap plan.day.planAnywayButton` and the label says `nothing planned` again.
+- **A meal's menu.** `$V tap plan.mealChip.<Soft Egg>` shows `plan.planMealAction` (`Plan for <Day>`), `plan.cookMealAction`, `plan.openRecipeAction` and `plan.removeMealAction`. `$V tap plan.planMealAction` plans it on the selected evening and moves on, as a library tap does. `plan.openRecipeAction` pushes the recipe: `$V expect-id recipe.addToList`, and `$V tap BackButton` returns to Plan.
+- **Search by an ingredient.** `$V type plan.library.searchField "potatoes"`, then `$V gone "Verify Fixture Lemon Drizzle Cake"`: only the Traybake is left, whose title does not say potatoes. `$V tap plan.library.clearSearchButton` brings everything back.
+- **Sort.** `$V tap plan.library.sortMenu`, `$V tap plan.library.sort.quickest`, then `$V expect "Sort, Quickest"`. `$V swipe plan.list up` and the snapshot lists the Shakshuka (25 min), the Traybake (45 min), then the two with no time by title. The other ids are `notLately`, `favourites`, `newest` and `aToZ`.
+- **Filter.** `$V tap plan.library.filter.quick` leaves only meals of 30 minutes or less; tap it again to turn it off. The others are `plan.library.filter.notLately` and `plan.library.filter.favourites`.
+- **Cooked on the day card.** Select the evening with the Traybake (`$V tap plan.day.<first date>`), then `$V tap plan.day.cookedButton`. Its row in `$V snapshot` is `Verify Fixture Traybake cooked|Cooked|plan.day.cookedButton` (value `Not cooked` before), and `curl -s http://127.0.0.1:8765/api/lists/<weekID> | jq .cooked` holds the Traybake's id. Tap again and the value and the API's `.cooked` go back.
+- **Cooked from a chip.** `$V tap plan.mealChip.<Soft Egg>`, then `$V tap plan.cookedMealAction` (labelled `Mark cooked`, or `Not cooked yet` on a cooked meal). The chip's value becomes `Cooked` and the screenshot shows a tick over its picture; the API's `.cooked` has the id.
+- **Cooked offline.** `$V api stop`, tick the day card: the value is `Cooked` with `Offline` on screen. `$V api start`; within about ten seconds `.verify-run/api.log` has one `PUT .../recipes/<id>/cooked` and the API's `.cooked` has it.
+- **Week and List.** `$V tap plan.listViewButton`, then `$V expect-id plan.quickAddField`: the items, with no day strip. `$V tap plan.weekViewButton` goes back.
+- **Offline.** `$V api stop`, select an open evening and tap a library row: `$V expect "<date>, <title>"` and `$V expect "Offline"`. `$V api start`; within about 20 seconds the API's day has the recipe, `.verify-run/api.log` has the `PUT .../days/<date>`, and once the list is fetched again the meal's ingredients are among `.items`.
+
+A plain list:
+
+- **Add a meal from the library.** `$V tap home.listRow.<listID>`, `$V tap plan.addMealsButton` (scrolls to the library), then `$V tap plan.library.recipe.<Lemon Drizzle Cake>`. The tap's `NN-tap.json` holds `Added Verify Fixture Lemon Drizzle Cake to Verify Fixture List`, the row's value becomes `On the list`, and the API's `.recipes` gains the id and `.items` grows by four.
+- **Remove a meal from the library.** `$V tap plan.library.recipe.<Shakshuka> then undo.button`: the row still has `On the list`, and seven seconds later `.verify-run/api.log` has no `DELETE /api/lists/<listID>/recipes/<Shakshuka>`. Without `then undo.button` the tap's `NN-tap.json` holds `Removed <title> and its ingredients`, and seven seconds later the API has dropped the recipe and its ingredients.
+- **Put a meal back inside the Undo window.** Two `$V tap` calls are about five seconds apart, which is the whole window, so send both taps as one batch, from `ios/`:
+
+  ```bash
+  UDID="$(sed -n 's/^udid=//p' .verify-run/state)"
+  ref="$(npx -y xcodebuildmcp@latest ui-automation snapshot-ui --simulator-id "$UDID" --output json \
+    | jq -r --arg id "plan.library.recipe.<Shakshuka>" '[.data.capture.targets[] | split("|") | select(.[-1] == $id) | .[0]][0]')"
+  npx -y xcodebuildmcp@latest ui-automation batch --simulator-id "$UDID" --ax-cache perBatch \
+    --json "{\"steps\":[{\"action\":\"tap\",\"elementRef\":\"$ref\",\"postDelay\":1},{\"action\":\"tap\",\"elementRef\":\"$ref\"}]}"
+  $V snapshot
+  ```
+
+  The snapshot holds `Added Verify Fixture Shakshuka to Verify Fixture List` and the row's value `On the list`. Seven seconds later `.verify-run/api.log` has no `DELETE` and no `POST` under `/api/lists/<listID>/recipes`: the second tap was the Undo. On a week list, planning a meal whose removal can still be undone is that Undo too, and clears the meal's other evenings.
+- **A list with no meals.** Make an empty plain list with `curl -s -X POST http://127.0.0.1:8765/api/lists/`, `$V relaunch`, and `$V tap home.listRow.<listID>`. `$V expect "Pick this week's meals"`, and `$V snapshot` has no `plan.addMealsButton`. `$V tap plan.pickMealsButton` scrolls to the library.
+- **The library with no recipes.** Delete the four recipes first (`curl -s -X DELETE http://127.0.0.1:8765/api/recipes/<recipeID>` for each), `$V relaunch`, open the plain list, `$V swipe plan.list up`, then `$V expect "No recipes yet"`. `$V tap plan.library.addRecipeButton` lands on Add (`$V expect-id add.textField`) and `plan.library.browseDiscoverButton` on Discover; `$V tap tab.home` shows Plan still open.
+
+The items, on a plain list or a week list's List view:
 
 - **Quick add.** `$V type plan.quickAddField "2 onions, 500g mince"`, `$V tap plan.quickAddButton`, `$V expect "mince"`. The API then lists `onions` (2, Fresh Produce) and `mince` (500, `g`, Meat & Fish).
 - **Check.** `$V tap plan.itemCheck.<itemID>`, and the API shows the item checked. "Got it (1)" heads the last section, which the Quick add step's two items push below the fold, so `$V swipe plan.list up` and then `$V expect "Got it (1)"`. To uncheck, `$V tap plan.itemCheck.<itemID>` again there, then `$V gone "Got it (1)"`.
@@ -33,42 +81,17 @@ Preconditions:
 - **Delete with Undo.** `$V tap plan.itemRow.<itemID>`, then `$V tap itemSheet.deleteButton then undo.button`, then `$V expect "<name>"`. Seven seconds later the API still has the item. Without `then undo.button`, the tap's own `NN-tap.json` holds `Removed <name>`, and seven seconds later the API has dropped it.
 - **Rename.** `$V tap plan.renameButton`, `$V type rename.nameField "Weekend"`, `$V tap rename.saveButton`. Prove it with the API or by going back to Home and `$V expect "Weekend"`.
 - **Cook a meal.** `$V tap plan.mealChip.<recipeID>`, `$V tap plan.cookMealAction`, then `$V expect-id cook.startButton`. Closing Cook returns to Plan.
-- **Open the picker.** `$V tap plan.addMealsButton`, then `$V expect-id meals.searchField`. The four picks are `meals.pick.<card>` and the recipes `meals.recipe.<recipeID>`; a recipe on the list has the value `On the list`. `$V swipe meals.list up` brings the lower recipes into the UI tree. `$V tap meals.doneButton` closes it.
-- **Search the picker.** `$V type meals.searchField "lemon"`, then `$V gone "Verify Card Bean Chilli"` and `$V gone "Verify Fixture Shakshuka, 4"`: one recipe is left and no picks. `$V tap meals.clearSearchButton` brings everything back.
-- **Add a recipe from the picker.** `$V tap meals.recipe.<Lemon Drizzle Cake>`, then `$V expect "Verify Fixture Lemon Drizzle Cake, 4 ingredients"` with the row's value `On the list` in the capture. The tap's `NN-tap.json` holds `Added Verify Fixture Lemon Drizzle Cake to Verify Fixture List`. The API's `.recipes` gains the id and `.items` grows by four. After `$V tap meals.doneButton`, `$V expect-id plan.mealChip.<Lemon Drizzle Cake>`.
-- **Remove a meal from the picker.** `$V tap meals.recipe.<Shakshuka> then undo.button`: the row still has `On the list`, and seven seconds later `.verify-run/api.log` has no `DELETE /api/lists/<listID>/recipes/<Shakshuka>`. Without `then undo.button` the tap's `NN-tap.json` holds `Removed <title> and its ingredients`, the row loses its value at once, and seven seconds later the API has dropped the recipe and its ingredients.
-- **Put a meal back inside the Undo window.** Two `$V tap` calls are about five seconds apart, which is the whole window, so send both taps as one batch, from `ios/`:
-
-  ```bash
-  UDID="$(sed -n 's/^udid=//p' .verify-run/state)"
-  ref="$(npx -y xcodebuildmcp@latest ui-automation snapshot-ui --simulator-id "$UDID" --output json \
-    | jq -r --arg id "meals.recipe.<Shakshuka>" '[.data.capture.targets[] | split("|") | select(.[-1] == $id) | .[0]][0]')"
-  npx -y xcodebuildmcp@latest ui-automation batch --simulator-id "$UDID" --ax-cache perBatch \
-    --json "{\"steps\":[{\"action\":\"tap\",\"elementRef\":\"$ref\",\"postDelay\":1},{\"action\":\"tap\",\"elementRef\":\"$ref\"}]}"
-  $V snapshot
-  ```
-
-  The snapshot holds `Added Verify Fixture Shakshuka to Verify Fixture List` and the row's value `On the list`. Seven seconds later `.verify-run/api.log` has no `DELETE` and no `POST` under `/api/lists/<listID>/recipes`: the second tap was the Undo.
-- **News that waited behind that Undo.** Put a tap on `meals.pick.<Bean Chilli>` with `"postDelay":1` at the front of the batch, and make the second delay `3.2`, so the save has failed before the meal goes back. The snapshot holds the `Added ...` banner as before, and `$V expect "Couldn't save Verify Card Bean Chilli, so it isn't on your list."` passes once that banner has gone. A batch taps where each ref was when it began, and the failed pick leaves the picker. On a fresh seed `Verify Card Miso Aubergine` takes its place and nothing moves. Once fewer than four picks are left, every row under it moves up one, so aim the last tap at the ref of the row above the meal.
-- **News that came while the app was away.** Tap a pick that cannot be saved, then `npx -y xcodebuildmcp@latest ui-automation button --simulator-id "$UDID" --button-type home` at once. Ten seconds later tap the app's icon from a fresh snapshot (the simulator may hold a second icon labelled Omlete; the app is the one that does not open on "Hello, world!"), then `$V expect "Couldn't save ..."`. `$V relaunch` will not do: a cold start has no news to say.
-- **Add a Discover pick.** `$V tap meals.pick.<Imported Traybake>`. The tap's `NN-tap.json` holds `Saving Verify Card Imported Traybake. It goes on Verify Fixture List when it's ready.` and the pick is gone, with `Verify Card Miso Aubergine` in its place. The API's `.recipes` gains the `Verify Fixture Traybake` id, and `$V swipe meals.list up` shows that recipe with `On the list`.
-- **A pick that cannot be saved.** `$V tap meals.pick.<Bean Chilli>`, then `$V expect "Couldn't save Verify Card Bean Chilli, so it isn't on your list."` straight away: the banner lasts five seconds. The pick leaves the picker, and Discover shows the card with Try again.
-- **A pick whose save cannot be sent.** `$V api stop`, then `$V tap meals.pick.<Imported Traybake>`. The tap's `NN-tap.json` holds `Couldn't add Verify Card Imported Traybake. Try again.` and still holds the pick, with no value. `$V api start`, tap it again, and it saves as in "Add a Discover pick".
-- **A list with no meals.** On Home, `$V tap home.newListButton` opens an empty list. `$V expect "Pick this week's meals"`, and `$V snapshot` has no `plan.addMealsButton`. Then `$V tap plan.pickMealsButton` and `$V expect-id meals.searchField`.
-- **The picker with no recipes.** Delete the four recipes first (`curl -s -X DELETE http://127.0.0.1:8765/api/recipes/<recipeID>` for each), `$V relaunch`, open the list and the picker, then `$V expect "No recipes yet"`. `$V tap meals.addRecipeButton` lands on Add (`$V expect-id add.textField`) and `meals.browseDiscoverButton` on Discover; `$V tap tab.home` shows Plan still open.
 - **Start shopping.** `$V tap plan.startShoppingButton`, then `$V expect "left to get"`.
 
 ## Gotchas
 
-- The list name is an inline navigation title, which is not in the UI tree. Check it in the screenshot or on Home.
-- The name field capitalises the first letter as the keyboard would, so "oat milk" becomes "Oat milk".
+- The list name is an inline navigation title, and section headers ("Pick for Tuesday", "This week, any day", the selected evening's date, "Meals (2)") are not in the UI tree. Check them in the screenshot. Buttons inside a header are: `plan.addMealsButton`, `plan.library.sortMenu`.
+- The selected evening has no value in the snapshot. Tell it by the card's controls (`plan.day.outButton` is labelled `Out on <Day>`) or the screenshot.
+- Only the rows on screen are in the UI tree. The library sits under the day card, so after a few taps the rows you want may be below the fold: `$V swipe plan.list up`.
 - A row is two controls: `plan.itemCheck.<itemID>` (label `Check off <name>`) and `plan.itemRow.<itemID>` (label `Edit <name>`, value the quantity), so `$V expect "<name>"` still matches.
-- Only the rows on screen are in the UI tree, and "Got it" sits at the bottom: `$V swipe plan.list up` first.
+- The name field capitalises the first letter as the keyboard would, so "oat milk" becomes "Oat milk".
 - Swipe actions and drag-to-reorder have no helper step. Use the item sheet for delete. To see the swipe actions, `npx -y xcodebuildmcp@latest ui-automation drag --element-ref <ref of plan.itemRow.<itemID>> --direction left --distance 0.5` shows Delete, and `--direction right` shows Edit.
-- The fixture list has two meal chips, `plan.mealChip.<recipeID>`. The "Meals (2)" heading is a section header and not in the UI tree, but its Add meals button is. A list with no meals has no such button.
-- While the picker is up the UI tree still holds Plan's controls underneath it. The Undo banner is the picker's own, so `undo.banner` and `undo.button` appear once.
-- `tap <row> then undo.button` in the picker can lose its race with the banner, because the bigger UI tree makes finding `undo.button` slower. It loses in one of two ways. If the banner has gone before the button is looked for, the step fails with `no tappable or scrollable control with accessibility id 'undo.button'` and the log has the `DELETE`. If it goes between the look and the tap, the step passes and the tap lands on whichever row is under where the button was: a meal off the list is added (a `POST /api/lists/<listID>/recipes` after the `DELETE`, and an `Added ...` banner in the capture), and one on the list is removed. Either way, put things back and run the step again.
-- Only the picker's rows on screen are in the UI tree. The first screen holds the four picks and the first two recipes.
-- With no key only `Verify Card Imported Traybake` can be saved, as on [Discover](./discover.md).
+- `tap <row> then undo.button` can lose its race with the banner. If the banner has gone before the button is looked for, the step fails with `no tappable or scrollable control with accessibility id 'undo.button'`; if it goes between the look and the tap, the tap lands on whatever is under where the button was. Either way, put things back and run the step again.
+- A day planned with a meal not yet on the list shows the meal at once, but its ingredients arrive only once the server has the day and the list is fetched again.
 - Plan hides the tab bar, so `tab.*` cannot be tapped from here. Go back to Home first.
 - Without an API key `/api/categorize` fails, so a new item keeps the app's own aisle guess.

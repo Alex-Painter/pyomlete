@@ -7,8 +7,11 @@ import SwiftUI
 /// close button goes back to where it was opened from.
 struct CookScreen: View {
     let recipeID: RecipeID
+    /// The list Cook was opened from, whose meal Finish ticks. nil from a recipe page.
+    let listID: ListID?
 
     @Environment(Kitchen.self) private var kitchen
+    @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
 
     var body: some View {
@@ -55,7 +58,11 @@ struct CookScreen: View {
             case .step(let step):
                 CookStep(page: step, onStartTimer: store.startTimer)
             case .finished:
-                CookFinished(rating: store.rating, onRate: store.rate)
+                CookFinished(rating: store.rating, onRate: store.rate) {
+                    if let listID {
+                        CookedOnList(store: library.list(listID), recipe: recipeID, title: session.recipe.title)
+                    }
+                }
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -101,7 +108,10 @@ struct CookScreen: View {
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("cook.backButton")
 
-                Button(action: store.next) {
+                Button {
+                    // Finish is when you know it was cooked, so it is ticked for you.
+                    if store.next(), let listID { library.list(listID).setCooked(recipeID, true) }
+                } label: {
                     Group {
                         if step.isLast {
                             Label("Finish", systemImage: "checkmark")

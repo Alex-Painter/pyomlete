@@ -104,6 +104,11 @@ import Testing
 
         intake.edit("https://example.com/soup")
         #expect(intake.submitLabel == "Import recipe")
+        #expect(!intake.makesChanges)
+
+        intake.edit("https://example.com/soup but use quorn mince")
+        #expect(intake.submitLabel == "Import with changes")
+        #expect(intake.makesChanges)
 
         let photo = RecipePhoto(id: UUID(), jpeg: Data())
         intake.expectPhotos(2)
@@ -168,7 +173,8 @@ import Testing
         #expect(calls(startLink) == 1)
         #expect(Array(phone.transport.calls.suffix(4)) == [askAfter, askAfter, askAfter, fetchRecipe])
         #expect(phone.library.recipes.first == RecipeSummary(
-            id: "traybake", title: "Traybake", totalMinutes: 45, rating: 5, sourceName: "example.com", ingredientCount: 4))
+            id: "traybake", title: "Traybake", totalMinutes: 45, rating: 5, sourceName: "example.com", ingredientCount: 4,
+            ingredientNames: ["chicken", "potatoes", "oil", "salt"], createdAt: recipe.createdAt))
         #expect(phone.pulse.asked == [.milliseconds(1500), .milliseconds(1500)])
 
         phone.serverIsUnreachable()
@@ -502,6 +508,34 @@ import Testing
         guard case .finished(.saved(let recipe)) = intake.phase else { Issue.record("not saved"); return }
         #expect(recipe.id == "traybake")
         #expect(phone.transport.calls == [startLink, askAfter, askAfter, fetchRecipe])
+        #expect(server.made == ["job1"])
+    }
+
+    @Test func aLinkWithWordsAroundItIsImportedWithThemAsItsChanges() async {
+        intake.edit("https://example.com/traybake\nbut use quorn mince")
+        intake.submit()
+        await eventually { phone.pulse.isWaiting }
+
+        #expect(phone.transport.calls.first == startLink)
+        #expect(phone.transport.bodies.first as? [String: String] == [
+            "url": "https://example.com/traybake", "changes": "but use quorn mince",
+        ])
+    }
+
+    /// The previous build wrote this, and this build must still pick it up.
+    @Test func aJobSavedByThePreviousBuildIsPickedUpAndStartedAgainAsItWas() async {
+        let saved = #"{"job":{"key":"job1","kind":"link","startedAt":800000000},"text":"https:\/\/example.com\/traybake","server":"http:\/\/phone.test"}"#
+        phone.defaults.set(Data(saved.utf8), forKey: "add.job")
+
+        phone.relaunch()
+        #expect(intake.phase == .working(job, .inTouch))
+        #expect(intake.text == "https://example.com/traybake")
+        await eventually { phone.pulse.isWaiting }
+        await nextTry()
+
+        // The server never had it, so the start is sent again under the same key.
+        #expect(Array(phone.transport.calls.prefix(2)) == [askAfter, startLink])
+        #expect(phone.transport.bodies.dropFirst().first as? [String: String] == ["url": "https://example.com/traybake"])
         #expect(server.made == ["job1"])
     }
 

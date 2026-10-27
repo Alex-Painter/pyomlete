@@ -9,6 +9,8 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
     case removeRecipe(RecipeID)
     case reorder(category: String, itemIDs: [ItemID])
     case rename(String)
+    case setDay(PlanDate, DayPlan)
+    case setCooked(RecipeID, Bool)
 
     /// Pure reducer that mirrors what the server does with the same request.
     /// Applying an op whose target is missing, or applying one twice, changes nothing.
@@ -26,6 +28,10 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
 
         case .removeRecipe(let recipe):
             list.recipes.removeAll { $0 == recipe }
+            list.cooked.remove(recipe)
+            for index in list.days.indices where list.days[index].plan == .meal(recipe) {
+                list.days[index].plan = .open
+            }
             list.items = list.items.compactMap { item in
                 guard item.sources.contains(where: { $0.recipeID == recipe }) else { return item }
                 var item = item
@@ -44,6 +50,17 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
 
         case .rename(let name):
             list.name = name
+
+        // A day's meal is always on the list. Its ingredients come with the
+        // refetch that follows the send, since only the server can merge them.
+        case .setDay(let date, let plan):
+            guard let index = list.days.firstIndex(where: { $0.date == date }) else { break }
+            list.days[index].plan = plan
+            if let recipe = plan.meal, !list.recipes.contains(recipe) { list.recipes.append(recipe) }
+
+        // Only a meal still on the list can be cooked, as on the server.
+        case .setCooked(let recipe, let cooked):
+            if cooked, list.recipes.contains(recipe) { list.cooked.insert(recipe) } else { list.cooked.remove(recipe) }
         }
         return list
     }
@@ -146,10 +163,12 @@ nonisolated struct ListReplica: Codable, Equatable, Sendable {
         for index in pending.indices { pending[index].held = false }
     }
 
-    /// Marks the first op that is not held as on the wire and returns it.
+    /// Marks the first op as on the wire and returns it. A held op holds up
+    /// everything after it, so the server applies the changes in the order they
+    /// were made: a removal it applied last could undo what came after it here.
     mutating func beginSend() -> PendingOp? {
         precondition(sending == nil, "one send at a time")
-        guard let next = pending.first(where: { !$0.held }) else { return nil }
+        guard let next = pending.first, !next.held else { return nil }
         sending = next.id
         return next
     }
@@ -185,7 +204,8 @@ nonisolated struct ListReplica: Codable, Equatable, Sendable {
                 return frozen || patch.checked != .keep ? nil : index
             case (.patch(let id, _), .delete(let other)) where id == other:
                 return nil
-            case (.patch, .reorder), (.patch, .removeRecipe):
+            // Putting a meal on the list merges its ingredients into matching items on the server.
+            case (.patch, .reorder), (.patch, .removeRecipe), (.patch, .setDay(_, .meal)):
                 return nil
             case (.patch, _):
                 continue
@@ -203,6 +223,19 @@ nonisolated struct ListReplica: Codable, Equatable, Sendable {
                 return frozen ? nil : index
             case (.rename, _):
                 continue
+
+            // Only into the latest op, so nothing queued in between changes its place.
+            case (.setDay(let date, _), .setDay(let other, _)) where date == other:
+                return frozen ? nil : index
+            case (.setDay, _):
+                return nil
+
+            // Tick, untick, tick is one request. Only into the latest op, as with a day:
+            // a removal or a planned meal in between decides whether the meal is on the list.
+            case (.setCooked(let recipe, _), .setCooked(let other, _)) where recipe == other:
+                return frozen ? nil : index
+            case (.setCooked, _):
+                return nil
 
             case (.add, _), (.delete, _), (.removeRecipe, _):
                 return nil

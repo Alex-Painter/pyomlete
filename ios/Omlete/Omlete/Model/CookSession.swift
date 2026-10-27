@@ -17,12 +17,21 @@ nonisolated struct CookSession: Codable, Equatable, Sendable {
         case finished
     }
 
+    /// The dinner this cook records for Chef. Its key is made once per cook,
+    /// so the server keeps one row however often it is sent.
+    struct Meal: Codable, Equatable, Sendable {
+        let key: UUID
+        var rating: Int?
+    }
+
     private(set) var recipe: Recipe
     private(set) var stage: Stage = .overview
     private(set) var servings: Servings
     private(set) var timers: [CookTimer] = []
     /// Last time the cook touched it; decides whether reopening resumes.
     private(set) var touchedAt: Date
+    /// Set the first time the cook reaches the end, and kept until it starts over.
+    private(set) var meal: Meal?
 
     static let resumeWindow: TimeInterval = 8 * 3600
 
@@ -38,6 +47,7 @@ nonisolated struct CookSession: Codable, Equatable, Sendable {
         servings = try container.decode(Servings.self, forKey: .servings)
         timers = try container.decode([CookTimer].self, forKey: .timers)
         touchedAt = try container.decode(Date.self, forKey: .touchedAt)
+        meal = try container.decodeIfPresent(Meal.self, forKey: .meal)
         let lastStep = recipe.steps.count - 1
         stage = switch try container.decode(Stage.self, forKey: .stage) {
         case _ where lastStep < 0: .overview
@@ -56,9 +66,12 @@ nonisolated struct CookSession: Codable, Equatable, Sendable {
         move(to: .step(0), now: now)
     }
 
-    mutating func next(now: Date) {
+    /// `mealKey` is used only if this reaches the end for the first time.
+    mutating func next(now: Date, mealKey: UUID) {
         guard case .step(let index) = stage else { return }
-        move(to: index + 1 < recipe.steps.count ? .step(index + 1) : .finished, now: now)
+        guard index + 1 == recipe.steps.count else { return move(to: .step(index + 1), now: now) }
+        if meal == nil { meal = Meal(key: mealKey) }
+        move(to: .finished, now: now)
     }
 
     mutating func back(now: Date) {
@@ -109,6 +122,11 @@ nonisolated struct CookSession: Codable, Equatable, Sendable {
         if servings.base != fresh.baseServings { servings = Servings(base: fresh.baseServings) }
     }
 
+    /// A rating given once the cook has finished is that meal's too.
+    mutating func rateMeal(_ stars: Int) {
+        meal?.rating = stars
+    }
+
     /// Safe mid-cook: the flag is about shopping lists and changes nothing being cooked.
     mutating func setOnList(_ index: Int, _ onList: Bool) {
         guard recipe.ingredients.indices.contains(index) else { return }
@@ -121,6 +139,7 @@ nonisolated struct CookSession: Codable, Equatable, Sendable {
     mutating func reopen(at now: Date) {
         if stage == .finished || now.timeIntervalSince(touchedAt) > Self.resumeWindow {
             stage = .overview
+            meal = nil
             servings = Servings(base: recipe.baseServings)
             timers.removeAll { $0.isDone(at: now) }
         }

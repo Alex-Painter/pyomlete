@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The way into Settings from a tab's first screen. Leading on all four, so
+/// The way into Settings from a tab's first screen. Leading on all three, so
 /// it is in one place whichever tab is showing and each screen's own actions
 /// keep the trailing corner.
 struct SettingsCog: ToolbarContent {
@@ -21,7 +21,6 @@ struct SettingsCog: ToolbarContent {
         switch tab {
         case .home: "home.settingsButton"
         case .discover: "discover.settingsButton"
-        case .add: "add.settingsButton"
         case .recipes: "recipes.settingsButton"
         }
     }

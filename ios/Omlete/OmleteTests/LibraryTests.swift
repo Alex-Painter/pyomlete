@@ -27,7 +27,6 @@ import Testing
             case "GET /api/settings/categories": return .status(200, #"[{"name":"Dairy","order":1},{"name":"Bakery","order":0}]"#)
             case "GET /api/recipes/": return .status(200, #"[{"id":"curry","title":"Thai curry","image_url":"https://img.test/c.jpg","rating":null,"total_minutes":35}]"#)
             case "GET /api/units": return .status(200, #"["g","tin"]"#)
-            case "POST /api/lists/": return .status(200, #"{"id":"new","name":"10th October","created_at":"2026-10-10T09:00:00"}"#)
             case "POST /api/lists/list/duplicate": return .status(200, #"{"id":"copy","name":"10th October","created_at":null}"#)
             default: return nil
             }
@@ -101,7 +100,7 @@ import Testing
 
         #expect(phone.library.cookShelf == CookShelf(listID: "list", listName: "Week", meals: [
             RecipeSummary(id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg"), totalMinutes: 35),
-        ]))
+        ], cooked: []))
     }
 
     @Test func theListLastOpenedIsRememberedAcrossARelaunch() async {
@@ -137,16 +136,6 @@ import Testing
         #expect(phone.library.cookShelf == nil)
     }
 
-    @Test func aNewListAppearsFirstUnderTheServersName() async throws {
-        serverAnswers()
-        await phone.library.refresh()
-
-        let id = try await phone.library.newList()
-
-        #expect(id == "new")
-        #expect(phone.library.rows.map(\.name) == ["10th October", "Week", "Party"])
-    }
-
     @Test func aDuplicateStartsUncheckedWithTheSameItemsAndMeals() async throws {
         serverAnswers()
         await phone.library.refresh()
@@ -158,12 +147,6 @@ import Testing
         #expect(copy.itemCount == 2)
         #expect(copy.checkedCount == 0)
         #expect(copy.meals.map(\.title) == ["Thai curry"])
-    }
-
-    @Test func newListNeedsSignal() async {
-        phone.serverIsUnreachable()
-
-        await #expect(throws: APIError.unreachable) { try await phone.library.newList() }
     }
 
     @Test func deletingAListHidesItAndUndoBringsItBackWithNothingSent() async {
@@ -223,6 +206,33 @@ import Testing
 
         #expect(log == ["undo"])
         #expect(undo.banner == nil)
+    }
+
+    @Test func theActionKeepsTheChangeAndThenActs() {
+        let undo = UndoCenter()
+        var log: [String] = []
+        undo.offer(
+            "Made", undo: { log.append("undo") }, commit: { log.append("commit") },
+            action: .init(label: "Open") { log.append("open") })
+        #expect(undo.banner?.action == "Open")
+
+        undo.actionTapped()
+        undo.undoTapped()
+
+        #expect(log == ["commit", "open"])
+        #expect(undo.banner == nil)
+    }
+
+    @Test func newsWaitsBehindABannerWithAnActionAndIsSaidOnceItHasSettled() {
+        let undo = UndoCenter()
+        undo.offer("Made", undo: {}, action: .init(label: "Open") {})
+        undo.inform("Couldn't save Bao")
+        #expect(undo.banner?.message == "Made")
+
+        undo.actionTapped()
+
+        #expect(undo.banner?.message == "Couldn't save Bao")
+        #expect(undo.banner?.action == nil)
     }
 
     @Test func aNewOfferCommitsTheOneBeforeIt() {

@@ -35,7 +35,6 @@ struct AddScreen: View {
         .background(Color(.systemGroupedBackground))
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Add a recipe")
-        .toolbar { SettingsCog(tab: .add) }
         .onChange(of: picked) {
             let items = picked
             guard !items.isEmpty else { return }
@@ -138,7 +137,7 @@ struct AddScreen: View {
         case .editing:
             EmptyView()
         case .working(let job, .inTouch):
-            WorkingLine(kind: job.kind)
+            WorkingLine(kind: job.kind, makesChanges: intake.makesChanges)
         case .working(_, .lost(.noConnection)):
             notice(systemImage: "wifi.slash", tint: .secondary) {
                 Text("Waiting for a connection. Your recipe will show here once Omlete can be reached.")
@@ -223,12 +222,13 @@ struct AddScreen: View {
 /// after a moment so a long wait reads as progress; neither is reported by the server.
 private struct WorkingLine: View {
     let kind: RecipeRequest.Kind
+    let makesChanges: Bool
 
     @State private var isLater = false
 
     private var lines: (String, String) {
         switch kind {
-        case .link: ("Reading the page…", "Sorting the ingredients…")
+        case .link: ("Reading the page…", makesChanges ? "Making your changes…" : "Sorting the ingredients…")
         case .describe: ("Writing the recipe…", "Matching ingredients…")
         case .photos: ("Reading your photos…", "Writing it up…")
         }
