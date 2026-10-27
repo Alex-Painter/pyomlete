@@ -168,7 +168,17 @@ export function useListActions(listId: string) {
 
   /** Put a meal on a day, or clear it. Works offline; last write wins. */
   const setDay = useCallback(
-    ({ date, recipeId, status }: { date: ISODate; recipeId: string | null; status?: DayStatus }) => {
+    ({
+      date,
+      recipeId,
+      status,
+      quick,
+    }: {
+      date: ISODate
+      recipeId: string | null
+      status?: DayStatus
+      quick?: boolean
+    }) => {
       const undone = recipeId ? undoRemoval(recipeId) : null
       // The meal was taken off its days, and planning it now says where it
       // goes instead: the server never saw the removal, so clear them there.
@@ -177,7 +187,7 @@ export function useListActions(listId: string) {
           apply({ kind: 'setDay', listId, date: d.date, recipeId: null, status: d.status })
         }
       }
-      return apply({ kind: 'setDay', listId, date, recipeId, status: status ?? 'open' })
+      return apply({ kind: 'setDay', listId, date, recipeId, status: status ?? 'open', quick })
     },
     [apply, listId, undoRemoval],
   )
@@ -186,6 +196,13 @@ export function useListActions(listId: string) {
   const markOut = useCallback(
     (day: PlanDay, out: boolean) =>
       setDay({ date: day.date, recipeId: day.recipe_id, status: out ? 'out' : 'open' }),
+    [setDay],
+  )
+
+  /** A quick night, or not. Keeps the day's meal and whether it's out. */
+  const markQuick = useCallback(
+    (day: PlanDay, quick: boolean) =>
+      setDay({ date: day.date, recipeId: day.recipe_id, status: day.status, quick }),
     [setDay],
   )
 
@@ -279,6 +296,7 @@ export function useListActions(listId: string) {
     addRecipe,
     setDay,
     markOut,
+    markQuick,
     clearDay,
     setCooked,
     reorder,

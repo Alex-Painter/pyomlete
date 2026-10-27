@@ -224,6 +224,7 @@ async def set_day(
     recipe_id: str | None,
     status: Literal["open", "out"] = "open",
     origin: Literal["user", "chef"] = "user",
+    quick: bool | None = None,
 ) -> ListDocument:
     """Set or clear one day of a week list.
 
@@ -248,6 +249,8 @@ async def set_day(
     # A meal wins over Out: Out only applies to an empty day.
     plan_day.status = "open" if recipe_id is not None else status
     plan_day.origin = origin
+    if quick is not None:
+        plan_day.quick = quick
     if recipe:
         await put_recipe(lst, recipe)
     else:

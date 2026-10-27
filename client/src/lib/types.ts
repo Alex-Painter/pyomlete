@@ -29,6 +29,8 @@ export type PlanDay = {
   recipe_id: string | null
   status: DayStatus
   origin: 'user' | 'calendar' | 'chef'
+  /** A quick night: dinners over 30 minutes sink. Kept when a meal goes on the day. */
+  quick?: boolean
 }
 
 export type ListDetail = {
@@ -59,6 +61,8 @@ export type ListSummary = {
 export type PlanSettings = {
   /** 0 is Monday. Defaults to 5, Saturday: the week runs from one shop to the next. */
   week_start_weekday: number
+  /** How many days a base (pasta, rice...) stays off the menu after it's had. Defaults to 3. */
+  variety_days: number
 }
 
 /** When Chef plans the coming week on its own, in UK time. */
@@ -87,8 +91,40 @@ export type RecipeSummary = {
   source_name: string | null
   ingredient_names: string[]
   cuisine: string | null
+  /** Set by Claude after the recipe is saved; null until then. */
+  tags: RecipeTags | null
   /** The latest day this recipe was planned on, across every list. */
   last_planned_on: ISODate | null
+}
+
+export type RecipeBase = 'rice' | 'pasta' | 'potatoes' | 'bread' | 'noodles' | 'none'
+export type RecipeMain = 'chicken' | 'beef' | 'pork' | 'lamb' | 'fish' | 'veggie' | 'beans'
+export type RecipeMood = 'comforting' | 'fresh' | 'different'
+export type CuisineFamily =
+  | 'british'
+  | 'french'
+  | 'italian'
+  | 'spanish'
+  | 'greek'
+  | 'middle_eastern'
+  | 'north_african'
+  | 'indian'
+  | 'chinese'
+  | 'japanese'
+  | 'korean'
+  | 'south_east_asian'
+  | 'mexican'
+  | 'latin_american'
+  | 'american'
+  | 'other'
+
+/** What a dinner is built on, for the week's variety rules (`server/recipe_tagger.py`). */
+export type RecipeTags = {
+  base: RecipeBase
+  main: RecipeMain
+  mood: RecipeMood
+  cuisine: CuisineFamily
+  traits: { oily_fish: boolean; red_meat: boolean; veg_led: boolean; legumes: boolean }
 }
 
 export type RecipeIngredient = {

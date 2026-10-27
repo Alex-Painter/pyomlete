@@ -104,7 +104,7 @@ async def test_post_with_week_start_makes_seven_open_days(api):
     assert detail["week_start"] == WEEK
     assert [d["date"] for d in detail["days"]] == [f"2026-10-{n}" for n in range(17, 24)]
     assert all(
-        d == {"date": d["date"], "recipe_id": None, "status": "open", "origin": "user"}
+        d == {"date": d["date"], "recipe_id": None, "status": "open", "origin": "user", "quick": False}
         for d in detail["days"]
     )
 
@@ -129,7 +129,7 @@ async def test_set_clear_and_reset_a_day(api):
 
     body = (await put_day(api, list_id, TUESDAY, None)).json()
     assert day_of(body, TUESDAY) == {
-        "date": TUESDAY, "recipe_id": None, "status": "open", "origin": "user",
+        "date": TUESDAY, "recipe_id": None, "status": "open", "origin": "user", "quick": False,
     }
     # Cleared, but still on the list as an any-day meal.
     assert body["recipes"] == [curry]
@@ -250,14 +250,34 @@ async def test_recipes_carry_last_planned_on_across_lists(api):
 
 
 async def test_plan_settings_round_trip(api):
-    assert (await api.get("/settings/plan")).json() == {"week_start_weekday": 5}
+    defaults = {"week_start_weekday": 5, "variety_days": 3}
+    assert (await api.get("/settings/plan")).json() == defaults
 
     res = await api.put("/settings/plan", json={"week_start_weekday": 0})
-    assert res.json() == {"week_start_weekday": 0}
-    assert (await api.get("/settings/plan")).json() == {"week_start_weekday": 0}
+    assert res.json() == {**defaults, "week_start_weekday": 0}
+    # Either setting can be sent alone; the other keeps its value.
+    res = await api.put("/settings/plan", json={"variety_days": 5})
+    assert res.json() == {"week_start_weekday": 0, "variety_days": 5}
+    assert (await api.get("/settings/plan")).json() == {"week_start_weekday": 0, "variety_days": 5}
 
     assert (await api.put("/settings/plan", json={"week_start_weekday": 7})).status_code == 422
-    assert (await api.get("/settings/plan")).json() == {"week_start_weekday": 0}
+    assert (await api.put("/settings/plan", json={"variety_days": 0})).status_code == 422
+    assert (await api.get("/settings/plan")).json() == {"week_start_weekday": 0, "variety_days": 5}
+
+
+async def test_a_quick_night_outlasts_its_meal(api):
+    list_id = await make_week(api)
+    curry = await make_recipe("Curry", "chickpeas")
+    res = await api.put(f"/lists/{list_id}/days/{TUESDAY}", json={"recipe_id": None, "quick": True})
+    assert day_of(res.json(), TUESDAY)["quick"] is True
+
+    # A client that doesn't send quick, like the iOS app today, leaves it alone.
+    body = (await put_day(api, list_id, TUESDAY, curry)).json()
+    assert day_of(body, TUESDAY) | {"quick": True} == day_of(body, TUESDAY)
+    assert (await put_day(api, list_id, TUESDAY, None)).json()["days"][3]["quick"] is True
+
+    res = await api.put(f"/lists/{list_id}/days/{TUESDAY}", json={"recipe_id": None, "quick": False})
+    assert day_of(res.json(), TUESDAY)["quick"] is False
 
 
 async def test_a_meal_wins_over_out(api):

@@ -28,10 +28,18 @@ async def set_categories(categories: list[CategoryConfig]) -> list[CategoryConfi
 
 
 async def set_week_start_weekday(weekday: int) -> int:
+    return (await set_plan(weekday, None)).week_start_weekday
+
+
+async def set_plan(weekday: int | None, variety_days: int | None) -> UserSettingsDocument:
+    """Set the week's start day and the variety window, leaving out either one to keep it."""
     settings = await get_or_create()
-    settings.week_start_weekday = weekday
+    if weekday is not None:
+        settings.week_start_weekday = weekday
+    if variety_days is not None:
+        settings.variety_days = variety_days
     await settings.save()
-    return settings.week_start_weekday
+    return settings
 
 
 async def set_weekly_plan(enabled: bool, weekday: int, hour: int) -> UserSettingsDocument:

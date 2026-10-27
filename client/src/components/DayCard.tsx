@@ -1,9 +1,11 @@
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftRight, ChefHat, Clock, Moon, Star, X } from 'lucide-react'
+import { ArrowLeftRight, ChefHat, Clock, Moon, Star, X, Zap } from 'lucide-react'
 import { CookedToggle } from '@/components/Cooked'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { formatMinutes } from '@/components/RecipeMetaRow'
+import { QUICK_MINUTES } from '@/lib/libraryQuery'
 import { dayKind, dayLong, longDate } from '@/lib/week'
+import { cn } from '@/lib/utils'
 import type { PlanDay, RecipeSummary } from '@/lib/types'
 
 const actionClass =
@@ -11,7 +13,8 @@ const actionClass =
 
 /**
  * The selected evening: its meal with Cook, Swap and Remove, an empty slot,
- * or Out. Cooked is a tick the person sets (Finish in Cook sets it too), and
+ * or Out. A quick night ranks dinners over 30 minutes lower; it belongs to the
+ * evening, so it stays when a meal goes on. Cooked is a tick the person sets (Finish in Cook sets it too), and
  * nothing else here changes when the meal is cooked.
  */
 export function DayCard({
@@ -24,6 +27,7 @@ export function DayCard({
   onSwap,
   onRemove,
   onOut,
+  onQuick,
 }: {
   day: PlanDay
   recipe: RecipeSummary | undefined
@@ -34,6 +38,7 @@ export function DayCard({
   onSwap: () => void
   onRemove: () => void
   onOut: (out: boolean) => void
+  onQuick: (quick: boolean) => void
 }) {
   const kind = dayKind(day)
   return (
@@ -42,7 +47,26 @@ export function DayCard({
         <h2 id="day-heading" className="text-lg font-semibold">
           {dayLong(day.date)} <span className="font-normal text-ink-muted">{longDate(day.date)}</span>
         </h2>
-        {day.date === today && <span className="text-sm font-medium text-ink-muted">Today</span>}
+        <div className="flex shrink-0 items-center gap-2">
+          {day.date === today && <span className="text-sm font-medium text-ink-muted">Today</span>}
+          {kind !== 'out' && (
+            <button
+              type="button"
+              aria-pressed={!!day.quick}
+              aria-label="Quick night"
+              onClick={() => onQuick(!day.quick)}
+              title={`Dinners over ${QUICK_MINUTES} minutes sink`}
+              className={cn(
+                'flex min-h-[44px] items-center gap-1 rounded-full border px-3 text-sm font-medium',
+                day.quick ? 'border-ink bg-ink text-white' : 'border-line bg-white text-ink-soft hover:bg-sand',
+              )}
+            >
+              <Zap className="size-3.5" />
+              <span className="sm:hidden">Quick</span>
+              <span className="hidden sm:inline">Quick night</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {kind === 'planned' && day.recipe_id && (

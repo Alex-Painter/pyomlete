@@ -1,0 +1,976 @@
+{
+  "about": "Cases for the week's fit score (client/src/lib/fitScore.ts, and the iOS port). Each case ranks `recipes` for `day` in the week starting `week_start` and expects `order`, clean meals first. `week` maps a date to the recipe planned on it. A recipe's `tags` is 'base main mood cuisine', or null when untagged; unset fields are null and `ingredients` is empty. An item's `from` lists the meals that put it on the list. `reasons` and `clash` check the reason shown and which meals clash. `variety_days` defaults to 3 and `quick` to false.",
+  "cases": [
+    {
+      "name": "Pasta on Monday sinks pasta on Tuesday",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-19": "carbonara"
+      },
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian"
+        },
+        {
+          "id": "pesto",
+          "title": "Pesto pasta",
+          "tags": "pasta veggie fresh italian"
+        },
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        },
+        {
+          "id": "tacos",
+          "title": "Beef tacos",
+          "tags": "bread beef different mexican"
+        }
+      ],
+      "order": [
+        "tacos",
+        "curry",
+        "carbonara",
+        "pesto"
+      ],
+      "reasons": {
+        "pesto": "Pasta on Monday",
+        "carbonara": "On Monday already"
+      },
+      "clash": [
+        "carbonara",
+        "pesto"
+      ]
+    },
+    {
+      "name": "Pasta on Monday still sinks pasta on Thursday",
+      "week_start": "2026-10-17",
+      "day": "2026-10-22",
+      "week": {
+        "2026-10-19": "carbonara"
+      },
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian"
+        },
+        {
+          "id": "pesto",
+          "title": "Pesto pasta",
+          "tags": "pasta veggie fresh italian"
+        },
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        }
+      ],
+      "order": [
+        "curry",
+        "pesto",
+        "carbonara"
+      ],
+      "reasons": {
+        "pesto": "Pasta on Monday"
+      },
+      "clash": [
+        "carbonara",
+        "pesto"
+      ]
+    },
+    {
+      "name": "Pasta is back on Friday",
+      "week_start": "2026-10-17",
+      "day": "2026-10-23",
+      "week": {
+        "2026-10-19": "carbonara"
+      },
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian"
+        },
+        {
+          "id": "pesto",
+          "title": "Pesto pasta",
+          "tags": "pasta veggie fresh italian"
+        },
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        }
+      ],
+      "order": [
+        "curry",
+        "pesto",
+        "carbonara"
+      ],
+      "reasons": {
+        "pesto": null,
+        "carbonara": "On Monday already"
+      },
+      "clash": [
+        "carbonara"
+      ]
+    },
+    {
+      "name": "A five-day window keeps pasta down on Friday",
+      "week_start": "2026-10-17",
+      "day": "2026-10-23",
+      "variety_days": 5,
+      "week": {
+        "2026-10-19": "carbonara"
+      },
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian"
+        },
+        {
+          "id": "pesto",
+          "title": "Pesto pasta",
+          "tags": "pasta veggie fresh italian"
+        },
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        }
+      ],
+      "order": [
+        "curry",
+        "pesto",
+        "carbonara"
+      ],
+      "reasons": {
+        "pesto": "Pasta on Monday"
+      },
+      "clash": [
+        "carbonara",
+        "pesto"
+      ]
+    },
+    {
+      "name": "Chicken on Thursday sinks chicken the day before",
+      "week_start": "2026-10-17",
+      "day": "2026-10-21",
+      "week": {
+        "2026-10-22": "curry"
+      },
+      "recipes": [
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        },
+        {
+          "id": "traybake",
+          "title": "Chicken traybake",
+          "tags": "potatoes chicken comforting british"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        }
+      ],
+      "order": [
+        "fishpie",
+        "traybake",
+        "curry"
+      ],
+      "reasons": {
+        "traybake": "Chicken on Thursday"
+      },
+      "clash": [
+        "curry",
+        "traybake"
+      ]
+    },
+    {
+      "name": "Chicken on Thursday sinks chicken the day after",
+      "week_start": "2026-10-17",
+      "day": "2026-10-23",
+      "week": {
+        "2026-10-22": "curry"
+      },
+      "recipes": [
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        },
+        {
+          "id": "traybake",
+          "title": "Chicken traybake",
+          "tags": "potatoes chicken comforting british"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        }
+      ],
+      "order": [
+        "fishpie",
+        "traybake",
+        "curry"
+      ],
+      "reasons": {
+        "traybake": "Chicken on Thursday",
+        "curry": "On Thursday already"
+      },
+      "clash": [
+        "curry",
+        "traybake"
+      ]
+    },
+    {
+      "name": "Chicken two days apart is fine",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-22": "curry"
+      },
+      "recipes": [
+        {
+          "id": "traybake",
+          "title": "Chicken traybake",
+          "tags": "potatoes chicken comforting british"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        },
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        }
+      ],
+      "order": [
+        "traybake",
+        "fishpie",
+        "curry"
+      ],
+      "clash": [
+        "curry"
+      ]
+    },
+    {
+      "name": "Thai on Thursday sinks Vietnamese on Friday",
+      "week_start": "2026-10-17",
+      "day": "2026-10-23",
+      "week": {
+        "2026-10-22": "green"
+      },
+      "recipes": [
+        {
+          "id": "green",
+          "title": "Thai green curry",
+          "tags": "rice chicken fresh south_east_asian"
+        },
+        {
+          "id": "pho",
+          "title": "Pho",
+          "tags": "noodles beef fresh south_east_asian"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        }
+      ],
+      "order": [
+        "fishpie",
+        "pho",
+        "green"
+      ],
+      "reasons": {
+        "pho": "South-east Asian on Thursday"
+      },
+      "clash": [
+        "green",
+        "pho"
+      ]
+    },
+    {
+      "name": "The same cuisine three days on is fine",
+      "week_start": "2026-10-17",
+      "day": "2026-10-23",
+      "week": {
+        "2026-10-20": "green"
+      },
+      "recipes": [
+        {
+          "id": "pho",
+          "title": "Pho",
+          "tags": "noodles beef fresh south_east_asian"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        },
+        {
+          "id": "green",
+          "title": "Thai green curry",
+          "tags": "rice chicken fresh south_east_asian"
+        }
+      ],
+      "order": [
+        "fishpie",
+        "pho",
+        "green"
+      ],
+      "clash": [
+        "green"
+      ]
+    },
+    {
+      "name": "Spinach and feta on the list lift a frittata",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-19": "spanakopita"
+      },
+      "items": [
+        {
+          "name": "Spinach",
+          "category": "Fresh Produce",
+          "from": [
+            "spanakopita"
+          ]
+        },
+        {
+          "name": "Feta",
+          "category": "Dairy & Eggs",
+          "from": [
+            "spanakopita"
+          ]
+        },
+        {
+          "name": "Olive oil",
+          "category": "Pantry & Dry Goods",
+          "from": [
+            "spanakopita"
+          ]
+        }
+      ],
+      "recipes": [
+        {
+          "id": "spanakopita",
+          "title": "Spanakopita",
+          "tags": "bread veggie comforting greek",
+          "ingredients": [
+            "spinach",
+            "feta",
+            "olive oil"
+          ]
+        },
+        {
+          "id": "frittata",
+          "title": "Spinach frittata",
+          "tags": "none veggie fresh italian",
+          "ingredients": [
+            "spinach",
+            "feta",
+            "eggs",
+            "olive oil"
+          ]
+        },
+        {
+          "id": "soup",
+          "title": "Lentil soup",
+          "tags": "none beans comforting middle_eastern",
+          "rating": 4
+        }
+      ],
+      "order": [
+        "frittata",
+        "soup",
+        "spanakopita"
+      ],
+      "reasons": {
+        "frittata": "Uses the spinach and feta already on the list",
+        "soup": "Rated 4, not planned yet"
+      },
+      "clash": [
+        "spanakopita"
+      ]
+    },
+    {
+      "name": "Sharing ingredients never outweighs a clash",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-19": "carbonara"
+      },
+      "items": [
+        {
+          "name": "spinach",
+          "category": "Fresh Produce",
+          "from": [
+            "carbonara"
+          ]
+        },
+        {
+          "name": "cream",
+          "category": "Dairy & Eggs",
+          "from": [
+            "carbonara"
+          ]
+        },
+        {
+          "name": "parmesan",
+          "category": "Dairy & Eggs",
+          "from": [
+            "carbonara"
+          ]
+        },
+        {
+          "name": "bacon",
+          "category": "Meat & Fish",
+          "from": [
+            "carbonara"
+          ]
+        }
+      ],
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian",
+          "ingredients": [
+            "bacon",
+            "cream",
+            "parmesan"
+          ]
+        },
+        {
+          "id": "creamy",
+          "title": "Creamy spinach pasta",
+          "tags": "pasta veggie comforting british",
+          "rating": 5,
+          "ingredients": [
+            "spinach",
+            "cream",
+            "parmesan",
+            "bacon"
+          ]
+        },
+        {
+          "id": "bowl",
+          "title": "Rice bowl",
+          "tags": "rice fish fresh japanese",
+          "rating": 3
+        }
+      ],
+      "order": [
+        "bowl",
+        "creamy",
+        "carbonara"
+      ],
+      "reasons": {
+        "creamy": "Pasta on Monday"
+      },
+      "clash": [
+        "carbonara",
+        "creamy"
+      ]
+    },
+    {
+      "name": "An item only this meal brought isn't shared",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {},
+      "items": [
+        {
+          "name": "spinach",
+          "category": "Fresh Produce",
+          "from": [
+            "frittata"
+          ]
+        }
+      ],
+      "recipes": [
+        {
+          "id": "frittata",
+          "title": "Spinach frittata",
+          "tags": "none veggie fresh italian",
+          "ingredients": [
+            "spinach"
+          ]
+        },
+        {
+          "id": "saag",
+          "title": "Saag aloo",
+          "tags": "potatoes veggie comforting indian",
+          "ingredients": [
+            "spinach",
+            "potatoes"
+          ]
+        }
+      ],
+      "order": [
+        "saag",
+        "frittata"
+      ],
+      "reasons": {
+        "saag": "Uses the spinach already on the list",
+        "frittata": null
+      }
+    },
+    {
+      "name": "A typed item counts as on the list",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {},
+      "items": [
+        {
+          "name": "Coriander",
+          "category": "Fresh Produce",
+          "from": []
+        }
+      ],
+      "recipes": [
+        {
+          "id": "dal",
+          "title": "Tarka dal",
+          "tags": "rice beans comforting indian",
+          "ingredients": [
+            "red lentils",
+            "coriander"
+          ]
+        },
+        {
+          "id": "bake",
+          "title": "Bean bake",
+          "tags": "bread beans comforting british",
+          "ingredients": [
+            "beans"
+          ]
+        }
+      ],
+      "order": [
+        "dal",
+        "bake"
+      ],
+      "reasons": {
+        "dal": "Uses the coriander already on the list"
+      }
+    },
+    {
+      "name": "Pantry staples aren't counted as shared",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {},
+      "items": [
+        {
+          "name": "olive oil",
+          "category": "Pantry & Dry Goods",
+          "from": [
+            "x"
+          ]
+        }
+      ],
+      "recipes": [
+        {
+          "id": "a",
+          "title": "A salad",
+          "tags": "none veggie fresh greek",
+          "ingredients": [
+            "olive oil"
+          ]
+        },
+        {
+          "id": "b",
+          "title": "B salad",
+          "tags": "none veggie fresh greek"
+        }
+      ],
+      "order": [
+        "a",
+        "b"
+      ],
+      "reasons": {
+        "a": null,
+        "b": null
+      }
+    },
+    {
+      "name": "A quick night sinks the long cooks",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "quick": true,
+      "week": {},
+      "recipes": [
+        {
+          "id": "lasagne",
+          "title": "Lasagne",
+          "tags": "pasta beef comforting italian",
+          "total_minutes": 75,
+          "rating": 5
+        },
+        {
+          "id": "stirfry",
+          "title": "Stir fry",
+          "tags": "noodles chicken fresh chinese",
+          "total_minutes": 20
+        },
+        {
+          "id": "salad",
+          "title": "Salad",
+          "tags": "none veggie fresh greek",
+          "total_minutes": 30
+        },
+        {
+          "id": "unknown",
+          "title": "Unknown time",
+          "tags": "rice veggie comforting indian"
+        }
+      ],
+      "order": [
+        "salad",
+        "stirfry",
+        "unknown",
+        "lasagne"
+      ],
+      "reasons": {
+        "lasagne": "75 min on a quick night",
+        "stirfry": "20 min, quick enough",
+        "unknown": null
+      },
+      "clash": [
+        "lasagne"
+      ]
+    },
+    {
+      "name": "An untagged meal ranks on rating and history and never clashes on tags",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-19": "carbonara"
+      },
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian"
+        },
+        {
+          "id": "stew",
+          "title": "Mystery stew",
+          "tags": null,
+          "rating": 5
+        },
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian"
+        }
+      ],
+      "order": [
+        "stew",
+        "curry",
+        "carbonara"
+      ],
+      "reasons": {
+        "stew": "Rated 5, not planned yet"
+      },
+      "clash": [
+        "carbonara"
+      ]
+    },
+    {
+      "name": "A favourite not had for months comes first",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {},
+      "recipes": [
+        {
+          "id": "old",
+          "title": "Shepherd's pie",
+          "tags": "potatoes lamb comforting british",
+          "rating": 5,
+          "last_planned_on": "2026-08-01"
+        },
+        {
+          "id": "new",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian",
+          "rating": 5
+        },
+        {
+          "id": "meh",
+          "title": "Bean chilli",
+          "tags": "rice beans comforting mexican",
+          "rating": 2,
+          "last_planned_on": "2026-06-01"
+        }
+      ],
+      "order": [
+        "old",
+        "new",
+        "meh"
+      ],
+      "reasons": {
+        "old": "Not had since August, rated 5",
+        "new": "Rated 5, not planned yet",
+        "meh": null
+      }
+    },
+    {
+      "name": "A meal had nine days ago is a repeat",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {},
+      "recipes": [
+        {
+          "id": "recent",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian",
+          "rating": 5,
+          "last_planned_on": "2026-10-11"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        }
+      ],
+      "order": [
+        "fishpie",
+        "recent"
+      ],
+      "reasons": {
+        "recent": "Had on Sun 11 Oct"
+      },
+      "clash": [
+        "recent"
+      ]
+    },
+    {
+      "name": "A meal had fifteen days ago is not",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {},
+      "recipes": [
+        {
+          "id": "recent",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian",
+          "rating": 5,
+          "last_planned_on": "2026-10-05"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        }
+      ],
+      "order": [
+        "recent",
+        "fishpie"
+      ],
+      "clash": []
+    },
+    {
+      "name": "Pasta last Friday counts on the Saturday of a new week",
+      "week_start": "2026-10-17",
+      "day": "2026-10-17",
+      "week": {},
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian",
+          "last_planned_on": "2026-10-16"
+        },
+        {
+          "id": "pesto",
+          "title": "Pesto pasta",
+          "tags": "pasta veggie fresh british"
+        },
+        {
+          "id": "fishpie",
+          "title": "Fish pie",
+          "tags": "potatoes fish comforting british"
+        }
+      ],
+      "order": [
+        "fishpie",
+        "pesto",
+        "carbonara"
+      ],
+      "reasons": {
+        "pesto": "Pasta on Friday",
+        "carbonara": "Had on Fri 16 Oct"
+      },
+      "clash": [
+        "carbonara",
+        "pesto"
+      ]
+    },
+    {
+      "name": "Veggie two nights running is fine",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-19": "saag"
+      },
+      "recipes": [
+        {
+          "id": "saag",
+          "title": "Saag aloo",
+          "tags": "potatoes veggie comforting indian"
+        },
+        {
+          "id": "frittata",
+          "title": "Frittata",
+          "tags": "none veggie fresh spanish"
+        }
+      ],
+      "order": [
+        "frittata",
+        "saag"
+      ],
+      "clash": [
+        "saag"
+      ]
+    },
+    {
+      "name": "No base is never a repeat",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-19": "soup"
+      },
+      "recipes": [
+        {
+          "id": "soup",
+          "title": "Lentil soup",
+          "tags": "none beans comforting middle_eastern"
+        },
+        {
+          "id": "salad",
+          "title": "Salad",
+          "tags": "none fish fresh french"
+        }
+      ],
+      "order": [
+        "salad",
+        "soup"
+      ],
+      "clash": [
+        "soup"
+      ]
+    },
+    {
+      "name": "The day's own meal doesn't clash with itself",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "week": {
+        "2026-10-20": "pesto"
+      },
+      "recipes": [
+        {
+          "id": "pesto",
+          "title": "Pesto pasta",
+          "tags": "pasta veggie fresh italian",
+          "last_planned_on": "2026-10-20"
+        },
+        {
+          "id": "curry",
+          "title": "Chicken curry",
+          "tags": "rice chicken comforting indian",
+          "rating": 2
+        }
+      ],
+      "order": [
+        "pesto",
+        "curry"
+      ],
+      "clash": []
+    },
+    {
+      "name": "The strongest clash is the reason",
+      "week_start": "2026-10-17",
+      "day": "2026-10-20",
+      "quick": true,
+      "week": {
+        "2026-10-19": "carbonara"
+      },
+      "recipes": [
+        {
+          "id": "carbonara",
+          "title": "Carbonara",
+          "tags": "pasta pork comforting italian"
+        },
+        {
+          "id": "ragu",
+          "title": "Pork ragu",
+          "tags": "pasta pork comforting italian",
+          "total_minutes": 120
+        }
+      ],
+      "order": [
+        "carbonara",
+        "ragu"
+      ],
+      "reasons": {
+        "ragu": "Pasta on Monday"
+      },
+      "clash": [
+        "carbonara",
+        "ragu"
+      ]
+    },
+    {
+      "name": "A plain list ranks on rating and history alone",
+      "week_start": null,
+      "day": "2026-10-20",
+      "week": {},
+      "recipes": [
+        {
+          "id": "a",
+          "title": "Alpha",
+          "tags": "pasta veggie fresh italian",
+          "rating": 3,
+          "last_planned_on": "2026-09-01"
+        },
+        {
+          "id": "b",
+          "title": "Bravo",
+          "tags": "pasta veggie fresh italian",
+          "rating": 4,
+          "last_planned_on": "2026-09-29"
+        },
+        {
+          "id": "c",
+          "title": "Charlie",
+          "tags": "pasta veggie fresh italian"
+        }
+      ],
+      "order": [
+        "a",
+        "b",
+        "c"
+      ],
+      "reasons": {
+        "a": null,
+        "b": "Not had since September, rated 4",
+        "c": null
+      },
+      "clash": []
+    }
+  ]
+}

@@ -24,7 +24,14 @@ export type QueuedOp = { opId: string; listId: string; notBefore?: number } & (
   | { kind: 'patch'; itemId: string; updates: Partial<ListItem> }
   | { kind: 'delete'; itemId: string }
   | { kind: 'removeRecipe'; recipeId: string }
-  | { kind: 'setDay'; date: ISODate; recipeId: string | null; status: DayStatus }
+  | {
+      kind: 'setDay'
+      date: ISODate
+      recipeId: string | null
+      status: DayStatus
+      /** Left out, the day keeps its quick night. */
+      quick?: boolean
+    }
   | { kind: 'setCooked'; recipeId: string; cooked: boolean }
 )
 
@@ -148,6 +155,7 @@ export function enqueue(op: NewOp): string {
     ) {
       target.recipeId = queued.recipeId
       target.status = queued.status
+      if (queued.quick !== undefined) target.quick = queued.quick
       writeQueue(queue)
       return target.opId
     }
@@ -246,7 +254,7 @@ async function send(op: QueuedOp, keepalive: boolean): Promise<Response> {
     case 'setDay':
       return apiFetch(`${base}/days/${op.date}`, {
         method: 'PUT',
-        ...json({ recipe_id: op.recipeId, status: op.status }, keepalive),
+        ...json({ recipe_id: op.recipeId, status: op.status, quick: op.quick }, keepalive),
       })
     case 'setCooked':
       return apiFetch(`${base}/recipes/${op.recipeId}/cooked`, {
@@ -378,7 +386,13 @@ export function applyOps(list: ListDetail, ops: QueuedOp[]): ListDetail {
         // leaves the meal on the list for any day.
         days = days.map((d) =>
           d.date === op.date
-            ? { ...d, recipe_id: op.recipeId, status: op.status, origin: 'user' as const }
+            ? {
+                ...d,
+                recipe_id: op.recipeId,
+                status: op.status,
+                origin: 'user' as const,
+                quick: op.quick ?? d.quick,
+              }
             : d,
         )
         if (op.recipeId && !recipes.includes(op.recipeId)) recipes = [...recipes, op.recipeId]

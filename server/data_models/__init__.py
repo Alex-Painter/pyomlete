@@ -88,6 +88,9 @@ class PlanDay(BaseModel):
     recipe_id: Optional[str] = None
     # "out" means no dinner to cook that night, e.g. eating out.
     status: Literal["open", "out"] = "open"
+    # A quick night: the fit score sinks dinners over 30 minutes. Kept when a
+    # meal goes on the day, since it's about the evening, not the meal.
+    quick: bool = False
     origin: Literal["user", "calendar", "chef"] = "user"
 
 
@@ -134,6 +137,8 @@ class UserSettingsDocument(Document):
     )
     # 0 is Monday. Saturday by default: the week runs from one shop to the next.
     week_start_weekday: int = 5
+    # How many days a base (pasta, rice...) stays off the menu after it's had.
+    variety_days: int = 3
     # When Chef plans the coming week on its own (chef/run.py), in UK time.
     # Sunday at 08:00 by default; 0 is Monday.
     weekly_plan: bool = True

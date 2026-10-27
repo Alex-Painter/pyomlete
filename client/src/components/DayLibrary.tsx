@@ -1,30 +1,48 @@
-import { useEffect, useMemo, useReducer, useRef } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useDraggable } from '@dnd-kit/core'
-import { Check, Clock, Loader2, Plus, Search, Star } from 'lucide-react'
+import { Check, Clock, Loader2, Plus, RefreshCw, Search, Star } from 'lucide-react'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { formatMinutes } from '@/components/RecipeMetaRow'
+import { fitContext, rankForDay, sharedWithList } from '@/lib/fitScore'
+import type { Fit, FitContext, Ranked } from '@/lib/fitScore'
 import {
+  BEST_SORT,
   FILTERS,
   SORTS,
+  USES_LIST_FILTER,
   contextLine,
+  initialDayQuery,
   initialLibraryQuery,
   libraryReducer,
   queryLibrary,
+  tagFilters,
   withWeekHistory,
 } from '@/lib/libraryQuery'
-import type { LibrarySort } from '@/lib/libraryQuery'
-import type { ISODate, PlanDay, RecipeSummary } from '@/lib/types'
+import type { DayRanking, LibrarySort } from '@/lib/libraryQuery'
+import { dayLong } from '@/lib/week'
+import type { ISODate, ListItem, PlanDay, RecipeSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 /** How a row ends: what a tap will do, or that it's already done. */
 export type RowMark = 'add' | 'added' | 'busy'
 
+/** How many meals Top three shows, and Something else moves on by. */
+const TOP = 3
+
+/** The evening a week's library ranks for, and what it ranks against. */
+export type LibraryDay = {
+  day: PlanDay
+  items: ListItem[]
+  varietyDays: number
+}
+
 /**
  * The meal library, inline on Plan rather than in a sheet. On a week list it
- * picks the selected day's dinner; on a plain list it adds meals. Rows can be
- * dragged onto a day column on desktop.
+ * picks the selected day's dinner, ranked by how well each meal fits that
+ * evening with the reason on each row, and the top three on top; on a plain
+ * list it adds meals. Rows can be dragged onto a day column on desktop.
  */
 export function DayLibrary({
   id,
@@ -37,6 +55,7 @@ export function DayLibrary({
   onPick,
   draggable,
   searchRef,
+  forDay,
 }: {
   id: string
   heading: string
@@ -48,11 +67,35 @@ export function DayLibrary({
   onPick: (r: RecipeSummary) => void
   draggable: boolean
   searchRef?: Ref<HTMLInputElement>
+  /** Set on a week: rank for this evening. */
+  forDay?: LibraryDay
 }) {
-  const [query, dispatch] = useReducer(libraryReducer, initialLibraryQuery)
+  const [query, dispatch] = useReducer(libraryReducer, forDay ? initialDayQuery : initialLibraryQuery)
+  const library = useMemo(() => withWeekHistory(recipes ?? [], days), [recipes, days])
+  const ranking = useMemo(() => {
+    if (!forDay) return null
+    const ctx = fitContext({ ...forDay, days, recipes: library })
+    const ranked = rankForDay(library, ctx)
+    return { ctx, ranked, fits: new Map(ranked.map((r) => [r.recipe.id, r.fit])) }
+  }, [forDay, days, library])
+  const dayRanking = useMemo<DayRanking | undefined>(
+    () =>
+      ranking
+        ? {
+            rank: new Map(ranking.ranked.map((r, i) => [r.recipe.id, i])),
+            usesList: (r) => sharedWithList(r, ranking.ctx).length > 0,
+          }
+        : undefined,
+    [ranking],
+  )
   const rows = useMemo(
-    () => queryLibrary(withWeekHistory(recipes ?? [], days), query, today),
-    [recipes, days, query, today],
+    () => queryLibrary(library, query, today, dayRanking),
+    [library, query, today, dayRanking],
+  )
+  const sorts = forDay ? [BEST_SORT, ...SORTS] : SORTS
+  const filters = useMemo(
+    () => [...FILTERS, ...(forDay ? [USES_LIST_FILTER] : []), ...tagFilters(recipes ?? [])],
+    [forDay, recipes],
   )
 
   return (
@@ -60,6 +103,17 @@ export function DayLibrary({
       <h2 id={`${id}-heading`} className="mb-3 text-lg font-semibold">
         {heading}
       </h2>
+
+      {ranking && forDay && forDay.day.status !== 'out' && (
+        <TopThree
+          key={forDay.day.date}
+          date={forDay.day.date}
+          ranked={ranking.ranked}
+          ctx={ranking.ctx}
+          markFor={markFor}
+          onPick={onPick}
+        />
+      )}
 
       <div className="mb-2 flex gap-2">
         <label className="relative block min-w-0 flex-1">
@@ -81,12 +135,12 @@ export function DayLibrary({
           id={`${id}-sort`}
           value={query.sort}
           onChange={(e) => {
-            const sort = SORTS.find((s) => s.id === e.target.value)
+            const sort = sorts.find((s) => s.id === e.target.value)
             if (sort) dispatch({ kind: 'sort', sort: sort.id satisfies LibrarySort })
           }}
           className="h-11 max-w-[42%] shrink-0 rounded-xl border border-line bg-white px-2 text-sm font-medium outline-none focus:ring-2 focus:ring-ring"
         >
-          {SORTS.map((s) => (
+          {sorts.map((s) => (
             <option key={s.id} value={s.id}>
               {s.label}
             </option>
@@ -95,7 +149,7 @@ export function DayLibrary({
       </div>
 
       <div role="group" aria-label="Filters" className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4">
-        {FILTERS.map((f) => {
+        {filters.map((f) => {
           const on = query.filters.includes(f.id)
           return (
             <button
@@ -142,7 +196,8 @@ export function DayLibrary({
           <LibraryRow
             key={r.id}
             recipe={r}
-            context={contextLine(r, today)}
+            context={ranking?.fits.get(r.id)?.reason ?? contextLine(r, today)}
+            clash={ranking?.fits.get(r.id)?.clash ?? false}
             mark={markFor(r)}
             onPick={() => onPick(r)}
             draggable={draggable}
@@ -153,15 +208,115 @@ export function DayLibrary({
   )
 }
 
+/**
+ * The three best fits for the evening, each with its reason, so most dinners
+ * are one glance and one tap. Something else shows the next three; skipping
+ * one says "not tonight", never "not for me", so nothing is sent anywhere.
+ */
+function TopThree({
+  date,
+  ranked,
+  ctx,
+  markFor,
+  onPick,
+}: {
+  date: ISODate
+  ranked: Ranked[]
+  ctx: FitContext
+  markFor: (r: RecipeSummary) => RowMark
+  onPick: (r: RecipeSummary) => void
+}) {
+  const [page, setPage] = useState(0)
+  // The day's own meal is already chosen; the rest are what you'd swap to.
+  const pool = ranked.filter((r) => r.recipe.id !== ctx.day.recipe_id)
+  if (pool.length === 0) return null
+  const pages = Math.ceil(pool.length / TOP)
+  const shown = pool.slice((page % pages) * TOP, (page % pages) * TOP + TOP)
+  return (
+    <section aria-label={`Top three for ${dayLong(date)}`} className="mb-4">
+      <ul className="space-y-2">
+        {shown.map(({ recipe, fit }) => (
+          <TopCard
+            key={recipe.id}
+            recipe={recipe}
+            fit={fit}
+            mark={markFor(recipe)}
+            onPick={() => onPick(recipe)}
+          />
+        ))}
+      </ul>
+      {pages > 1 && (
+        <button
+          type="button"
+          onClick={() => setPage((p) => p + 1)}
+          className="mt-2 flex min-h-[44px] items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink-soft hover:bg-sand"
+        >
+          <RefreshCw className="size-4" />
+          {(page + 1) % pages === 0 ? 'Back to the top three' : 'Something else'}
+        </button>
+      )}
+    </section>
+  )
+}
+
+function TopCard({
+  recipe,
+  fit,
+  mark,
+  onPick,
+}: {
+  recipe: RecipeSummary
+  fit: Fit
+  mark: RowMark
+  onPick: () => void
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onPick}
+        disabled={mark === 'busy'}
+        aria-pressed={mark === 'added' ? true : undefined}
+        className="flex min-h-[72px] w-full items-center gap-3 rounded-2xl border border-line bg-white p-2 text-left shadow-sm hover:bg-sand"
+      >
+        <RecipeThumb src={recipe.image_url} title={recipe.title} className="size-14 shrink-0 rounded-xl" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold leading-snug">{recipe.title}</span>
+          {fit.reason && (
+            <span className={cn('block text-sm', fit.clash ? 'text-clash' : 'text-ink-soft')}>
+              {fit.reason}
+            </span>
+          )}
+          {recipe.total_minutes != null && (
+            <span className="flex items-center gap-1 text-sm text-ink-muted">
+              <Clock className="size-3" />
+              {formatMinutes(recipe.total_minutes)}
+            </span>
+          )}
+        </span>
+        {mark === 'added' ? (
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary">
+            <Check className="size-4" strokeWidth={3} />
+          </span>
+        ) : (
+          <Plus className="size-5 shrink-0 text-ink-muted" />
+        )}
+      </button>
+    </li>
+  )
+}
+
 function LibraryRow({
   recipe,
   context,
+  clash,
   mark,
   onPick,
   draggable,
 }: {
   recipe: RecipeSummary
   context: string
+  clash: boolean
   mark: RowMark
   onPick: () => void
   draggable: boolean
@@ -217,7 +372,7 @@ function LibraryRow({
                 {recipe.rating}
               </span>
             )}
-            <span>{context}</span>
+            <span className={cn(clash && 'text-clash')}>{context}</span>
           </span>
         </span>
         {mark === 'busy' && <Loader2 className="size-5 shrink-0 animate-spin text-ink-muted" />}
