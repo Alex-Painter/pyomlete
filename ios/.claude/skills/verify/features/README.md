@@ -36,7 +36,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 - [Recipes](./recipes.md): the recipe library with search, sort and filters, and the recipe page. Cook, add to a list, rate, keep an ingredient off lists, edit, delete with Undo.
 - [Chef](./chef.md): the chat sheet over every screen but Shop and Cook, from the Chef tab or Plan's Chef button. Its three heights, the line saying what Chef is looking at, a reply streaming in, a change with Undo and the screen it touched refreshing, a 409 on Undo, photos, and the failure without a model. Streaming and changes run against a test-only canned Chef.
 - [Add a recipe](./add.md): one field for a link or a description, or photos. A link already imported, each kind of failure, a start whose answer is lost, a job that outlives the app being killed or left, and a server restarted under one.
-- [Settings](./settings.md): the aisle order behind the cog on each tab. Add, rename, delete with Undo, reorder, and a change made with the API away.
+- [Settings](./settings.md): the aisle order behind the cog on each tab. Add, rename, delete with Undo, reorder, and a change made with the API away; and What Chef knows, with Forget, Undo and Tell Chef.
 
 ## Screens not built yet
 

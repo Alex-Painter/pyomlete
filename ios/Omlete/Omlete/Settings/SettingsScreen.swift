@@ -198,6 +198,7 @@ private struct WhatChefKnows: View {
             default:
                 if memory.preferences.isEmpty {
                     Text("Nothing yet. Chef learns from what you cook and rate, and from what you tell it.")
+                        .foregroundStyle(.secondary)
                         .accessibilityIdentifier("settings.chefKnows.empty")
                 }
             }

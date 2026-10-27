@@ -277,10 +277,18 @@ import asyncio, sys
 from datetime import date, timedelta
 from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
-from data_models import PlannedMeal, RecipeDocument, WeekPlanDocument
+from data_models import PlannedMeal, PreferenceDocument, RecipeDocument, WeekPlanDocument
+from services.memory import key_for
 
 async def main(uri, source):
-    await init_beanie(database=AsyncIOMotorClient(uri)["omlete"], document_models=[RecipeDocument, WeekPlanDocument])
+    await init_beanie(
+        database=AsyncIOMotorClient(uri)["omlete"],
+        document_models=[PreferenceDocument, RecipeDocument, WeekPlanDocument])
+    # What Chef noticed, which only a model distils. The told ones go through the API below.
+    await PreferenceDocument.find_all().delete()
+    await PreferenceDocument(
+        subject="curry", stance="prefer", evidence="Rated 2 curries 5 stars", source="inferred",
+        key=key_for("curry")).insert()
     await WeekPlanDocument.find_all().delete()
     # chef/week.py's week_to_plan, for the seed's Saturday shop day.
     today = date.today()
@@ -307,7 +315,9 @@ async def main(uri, source):
 asyncio.run(main(*sys.argv[1:]))
 PY
 )"
-  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; \"$FIXTURE_WEEK\" ($week) from $start; 4 recipes; 5 suggestions; week plan $plan"
+  api -X POST "$API/api/preferences" -d '{"subject":"mushrooms","stance":"never"}' >/dev/null
+  api -X POST "$API/api/preferences" -d '{"subject":"fish","stance":"more"}' >/dev/null
+  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; \"$FIXTURE_WEEK\" ($week) from $start; 4 recipes; 5 suggestions; 3 preferences; week plan $plan"
 }
 
 # The API the app is launched against: the stub's while `chef-stub start` holds.
