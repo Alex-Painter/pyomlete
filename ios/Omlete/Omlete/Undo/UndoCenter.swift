@@ -6,7 +6,8 @@ import Observation
 ///
 /// Invariant: for each offer exactly one of `undo` and `commit` runs, once.
 /// `undo` runs on a tap. `commit` runs when the banner times out, when another
-/// offer replaces it, or when the app leaves the foreground.
+/// offer replaces it, when the app leaves the foreground, or when its action
+/// (such as Open) is tapped, which keeps the change and then acts.
 ///
 /// Invariant: news given to `inform` is said in the order it came and none is
 /// dropped. A piece cut short, by an offer or by the app leaving, is said again.
@@ -15,6 +16,14 @@ import Observation
         let id: Int
         let message: String
         let canUndo: Bool
+        /// The label of a second button beside Undo, such as Open.
+        let action: String?
+    }
+
+    /// A second button on the banner. It never navigates by itself: only a tap runs it.
+    struct Action {
+        let label: String
+        let perform: () -> Void
     }
 
     private(set) var banner: Banner?
@@ -22,6 +31,7 @@ import Observation
     @ObservationIgnored private let duration: Duration
     @ObservationIgnored private var undo: (() -> Void)?
     @ObservationIgnored private var commit: (() -> Void)?
+    @ObservationIgnored private var action: (() -> Void)?
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var lastID = 0
     /// News not yet said, oldest first.
@@ -35,19 +45,27 @@ import Observation
         self.duration = duration
     }
 
-    func offer(_ message: String, undo: (() -> Void)? = nil, commit: (() -> Void)? = nil) {
+    /// `lasting` overrides the usual time for a banner with more to read or tap.
+    func offer(
+        _ message: String, undo: (() -> Void)? = nil, commit: (() -> Void)? = nil, action: Action? = nil,
+        lasting: Duration? = nil
+    ) {
         cutNewsShort()
         settle(committing: true)
-        show(message, undo: undo, commit: commit)
+        show(message, undo: undo, commit: commit, action: action, lasting: lasting)
     }
 
-    private func show(_ message: String, undo: (() -> Void)? = nil, commit: (() -> Void)? = nil) {
+    private func show(
+        _ message: String, undo: (() -> Void)? = nil, commit: (() -> Void)? = nil, action: Action? = nil,
+        lasting: Duration? = nil
+    ) {
         lastID += 1
-        banner = Banner(id: lastID, message: message, canUndo: undo != nil)
+        banner = Banner(id: lastID, message: message, canUndo: undo != nil, action: action?.label)
         self.undo = undo
         self.commit = commit
+        self.action = action?.perform
         timer?.cancel()
-        timer = Task { [weak self, duration] in
+        timer = Task { [weak self, duration = lasting ?? duration] in
             try? await Task.sleep(for: duration)
             if !Task.isCancelled { self?.commitNow() }
         }
@@ -85,6 +103,13 @@ import Observation
         sayWhatWaited()
     }
 
+    func actionTapped() {
+        let action = action
+        settle(committing: true)
+        action?()
+        sayWhatWaited()
+    }
+
     func commitNow() {
         settle(committing: true)
         sayWhatWaited()
@@ -108,6 +133,7 @@ import Observation
         banner = nil
         news = nil
         undo = nil
+        action = nil
         self.commit = nil
         if committing { commit?() }
     }
