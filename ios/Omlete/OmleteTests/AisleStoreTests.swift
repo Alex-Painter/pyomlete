@@ -638,8 +638,8 @@ import Testing
             await phone.library.refresh()
             returned = true
         }
-        let loads = ["/api/lists/", "/api/recipes/", "/api/units"]
-        await eventually { Set(phone.transport.calls.suffix(3).map(\.path)) == Set(loads) }
+        let loads = ["/api/lists/", "/api/recipes/", "/api/units", "/api/settings/plan"]
+        await eventually { Set(phone.transport.calls.suffix(loads.count).map(\.path)) == Set(loads) }
         for path in loads { phone.transport.release(only: Call(method: "GET", path: path)) }
 
         await eventually { returned }

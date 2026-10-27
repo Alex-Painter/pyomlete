@@ -912,10 +912,10 @@ import Testing
     }
 
     private var picks: [SuggestionID] {
-        MealMenu(recipes: [], cards: chef.visible, onList: [], search: "").picks.map(\.id)
+        ChefPicks(cards: chef.visible).fresh.map(\.id)
     }
 
-    /// The web's picker keeps a card whose request could not be sent, so it is tapped again there.
+    /// Home keeps a card whose request could not be sent, so it is tapped again there.
     @Test func aPickWhoseSaveCouldNotBeSentIsStillAPickAndASecondTapSendsIt() async {
         server.cards = [card("a")]
         await chef.load()
@@ -931,11 +931,11 @@ import Testing
         }
         await chef.addToList("a", to: .list("list"))
         #expect(phone.undo.banner?.message == "Saving Card a. It goes on Week when it's ready.")
-        #expect(picks == ["a"])
+        #expect(picks == [])
     }
 
-    /// The picker has no way to send a save again, so a card the server could not make a recipe of leaves it.
-    @Test func aPickTheServerCouldNotSaveLeavesThePicker() async {
+    /// Home has no way to send a save again, so a card the server could not make a recipe of leaves it.
+    @Test func aPickTheServerCouldNotSaveLeavesHomesPicks() async {
         server.cards = [card("a")]
         await chef.load()
         await phone.library.refresh()

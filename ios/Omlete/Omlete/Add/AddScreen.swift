@@ -35,7 +35,6 @@ struct AddScreen: View {
         .background(Color(.systemGroupedBackground))
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Add a recipe")
-        .toolbar { SettingsCog(tab: .add) }
         .onChange(of: picked) {
             let items = picked
             guard !items.isEmpty else { return }

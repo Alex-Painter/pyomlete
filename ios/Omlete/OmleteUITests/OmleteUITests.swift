@@ -6,13 +6,13 @@ final class OmleteUITests: XCTestCase {
     }
 
     /// Port 9 answers nothing, so this is the app with no signal: Home must
-    /// still come up and offer New list.
+    /// still come up and offer Plan a week.
     @MainActor
     func testHomeComesUpWithNoSignal() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-apiBaseURL", "http://127.0.0.1:9"]
         app.launch()
 
-        XCTAssertTrue(app.buttons["home.newListButton"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["home.planWeekButton"].waitForExistence(timeout: 10))
     }
 }

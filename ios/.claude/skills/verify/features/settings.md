@@ -1,6 +1,6 @@
 # Settings
 
-One section, Aisles: the aisles in the order lists are grouped by, each with its name in a field, a delete button and a drag handle, then a field that adds a new aisle. Specified by `client/src/routes/settings.tsx`. Every change is one `PUT /api/settings/categories` of the whole order, and Plan, Shop and both aisle pickers follow it. A change made while the API cannot be reached is kept on the phone and sent later. Opening Settings asks for the aisles alone: one `GET /api/settings/categories`.
+Two parts. Aisles: the aisles in the order lists are grouped by, each with its name in a field, a delete button and a drag handle, then a field that adds a new aisle. Every change is one `PUT /api/settings/categories` of the whole order, and Plan, Shop and both aisle pickers follow it. A change made while the API cannot be reached is kept on the phone and sent later. What Chef knows: the preferences Chef goes by, You told Chef (source `told`) then Chef noticed (`inferred`), each "<Stance> <subject>" over its evidence, with Forget, then Tell Chef. Specified by `client/src/routes/settings.tsx`. Opening Settings asks for one `GET /api/settings/categories` and one `GET /api/preferences`.
 
 ## Sub-features
 
@@ -12,6 +12,10 @@ One section, Aisles: the aisles in the order lists are grouped by, each with its
 - `settings-items-keep-their-aisle` leaves the items of a renamed or deleted aisle under the old name, after every aisle still in the order.
 - `settings-offline` keeps a change made with the API away, shows it, and sends it when the app next comes to the front, is relaunched or loads the aisles. It is written to `aisles.json` whether or not the lists have ever loaded. While the save keeps failing the order stays owed and shown, and the aisles still load and can be changed. A save the server refuses (a 4xx) is put back and the banner says so; only the unit tests cover that (`AisleStoreTests`, `AisleDraftsTests`).
 - `settings-server-answer` shows the order a save answers with, so an aisle the server dropped as a repeat goes at once.
+- `settings-chef-knows` lists what Chef knows in two groups with the web's stance labels (never Never, avoid Avoid, less Less, more More, prefer Likes). A stance or source this build does not know drops the row. Nothing known reads "Nothing yet…"; a first load that fails says so with Try again (`settings.chefKnows.retryButton`), and a later one that fails keeps the rows.
+- `settings-forget` hides a preference at once and sends `PATCH /api/preferences/<id>` `{"forgotten":true}` at once, with an Undo banner, "Forgot <subject>". Undo puts the row back in its place and sends `{"forgotten":false}` once the forget has been answered. A forget the server does not take puts the row back and says so; only the unit tests cover that (`ChefMemoryTests`).
+- `settings-tell-chef` opens Chef's sheet at half height.
+- `settings-chef-knows-refresh` reloads what Chef knows after each change Chef makes in chat, as the web refetches everything.
 - `settings-not-loaded` shows the saved aisles greyed out, with Try again, until the API has answered a load or a save once this launch. An order still owed is the one shown.
 
 ## How to get to it (user POV)
@@ -23,7 +27,8 @@ One section, Aisles: the aisles in the order lists are grouped by, each with its
 Preconditions:
 
 - `$V up` just ran and `$V doctor` prints no `FAIL`. The seed puts the aisles back to the server's nine defaults: Fresh Produce, Meat & Fish, Dairy & Eggs, Bakery, Pantry & Dry Goods, Frozen, Drinks, Household, Other.
-- `curl -s http://127.0.0.1:8765/api/settings/categories | jq -c '[.[].name]'` is the second view of every step below.
+- `curl -s http://127.0.0.1:8765/api/settings/categories | jq -c '[.[].name]'` is the second view of every aisle step below.
+- The seed leaves three preferences: told `Never mushrooms` and `More fish` (evidence "You said so on <today>"), and inferred `Likes curry` ("Rated 2 curries 5 stars"), written straight into Mongo with the server's `PreferenceDocument` because only a model infers one. `curl -s http://127.0.0.1:8765/api/preferences | jq -c '[.[].subject]'` lists those not forgotten; a forgotten one has `retired_at` set: `docker exec omlete-ios-verify-mongo mongosh --quiet omlete --eval 'db.preferences.find({},{subject:1,retired_at:1}).toArray()'`.
 
 - **Open from each tab.** `$V tap tab.<tab>`, `$V tap <tab>.settingsButton`, `$V expect-id settings.newAisleField`, `$V tap BackButton`, `$V expect-id <tab>.settingsButton`, for `home`, `discover`, `add` and `recipes`.
 - **Add.** `$V type settings.newAisleField "World foods"`, `$V tap settings.addAisleButton`, `$V expect-id "settings.aisle.World foods"`. The API lists it last with `order` 9. In Plan, `$V tap plan.itemRow.<itemID>`, `$V tap itemSheet.categoryPicker`, `$V expect "World foods"`.
@@ -39,11 +44,19 @@ Preconditions:
 - **A save the server stored without answering.** `$V api freeze`, `$V tap "settings.deleteAisle.<name>"`, wait 30 seconds (the banner, then the app's 20-second timeout), `$V api release`. The log gains no PUT, because no answer was sent, and the API no longer lists the aisle. Add the aisle back on the phone, which is the order the phone last had answered: the log gains one PUT and the API lists it again.
 - **A repeat the server drops.** Store two aisles that differ only in case straight into the disposable Mongo: `docker exec omlete-ios-verify-mongo mongosh --quiet omlete --eval 'db.user_settings.updateMany({}, {$set:{categories:[{name:"Bakery",order:0},{name:"bakery",order:1},{name:"Dairy",order:2},{name:"Drinks",order:3}]}})'`. `$V relaunch`, open Settings: both are listed. Drag any handle: the log gains one PUT and no GET, and `settings.aisle.bakery` is gone from the next snapshot.
 - **Home refreshes while an aisle save hangs.** `api freeze` stops every request, so hold only the aisle save, by holding its document in a transaction: leave an order owed (add an aisle with the API stopped, `$V tap BackButton`, `$V api start`), then run in the background `docker exec omlete-ios-verify-mongo mongosh --quiet omlete --eval 'const s=db.getMongo().startSession(); s.startTransaction(); s.getDatabase("omlete").user_settings.updateOne({}, {$set:{held_by_verify:true}}); sleep(14000); s.abortTransaction()'`. Rename the list with `curl -X PATCH .../api/lists/<id>` and pull Home down. Within two seconds the log has `GET /api/lists/` and no PUT, and the app's `index.json` holds the new name; the PUT is answered when the transaction ends.
+- **What Chef knows.** `$V tap home.settingsButton`, `$V swipe settings.list up`, `$V expect-id settings.preference.mushrooms`, `$V expect "Rated 2 curries 5 stars"`. The rows read `Never mushrooms, You said so on …`, `More fish, …` and `Likes curry, …`; the screenshot shows You told Chef above Chef noticed.
+- **Forget.** `$V tap settings.forgetPreference.mushrooms`, `$V gone "Never mushrooms"`. The tap's screenshot has the banner `Forgot mushrooms` with Undo. The log has one `PATCH /api/preferences/<id>`, the API no longer lists mushrooms, and Mongo has its `retired_at` set.
+- **Forget, undone.** `$V tap settings.forgetPreference.fish then undo.button`, `$V expect-id settings.preference.fish`, back in its place. The log has two PATCHes and Mongo has `retired_at: null`.
+- **Tell Chef.** `$V swipe settings.list up` twice first (see Gotchas), `$V tap settings.tellChefButton`, `$V expect-id chef.empty`, `$V expect "Chef is looking at: Settings"`. The screenshot shows the sheet at half height.
+- **Nothing known.** Forget every row, `$V expect "Nothing yet. Chef learns from what you cook and rate"`.
+- **What Chef knows does not load.** `$V api stop`, `$V relaunch`, `$V tap home.settingsButton`, `$V swipe settings.list up`, `$V expect "Couldn't load what Chef knows"`. `$V api start`, `$V tap settings.chefKnows.retryButton`, `$V expect-id settings.preference.mushrooms`.
 - **Not loaded.** `$V api stop`, `$V relaunch`, `$V tap home.settingsButton`, `$V expect "Aisles can be changed once it answers"`. The screenshot shows the rows greyed out with no handles. `$V api start`, `$V tap settings.retryButton`, `$V gone "Aisles can be changed once it answers"`.
 
 ## Gotchas
 
-- The title "Settings" and the section header "Aisles" are not in the UI tree. The explanation under the section is, as one text.
+- `settings.tellChefButton` can sit under the tab bar while still in the UI tree, and a tap on it then lands on the tab bar (Discover). Swipe `settings.list` up until it is clear of the tab bar first.
+- A preference's ids are by subject: `settings.preference.<subject>` for the row's text and `settings.forgetPreference.<subject>` for Forget.
+- The title "Settings" and the section headers ("Aisles", "What Chef knows", "You told Chef", "Chef noticed") are not in the UI tree. The explanation under the section is, as one text.
 - An id with a space or an ampersand in it needs quoting in the shell: `"settings.aisle.Dairy & Eggs"`.
 - `$V type` leaves the keyboard in the field. A rename is sent when the field is left, so tap another field or Back before reading the API.
 - `settings.addAisleButton` is in the UI tree only while the new-aisle field holds text.

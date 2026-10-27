@@ -173,7 +173,8 @@ import Testing
         #expect(calls(startLink) == 1)
         #expect(Array(phone.transport.calls.suffix(4)) == [askAfter, askAfter, askAfter, fetchRecipe])
         #expect(phone.library.recipes.first == RecipeSummary(
-            id: "traybake", title: "Traybake", totalMinutes: 45, rating: 5, sourceName: "example.com", ingredientCount: 4))
+            id: "traybake", title: "Traybake", totalMinutes: 45, rating: 5, sourceName: "example.com", ingredientCount: 4,
+            ingredientNames: ["chicken", "potatoes", "oil", "salt"], createdAt: recipe.createdAt))
         #expect(phone.pulse.asked == [.milliseconds(1500), .milliseconds(1500)])
 
         phone.serverIsUnreachable()
