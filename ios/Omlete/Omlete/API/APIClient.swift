@@ -232,6 +232,33 @@ nonisolated struct APIClient: Sendable {
         _ = try await call("POST", "suggestions/clear", body: try Wire.clearing(ids, onlyNew: onlyNew))
     }
 
+    /// The week Chef proposes, while it waits for Make the list; nil when there isn't one.
+    func waitingWeek() async throws(APIError) -> WeekPlan? {
+        try await decode(Wire.waitingWeek, from: call("GET", "weeks/current"))
+    }
+
+    /// Asks a model for this week's dinners, so it can take minutes. A plan
+    /// already waiting is answered as it is.
+    func planWeek() async throws(APIError) -> WeekPlan {
+        try await decode(Wire.week, from: call("POST", "weeks/plan", body: try Wire.encode([String: Bool]()), patience: .slow))
+    }
+
+    /// Their recipes go on their evenings at once; the new ideas are saved in
+    /// the background and land on theirs. A plan already made or skipped is `.rejected(409)`.
+    func makeWeek(_ id: WeekPlanID) async throws(APIError) -> MadeWeek {
+        try await decode(Wire.madeWeek, from: call("POST", "weeks/\(id.rawValue)/make"))
+    }
+
+    /// "Not this week": hides the plan. Not a taste signal.
+    func skipWeek(_ id: WeekPlanID) async throws(APIError) {
+        _ = try await call("POST", "weeks/\(id.rawValue)/skip")
+    }
+
+    /// Puts back what one of Chef's changes changed. `.rejected(409)` when something else has changed it since.
+    func undoChefAction(_ id: ChefActionID) async throws(APIError) {
+        _ = try await call("POST", "chef/actions/\(id.rawValue)/undo")
+    }
+
     private enum Patience {
         case quick
         /// For a call that waits on a model. Overrides the transport's short default.

@@ -51,6 +51,7 @@ struct RootView: View {
                 if let open = navigation.openList { library.list(open).sync(refresh: true) }
                 Task { await library.refresh() }
                 Task { await chef.load() }
+                Task { await chef.week.load() }
             } else {
                 undo.appLeftFront()
             }

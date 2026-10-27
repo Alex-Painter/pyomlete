@@ -163,6 +163,30 @@ nonisolated enum Wire {
         }
     }
 
+    /// `null` when no plan is waiting.
+    static func waitingWeek(_ data: Data) throws -> WeekPlan? {
+        try JSONDecoder().decode(WeekPlanDTO?.self, from: data).map(week)
+    }
+
+    static func week(_ data: Data) throws -> WeekPlan {
+        try week(JSONDecoder().decode(WeekPlanDTO.self, from: data))
+    }
+
+    private static func week(_ dto: WeekPlanDTO) throws -> WeekPlan {
+        WeekPlan(
+            id: WeekPlanID(dto.id), weekOf: try planDate(dto.week_of), note: dto.note,
+            meals: try dto.meals.map { meal in
+                WeekMeal(
+                    day: try planDate(meal.day), title: meal.title, reason: meal.reason,
+                    recipe: meal.recipe_id.map { RecipeID($0) }, imageURL: meal.image_url.flatMap(URL.init(string:)))
+            }.sorted { $0.day < $1.day })
+    }
+
+    static func madeWeek(_ data: Data) throws -> MadeWeek {
+        let dto = try JSONDecoder().decode(MadeWeekDTO.self, from: data)
+        return MadeWeek(list: ListID(dto.list_id), name: dto.name, undo: ChefActionID(dto.undo))
+    }
+
     static func tune(_ tune: TuneSettings) throws(APIError) -> Data {
         try encode(TuneDTO(diet: tune.diet.rawValue, ease: tune.effort.rawValue, notes: tune.notes))
     }
@@ -415,6 +439,27 @@ nonisolated private struct SuggestionDTO: Decodable {
     let section: String?
     let status: String
     let recipe_id: String?
+}
+
+nonisolated private struct WeekPlanDTO: Decodable {
+    struct Meal: Decodable {
+        let day: String
+        let title: String
+        let reason: String
+        let recipe_id: String?
+        let image_url: String?
+    }
+
+    let id: String
+    let week_of: String
+    let note: String
+    let meals: [Meal]
+}
+
+nonisolated private struct MadeWeekDTO: Decodable {
+    let list_id: String
+    let name: String
+    let undo: String
 }
 
 nonisolated private struct TuneDTO: Encodable {
