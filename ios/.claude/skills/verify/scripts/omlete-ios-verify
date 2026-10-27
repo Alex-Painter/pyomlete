@@ -264,7 +264,44 @@ PY
   done
   api -X POST "$API/api/lists/$id/items" -d '{"name":"milk","amount":2,"unit":"pint","category":"Dairy & Eggs"}' >/dev/null
   api -X POST "$API/api/lists/$id/items" -d '{"name":"bananas","amount":6,"unit":null,"category":"Fresh Produce"}' >/dev/null
-  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; \"$FIXTURE_WEEK\" ($week) from $start; 4 recipes; 5 suggestions"
+  # Chef's week, waiting on Home and Discover as POST /api/weeks/plan leaves one (which needs a model).
+  local plan
+  plan="$(cd "$ROOT/server" && "$py" - "$DB_URI_LOCAL" "$FIXTURE_SOURCE" <<'PY'
+import asyncio, sys
+from datetime import date, timedelta
+from beanie import init_beanie
+from motor.motor_asyncio import AsyncIOMotorClient
+from data_models import PlannedMeal, RecipeDocument, WeekPlanDocument
+
+async def main(uri, source):
+    await init_beanie(database=AsyncIOMotorClient(uri)["omlete"], document_models=[RecipeDocument, WeekPlanDocument])
+    await WeekPlanDocument.find_all().delete()
+    # chef/week.py's week_to_plan, for the seed's Saturday shop day.
+    today = date.today()
+    current = today - timedelta(days=(today.weekday() - 5) % 7)
+    week_of = current + timedelta(days=7) if (today - current).days == 6 else current
+    recipes = {r.title: str(r.id) for r in await RecipeDocument.find_all().to_list()}
+    def known(day, name, reason):
+        title = f"Verify Fixture {name}"
+        return PlannedMeal(day=week_of + timedelta(days=day), title=title, reason=reason, recipe_id=recipes[title])
+    def idea(day, name, reason, url):
+        return PlannedMeal(
+            day=week_of + timedelta(days=day), title=f"Verify Week Idea {name}", reason=reason,
+            description=f"{name}, new for this week.", source_url=url)
+    plan = WeekPlanDocument(week_of=week_of, note="A gentle week, with two new things to try.", meals=[
+        known(1, "Shakshuka", "You rated it highly and it's quick."),
+        known(2, "Soft Egg", "Five minutes on a busy evening."),
+        idea(3, "Sheet Pan Chicken", "A one-tray dinner for midweek.", source),
+        known(4, "Lemon Drizzle Cake", "Not had in a while."),
+        idea(6, "Blocked Link", "Something new to end the week.", "http://127.0.0.1:9/verify-week-idea"),
+    ])
+    await plan.insert()
+    print(f"{plan.id} for {week_of}")
+
+asyncio.run(main(*sys.argv[1:]))
+PY
+)"
+  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; \"$FIXTURE_WEEK\" ($week) from $start; 4 recipes; 5 suggestions; week plan $plan"
 }
 
 state_get() { [ -f "$STATE" ] || return 0; sed -n "s/^$1=//p" "$STATE" | head -1; }
