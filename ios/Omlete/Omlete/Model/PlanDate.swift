@@ -52,7 +52,6 @@ nonisolated struct PlanDate: Hashable, Comparable, Sendable, Codable, CustomStri
         ((daysSince1970 + 3) % 7 + 7) % 7
     }
 
-    var year: Int { civil.year }
     var month: Int { civil.month }
     var day: Int { civil.day }
 

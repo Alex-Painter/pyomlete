@@ -1,17 +1,29 @@
 import SwiftUI
 
+/// Meals on a list as chips. Each opens the meal's actions: plan it for the
+/// selected evening on a week list, cook it, open it, or take it off the list.
 struct MealsStrip: View {
     let meals: [RecipeSummary]
-    let onRemove: (RecipeSummary) -> Void
+    /// The evening "Plan for" puts a meal on. nil on a plain list.
+    var planDay: PlanDate? = nil
+    var onPlan: (RecipeSummary) -> Void = { _ in }
     let onCook: (RecipeSummary) -> Void
+    let onOpen: (RecipeSummary) -> Void
+    let onRemove: (RecipeSummary) -> Void
 
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(meals) { meal in
                     Menu {
+                        if let planDay {
+                            Button("Plan for \(planDay.dayLong)", systemImage: "calendar") { onPlan(meal) }
+                                .accessibilityIdentifier("plan.planMealAction")
+                        }
                         Button("Cook this", systemImage: "frying.pan") { onCook(meal) }
                             .accessibilityIdentifier("plan.cookMealAction")
+                        Button("Open recipe", systemImage: "book") { onOpen(meal) }
+                            .accessibilityIdentifier("plan.openRecipeAction")
                         Button("Remove from list", systemImage: "trash", role: .destructive) { onRemove(meal) }
                             .accessibilityIdentifier("plan.removeMealAction")
                     } label: {
