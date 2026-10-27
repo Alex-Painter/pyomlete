@@ -7,8 +7,13 @@ nonisolated struct CookRecord: Codable, Equatable, Sendable {
     var session: CookSession
     /// A rating tapped but not yet confirmed by the server. The latest tap wins.
     var unsentRating: Int?
+    /// `session.meal` as the server last took it.
+    var loggedMeal: CookSession.Meal?
 
     var id: RecipeID { session.recipe.id }
+
+    /// This cook's meal, while the server does not have it as it is here.
+    var mealToSend: CookSession.Meal? { session.meal == loggedMeal ? nil : session.meal }
 }
 
 protocol CookStorage {

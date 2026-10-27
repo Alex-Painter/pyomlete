@@ -6,8 +6,9 @@ struct OmleteApp: App {
     @State private var kitchen: Kitchen
     @State private var chef: Chef
     @State private var intake: RecipeIntake
-    @State private var navigation = AppNavigation()
+    @State private var navigation: AppNavigation
     @State private var undo: UndoCenter
+    @State private var chefChat: ChefChat
 
     init() {
         let undo = UndoCenter()
@@ -26,7 +27,12 @@ struct OmleteApp: App {
         connectivity.start()
         _library = State(initialValue: library)
         _kitchen = State(initialValue: kitchen)
-        _chef = State(initialValue: Chef(deps: ChefDependencies(api: api, undo: undo, library: library)))
+        let chef = Chef(deps: ChefDependencies(api: api, undo: undo, library: library))
+        let navigation = AppNavigation()
+        _chef = State(initialValue: chef)
+        _navigation = State(initialValue: navigation)
+        _chefChat = State(initialValue: ChefChat(deps: ChefChatDependencies(
+            api: api, undo: undo, library: library, chef: chef, kitchen: kitchen, navigation: navigation)))
         _intake = State(initialValue: intake)
         _undo = State(initialValue: undo)
     }
@@ -40,6 +46,7 @@ struct OmleteApp: App {
                 .environment(intake)
                 .environment(navigation)
                 .environment(undo)
+                .environment(chefChat)
         }
     }
 }

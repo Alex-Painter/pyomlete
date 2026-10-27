@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Settings: the aisles, in the order lists are grouped by. Pushed on the tab
+/// Settings: the aisles, in the order lists are grouped by, then what Chef
+/// knows. Pushed on the tab
 /// it was opened from, not a sheet: every change saves as it is made, so there
 /// is nothing for a Done or a Cancel to mean, and Back returns to that tab.
 ///
@@ -9,6 +10,8 @@ import SwiftUI
 struct SettingsScreen: View {
     @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
+    @Environment(Chef.self) private var chef
+    @Environment(ChefChat.self) private var chefChat
 
     @State private var drafts = AisleDrafts()
     /// True from the start: the screen asks as it appears, and must not say it failed before it has.
@@ -46,6 +49,7 @@ struct SettingsScreen: View {
                     """)
             }
             .disabled(!store.isLoaded)
+            WhatChefKnows(memory: chef.memory) { chefChat.height = .half }
         }
         // Always in edit mode, which is what shows the handles that move an aisle.
         .environment(\.editMode, .constant(.active))
@@ -56,8 +60,13 @@ struct SettingsScreen: View {
         .contentMargins(.bottom, 72, for: .scrollContent)
         .undoBanner(isCovered: navigation.immersive != nil)
         .navigationTitle("Settings")
-        .refreshable { await store.load() }
+        .refreshable {
+            async let aisles: Void = store.load()
+            async let known: Void = chef.memory.load()
+            _ = await (aisles, known)
+        }
         .task { await load() }
+        .task { await chef.memory.load() }
         // Back takes no focus from a field, so a rename typed and not yet offered is offered here.
         // The screen's own going, not a row's: a row also goes when a long list scrolls it away.
         .onDisappear { save(drafts.renameAll(in: aisles, beingDeleted: store.beingDeleted)) }
@@ -76,7 +85,6 @@ struct SettingsScreen: View {
         if let order { store.set(order) }
     }
 
-    /// Only the aisles: nothing else here comes from the server.
     private func load() async {
         isLoading = true
         await store.load()
@@ -162,6 +170,80 @@ private struct AisleRow: View {
                 .tint(.red)
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("settings.deleteAisle.\(name)")
+        }
+    }
+}
+
+/// What Chef goes by when it suggests and plans: what you told it, then what
+/// it noticed, each with what it's based on. Forget applies at once, with Undo.
+private struct WhatChefKnows: View {
+    let memory: ChefMemory
+    let tellChef: () -> Void
+
+    var body: some View {
+        Section {
+            Text("Chef goes by this when it suggests meals. Tell it more in chat, like \u{201C}no mushrooms\u{201D} or \u{201C}more fish\u{201D}.")
+                .foregroundStyle(.secondary)
+            switch memory.status {
+            case .loading where memory.preferences.isEmpty:
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            case .failed:
+                Label("Couldn't load what Chef knows.", systemImage: "wifi.slash")
+                    .foregroundStyle(.secondary)
+                Button("Try again") {
+                    Task { await memory.load() }
+                }
+                .accessibilityIdentifier("settings.chefKnows.retryButton")
+            default:
+                if memory.preferences.isEmpty {
+                    Text("Nothing yet. Chef learns from what you cook and rate, and from what you tell it.")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("settings.chefKnows.empty")
+                }
+            }
+        } header: {
+            Text("What Chef knows")
+        }
+        group("You told Chef", memory.told)
+        group("Chef noticed", memory.noticed)
+        Section {
+            Button("Tell Chef", systemImage: "bubble.left.and.text.bubble.right", action: tellChef)
+                .accessibilityIdentifier("settings.tellChefButton")
+        }
+    }
+
+    @ViewBuilder private func group(_ title: String, _ preferences: [Preference]) -> some View {
+        if !preferences.isEmpty {
+            Section(title) {
+                ForEach(preferences) { preference in
+                    PreferenceRow(preference: preference) { memory.forget(preference) }
+                }
+            }
+        }
+    }
+}
+
+private struct PreferenceRow: View {
+    let preference: Preference
+    let onForget: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(Text(preference.stance.label).fontWeight(.semibold)) \(preference.subject)")
+                Text(preference.evidence)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings.preference.\(preference.subject)")
+            Spacer()
+            Button("Forget \(preference.subject)", systemImage: "xmark", action: onForget)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("settings.forgetPreference.\(preference.subject)")
         }
     }
 }

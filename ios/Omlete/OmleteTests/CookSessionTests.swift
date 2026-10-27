@@ -19,7 +19,7 @@ struct CookSessionTests {
         var cook = session(steps: 0)
 
         cook.start(now: t0)
-        cook.next(now: t0)
+        cook.next(now: t0, mealKey: UUID())
 
         #expect(!cook.canStart)
         #expect(cook.stage == .overview)
@@ -30,10 +30,10 @@ struct CookSessionTests {
 
         cook.start(now: t0)
         #expect(cook.stage == .step(0))
-        cook.next(now: t0)
-        cook.next(now: t0)
+        cook.next(now: t0, mealKey: UUID())
+        cook.next(now: t0, mealKey: UUID())
         #expect(cook.stage == .finished)
-        cook.next(now: t0)
+        cook.next(now: t0, mealKey: UUID())
         #expect(cook.stage == .finished)
 
         cook.back(now: t0)
@@ -46,7 +46,7 @@ struct CookSessionTests {
     @Test func aSavedStepPastTheEndClampsOnDecode() throws {
         var cook = session(steps: 4)
         cook.start(now: t0)
-        for _ in 0..<3 { cook.next(now: t0) }
+        for _ in 0..<3 { cook.next(now: t0, mealKey: UUID()) }
         #expect(cook.stage == .step(3))
 
         let shorter = try roundTrip(cook) { json in
@@ -61,7 +61,7 @@ struct CookSessionTests {
     @Test func aSavedFinishWithNoStepsDecodesToTheOverview() throws {
         var cook = session(steps: 1)
         cook.start(now: t0)
-        cook.next(now: t0)
+        cook.next(now: t0, mealKey: UUID())
         #expect(cook.stage == .finished)
 
         let emptied = try roundTrip(cook) { json in
@@ -76,7 +76,7 @@ struct CookSessionTests {
     @Test func adoptMidCookTakesOnlyTheRating() {
         var cook = session(steps: 3)
         cook.start(now: t0)
-        cook.next(now: t0)
+        cook.next(now: t0, mealKey: UUID())
         var fresh = Recipe.fixture(steps: 1, servings: 2)
         fresh.title = "Renamed"
         fresh.rating = 5
@@ -110,7 +110,7 @@ struct CookSessionTests {
                 now += Double(Int.random(in: 0...90, using: &random))
                 switch Int.random(in: 0..<6, using: &random) {
                 case 0: cook.start(now: now)
-                case 1, 2: cook.next(now: now)
+                case 1, 2: cook.next(now: now, mealKey: UUID())
                 case 3: cook.back(now: now)
                 case 4:
                     cook.startTimer(DetectedTimer(label: "5 mins", seconds: Int.random(in: 1...300, using: &random), id: 0), id: UUID(), now: now)
@@ -157,7 +157,7 @@ struct CookSessionTests {
     @Test func reopeningWithinEightHoursResumes() {
         var cook = session(steps: 3)
         cook.start(now: t0)
-        cook.next(now: t0)
+        cook.next(now: t0, mealKey: UUID())
         cook.setServings({ $0.more() }, now: t0)
         cook.startTimer(DetectedTimer(label: "5 mins", seconds: 300, id: 0), id: UUID(), now: t0)
 
@@ -185,11 +185,41 @@ struct CookSessionTests {
     @Test func reopeningAFinishedCookStartsOver() {
         var cook = session(steps: 1)
         cook.start(now: t0)
-        cook.next(now: t0)
+        cook.next(now: t0, mealKey: UUID())
 
         cook.reopen(at: t0 + 60)
 
         #expect(cook.stage == .overview)
+    }
+
+    @Test func theMealIsMadeAtTheFirstFinishAndKeptUntilTheCookStartsOver() throws {
+        let first = UUID()
+        var cook = session(steps: 2)
+        cook.start(now: t0)
+        cook.rateMeal(3)
+        cook.next(now: t0, mealKey: first)
+        #expect(cook.meal == nil)
+
+        cook.next(now: t0, mealKey: first)
+        cook.back(now: t0)
+        cook.next(now: t0, mealKey: UUID())
+        cook.rateMeal(4)
+        #expect(cook.meal == CookSession.Meal(key: first, rating: 4))
+        #expect(try roundTrip(cook).meal == cook.meal)
+
+        cook.reopen(at: t0 + 60)
+        #expect(cook.meal == nil)
+    }
+
+    @Test func aSessionSavedBeforeMealsDecodesWithNone() throws {
+        var cook = session(steps: 1)
+        cook.start(now: t0)
+        cook.next(now: t0, mealKey: UUID())
+
+        let old = try roundTrip(cook) { $0["meal"] = nil }
+
+        #expect(old.stage == .finished)
+        #expect(old.meal == nil)
     }
 
     @Test func aStepPageScalesItsTextAndListsItsTimersAndIngredients() {

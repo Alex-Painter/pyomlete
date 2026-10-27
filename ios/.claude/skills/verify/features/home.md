@@ -5,7 +5,7 @@ The first screen: the meals on the list you last opened, one tap from cooking, t
 ## Sub-features
 
 - `home` shows the saved lists, and shows them from the phone's copy with the API stopped.
-- `home-cook-from-list` shows a card per meal on the current list (the one last opened, else the newest); tapping one opens Cook.
+- `home-cook-from-list` shows a card per meal on the current list (the one last opened, else the newest); tapping one opens Cook from that list, so Finish ticks the meal Cooked there. A cooked meal's card keeps its place and gets a tick over its picture.
 - `home-plan-week` opens in Plan the list for this week, or next week on the last day of this one, counted from the shop day `GET /api/settings/plan` gives (Saturday until the phone is told). With no list for that week it makes one (`POST /api/lists/` with `week_start`), so a second tap opens the same list. The shop day is saved on the phone, so with the API stopped it still opens a week already there.
 - `home-list-actions` renames, duplicates or deletes a list from its More menu. Delete hides the list at once and is sent after the Undo banner.
 - `home-chef-picks` shows up to three cards nobody has acted on, in feed order, under Lists. A row or See all switches to Discover. The section is absent when there is no such card or the feed did not load.
@@ -25,6 +25,7 @@ Preconditions:
 
 - **See the lists.** `$V begin home`, then `$V expect "Verify Fixture List"` and `$V expect "2 meals · 6 to get"`.
 - **Cook from the list.** `$V expect-id home.cookCard.<recipeID>`, `$V tap home.cookCard.<recipeID>`, then `$V expect-id cook.startButton`. The section title "Cook from Verify Fixture List" shows only in the screenshot.
+- **A cooked meal is marked.** Tick a meal Cooked on Plan (`features/plan.md`) on the list Home cooks from, then `$V tap BackButton`. Its card's row in `$V snapshot` has the value `Cooked` (`Cook <title>|Cooked|home.cookCard.<recipeID>`), the others none, and the screenshot shows the tick on its picture.
 - **Plan a week, already there.** The seed's `Verify Fixture Week` starts on the Saturday on or before today, so it is the week to plan unless today is a Friday (the week's last day, when next week is). `$V tap home.planWeekButton`, then `$V expect-id plan.list`: Plan shows `Verify Fixture Week` in the screenshot, and `.verify-run/api.log` has no `POST /api/lists/` after the seed's two.
 - **Plan a week, made.** `curl -s -X PUT http://127.0.0.1:8765/api/settings/plan -H 'content-type: application/json' -d '{"week_start_weekday":0}'`, then `$V relaunch` (Home reads the shop day as it loads). `$V tap home.planWeekButton`, `$V expect-id plan.list`: the screenshot shows `Week of Mon <date>` with the strip starting on Monday, and `curl -s http://127.0.0.1:8765/api/lists/ | jq -c '[.[] | {name, week_start}]'` has one new list with that Monday as `week_start`. `$V tap BackButton`, `$V tap home.planWeekButton` again, and the API still has the same lists. The seed puts the shop day back to Saturday.
 - **Plan a week with no signal.** After the step above, `$V api stop`, `$V relaunch`, `$V tap home.planWeekButton`, `$V expect-id plan.list`: Plan opens the Monday week made above, with the offline note.

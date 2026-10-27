@@ -34,6 +34,8 @@ nonisolated enum APIError: Error, Equatable, Sendable {
 /// The network seam: bytes out, bytes back. Tests script a fake.
 nonisolated protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+    /// The status at once, and the body as it arrives.
+    func stream(_ request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<Data, any Error>)
 }
 
 /// Typed endpoints that return domain values and throw `APIError`. The JSON
@@ -90,6 +92,8 @@ nonisolated struct APIClient: Sendable {
             _ = try await call("PATCH", base, body: try Wire.encode(["name": name]))
         case .setDay(let date, let plan):
             _ = try await call("PUT", "\(base)/days/\(date.iso)", body: try Wire.dayUpdate(plan))
+        case .setCooked(let recipe, let cooked):
+            _ = try await call("PUT", "\(base)/recipes/\(recipe.rawValue)/cooked", body: try Wire.encode(["cooked": cooked]))
         }
     }
 
@@ -138,6 +142,12 @@ nonisolated struct APIClient: Sendable {
     /// Setting the same rating twice is harmless, so a retry is safe.
     func rate(_ id: RecipeID, stars: Int) async throws(APIError) {
         _ = try await call("PATCH", "recipes/\(id.rawValue)/rating", body: try Wire.encode(["rating": stars]))
+    }
+
+    /// Records a cooked meal for Chef. The key names the row, so a retry is
+    /// safe and a later call with a rating rates the same meal.
+    func logMeal(_ key: UUID, recipe: RecipeID, rating: Int?) async throws(APIError) {
+        _ = try await call("PUT", "meals/\(key.uuidString.lowercased())", body: try Wire.meal(recipe, rating: rating))
     }
 
     /// Replaces the title, method and whole ingredient list, and answers with
@@ -254,9 +264,54 @@ nonisolated struct APIClient: Sendable {
         _ = try await call("POST", "weeks/\(id.rawValue)/skip")
     }
 
+    /// What Chef goes by: told first, then what it noticed.
+    func preferences() async throws(APIError) -> [Preference] {
+        try await decode(Wire.preferences, from: call("GET", "preferences"))
+    }
+
+    /// Forget, or with `false` bring back (Undo). Sending the same twice is harmless.
+    func setForgotten(_ id: PreferenceID, _ forgotten: Bool) async throws(APIError) {
+        _ = try await call("PATCH", "preferences/\(id.rawValue)", body: try Wire.encode(["forgotten": forgotten]))
+    }
+
     /// Puts back what one of Chef's changes changed. `.rejected(409)` when something else has changed it since.
     func undoChefAction(_ id: ChefActionID) async throws(APIError) {
         _ = try await call("POST", "chef/actions/\(id.rawValue)/undo")
+    }
+
+    /// Sends the conversation from `page` and answers with Chef's reply as it
+    /// streams in. A request the server will not take throws here, before any
+    /// event; a reply cut short or unreadable throws from the stream.
+    func askChef(
+        chat: String, messages: [ChefMessage], from page: ChefPage
+    ) async throws(APIError) -> AsyncThrowingStream<ChefStreamEvent, any Error> {
+        let request = try self.request(
+            "POST", "chef/chat", body: try Wire.chefChat(chat, messages: messages, page: page), patience: .slow)
+        let response: HTTPURLResponse
+        let chunks: AsyncThrowingStream<Data, any Error>
+        do {
+            (response, chunks) = try await transport.stream(request)
+        } catch {
+            throw .unreachable
+        }
+        if let failure = APIError(status: response.statusCode) { throw failure }
+        return AsyncThrowingStream { continuation in
+            let reading = Task {
+                var reader = ServerSentEvents()
+                do {
+                    reading: for try await chunk in chunks {
+                        for payload in reader.feed(chunk) {
+                            guard case .data(let data) = payload else { break reading }
+                            continuation.yield(try ChefStreamEvent(payload: data))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in reading.cancel() }
+        }
     }
 
     private enum Patience {
@@ -296,7 +351,15 @@ nonisolated struct APIClient: Sendable {
         _ method: String, _ path: String, body: Data? = nil, contentType: String = Wire.json,
         patience: Patience = .quick
     ) async throws -> (status: Int, data: Data) {
-        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw APIError.rejected(400) }
+        let request = try request(method, path, body: body, contentType: contentType, patience: patience)
+        let (data, response) = try await transport.send(request)
+        return (response.statusCode, data)
+    }
+
+    private func request(
+        _ method: String, _ path: String, body: Data?, contentType: String = Wire.json, patience: Patience
+    ) throws(APIError) -> URLRequest {
+        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw .rejected(400) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         if patience == .slow { request.timeoutInterval = Self.slowTimeout }
@@ -304,8 +367,7 @@ nonisolated struct APIClient: Sendable {
             request.httpBody = body
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await transport.send(request)
-        return (response.statusCode, data)
+        return request
     }
 
     private func decode<Value>(_ parse: (Data) throws -> Value, from data: Data) throws(APIError) -> Value {

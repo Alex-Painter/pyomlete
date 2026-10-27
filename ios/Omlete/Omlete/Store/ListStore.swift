@@ -170,6 +170,16 @@ struct StoreDependencies {
         apply(.setDay(date, out ? .out : .open))
     }
 
+    /// Cooked, or not yet. The tick is its own undo, so there is no banner.
+    /// A list not fetched yet takes it anyway: the server is the one to say
+    /// whether the meal is on it, and the reducer agrees once it has.
+    func setCooked(_ recipe: RecipeID, _ cooked: Bool) {
+        if let list = replica.current {
+            guard list.recipes.contains(recipe), list.cooked.contains(recipe) != cooked else { return }
+        }
+        apply(.setCooked(recipe, cooked))
+    }
+
     private func day(_ date: PlanDate) -> PlanDay? {
         replica.current?.days.first { $0.date == date }
     }

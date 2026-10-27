@@ -2,20 +2,23 @@ import Foundation
 import Observation
 
 enum AppTab: Hashable {
-    case home, discover, add, recipes
+    case home, discover, recipes
 }
 
 enum Route: Hashable {
     case plan(ListID)
     case recipe(RecipeID)
     case settings
+    /// Add a recipe, on whichever tab asked for it, so leaving it goes back there.
+    case addRecipe
 }
 
 /// The one full-screen mode on top of the tabs, if any. A single optional
 /// value, so shopping and cooking at once cannot be written down.
 enum Immersive: Hashable, Identifiable {
     case shop(ListID)
-    case cook(RecipeID)
+    /// `list` is the list it was opened from, whose meal Finish ticks. None from a recipe page.
+    case cook(RecipeID, list: ListID?)
 
     var id: Self { self }
 }
@@ -46,6 +49,32 @@ enum Immersive: Hashable, Identifiable {
         self[tab].append(route)
     }
 
+    /// The screen on show, for Chef.
+    var chefPage: ChefPage {
+        switch immersive {
+        case .shop(let id): return .shop(id)
+        case .cook(let id, _): return .cook(id)
+        case nil: break
+        }
+        switch self[tab].last {
+        case .plan(let id): return .list(id)
+        case .recipe(let id): return .recipe(id)
+        case .settings: return .settings
+        case .addRecipe: return .addRecipe
+        case nil:
+            switch tab {
+            case .home: return .home
+            case .discover: return .discover
+            case .recipes: return .recipes
+            }
+        }
+    }
+
+    /// Add a recipe over the tab on show.
+    func addRecipe() {
+        push(.addRecipe, on: tab)
+    }
+
     var shopping: ListID? {
         if case .shop(let id) = immersive { id } else { nil }
     }
@@ -63,8 +92,8 @@ enum Immersive: Hashable, Identifiable {
         enter(.shop(id))
     }
 
-    func startCooking(_ id: RecipeID) {
-        enter(.cook(id))
+    func startCooking(_ id: RecipeID, from list: ListID? = nil) {
+        enter(.cook(id, list: list))
     }
 
     func leaveImmersive() {
