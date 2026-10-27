@@ -50,6 +50,8 @@ struct ChefDependencies {
     private(set) var tune: TuneSettings
     /// The week of dinners Chef proposes, on Home and Discover.
     let week: ChefWeek
+    /// What Chef knows, in Settings.
+    let memory: ChefMemory
 
     @ObservationIgnored private let deps: ChefDependencies
     @ObservationIgnored private var loading: Task<Bool, Never>?
@@ -82,6 +84,7 @@ struct ChefDependencies {
     init(deps: ChefDependencies) {
         self.deps = deps
         week = ChefWeek(deps: deps)
+        memory = ChefMemory(deps: deps)
         let saved = deps.defaults.data(forKey: Self.tuneKey)
         tune = saved.flatMap { try? JSONDecoder().decode(TuneSettings.self, from: $0) } ?? TuneSettings()
     }

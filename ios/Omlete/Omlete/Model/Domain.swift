@@ -27,6 +27,7 @@ nonisolated enum SuggestionScope {}
 nonisolated enum RecipeJobScope {}
 nonisolated enum WeekPlanScope {}
 nonisolated enum ChefActionScope {}
+nonisolated enum PreferenceScope {}
 
 /// Minted by the server (a Mongo ObjectId).
 typealias ListID = Identifier<ListScope>
@@ -39,6 +40,7 @@ typealias RecipeJobID = Identifier<RecipeJobScope>
 typealias WeekPlanID = Identifier<WeekPlanScope>
 /// One change Chef made, which `POST /chef/actions/{id}/undo` puts back.
 typealias ChefActionID = Identifier<ChefActionScope>
+typealias PreferenceID = Identifier<PreferenceScope>
 
 nonisolated struct ItemSource: Codable, Equatable, Sendable {
     var recipeID: RecipeID?

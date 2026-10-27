@@ -187,6 +187,18 @@ nonisolated enum Wire {
         return MadeWeek(list: ListID(dto.list_id), name: dto.name, undo: ChefActionID(dto.undo))
     }
 
+    /// A stance or source this build does not know is dropped, as an unknown
+    /// card status is: the row could not say what Chef does with it. Forgotten
+    /// ones are not listed by the server, and are dropped if one ever is.
+    static func preferences(_ data: Data) throws -> [Preference] {
+        try JSONDecoder().decode([PreferenceDTO].self, from: data).compactMap { dto in
+            guard !dto.forgotten, let stance = Stance(rawValue: dto.stance),
+                  let source = Preference.Source(rawValue: dto.source) else { return nil }
+            return Preference(
+                id: PreferenceID(dto.id), subject: dto.subject, stance: stance, evidence: dto.evidence, source: source)
+        }
+    }
+
     static func tune(_ tune: TuneSettings) throws(APIError) -> Data {
         try encode(TuneDTO(diet: tune.diet.rawValue, ease: tune.effort.rawValue, notes: tune.notes))
     }
@@ -490,6 +502,15 @@ nonisolated private struct MadeWeekDTO: Decodable {
     let list_id: String
     let name: String
     let undo: String
+}
+
+nonisolated private struct PreferenceDTO: Decodable {
+    let id: String
+    let subject: String
+    let stance: String
+    let evidence: String
+    let source: String
+    let forgotten: Bool
 }
 
 nonisolated private struct TuneDTO: Encodable {

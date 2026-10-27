@@ -256,6 +256,16 @@ nonisolated struct APIClient: Sendable {
         _ = try await call("POST", "weeks/\(id.rawValue)/skip")
     }
 
+    /// What Chef goes by: told first, then what it noticed.
+    func preferences() async throws(APIError) -> [Preference] {
+        try await decode(Wire.preferences, from: call("GET", "preferences"))
+    }
+
+    /// Forget, or with `false` bring back (Undo). Sending the same twice is harmless.
+    func setForgotten(_ id: PreferenceID, _ forgotten: Bool) async throws(APIError) {
+        _ = try await call("PATCH", "preferences/\(id.rawValue)", body: try Wire.encode(["forgotten": forgotten]))
+    }
+
     /// Puts back what one of Chef's changes changed. `.rejected(409)` when something else has changed it since.
     func undoChefAction(_ id: ChefActionID) async throws(APIError) {
         _ = try await call("POST", "chef/actions/\(id.rawValue)/undo")

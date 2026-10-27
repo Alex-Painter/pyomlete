@@ -144,15 +144,16 @@ enum ChefHeight: Equatable {
     }
 
     /// Everything a change may have touched: the lists and recipes, the recipe
-    /// on screen, Discover's cards and Chef's week.
+    /// on screen, Discover's cards, Chef's week and what Chef knows.
     private func refresh() async {
         async let everything: Void = deps.library.refreshEverything()
         async let cards: Bool = deps.chef.load()
         async let week: Void = deps.chef.week.load()
+        async let memory: Void = deps.chef.memory.load()
         switch deps.navigation.chefPage {
         case .recipe(let id), .cook(let id): await deps.kitchen.cook(id).load()
         default: break
         }
-        _ = await (everything, cards, week)
+        _ = await (everything, cards, week, memory)
     }
 }
