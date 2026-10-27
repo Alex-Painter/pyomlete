@@ -1,12 +1,13 @@
 # Add a recipe
 
-One field that takes a link or a description, plus Choose photos for pictures of a recipe. The button says what it will do: Import recipe for a link, Create recipe for a description, Read n photos for photos. It ends on the saved recipe with Add to list and Open. Specified by `client/src/routes/create.tsx`. Taking a photo with the camera is not built.
+One field that takes a link or a description, plus Choose photos for pictures of a recipe. Text with a web address anywhere in it is a link, and whatever is typed with the address ("<link> but use tofu mince") goes with it as the changes to make, as `client/src/lib/splitLink.ts` does on the web. The button says what it will do: Import recipe for a link, Import with changes for a link with words around it, Create recipe for a description, Read n photos for photos. It ends on the saved recipe with Add to list and Open. Specified by `client/src/routes/create.tsx`. Taking a photo with the camera is not built.
 
 The server makes the recipe as a job under a key the app mints. A tap writes the key to the phone, then the app sends the start (`PUT /api/recipe-jobs/<key>/link`, `/describe` or `/photos`, answered 202, or 200 when the server already has that key) and asks after it (`GET /api/recipe-jobs/<key>`) until it ends. Coming back, a relaunch and the network returning all do the same thing: ask for the job, and send the start again if the answer is 404. The job is over for the phone eight minutes after the tap whatever the server says. The web waits on one long request instead.
 
 ## Sub-features
 
 - `add-link` imports a recipe from a web address.
+- `add-link-with-changes` imports a link with what was typed around it sent as `changes`, and says Making your changes… while it works.
 - `add-already-saved` answers a link imported before with "You've already saved that one." and Open it.
 - `add-describe` writes a recipe from a description.
 - `add-photos` reads a recipe from photos chosen in the photo library.
@@ -30,6 +31,7 @@ Preconditions:
 - `$V up` just ran, `$V doctor` prints no `FAIL`, and `$V tap tab.add` has run.
 
 - **The button follows the input.** `$V begin add`, `$V expect "Create recipe"`, `$V type add.textField "https://example.com/some-recipe"`, `$V expect "Import recipe"`, `$V type add.textField "leek and potato soup"`, `$V expect "Create recipe"`.
+- **A link with changes.** `$V type add.textField "http://127.0.0.1:9/x but use tofu mince"`, `$V expect "Import with changes"`, `$V tap add.submitButton`, `$V expect "That link can't be fetched. Check it's a full, public recipe URL."`, `$V expect "but use tofu mince"`. The log has `PUT /api/recipe-jobs/<key>/link`, not `/describe`. With `http://example.com:81/x but use tofu mince` the job works for five seconds and `$V expect "Making your changes"` passes first. The API log has no bodies, and the job document keeps only its kind, so to read the `changes` the app sent, put a body-logging pass-through on another port in front of the API and `OMLETE_IOS_VERIFY_API_PORT=<that port> $V relaunch`; the start's body is `{"url":"http://127.0.0.1:9/x","changes":"but use tofu mince"}`, and a bare link's has no `changes`.
 - **Already saved.** `$V type add.textField "https://example.com/verify-fixture-traybake"`, `$V tap add.submitButton`, `$V expect "You've already saved that one."`, `$V tap add.openExistingLink`, `$V expect-id recipe.cookButton`. `.verify-run/api.log` has `PUT /api/recipe-jobs/<key>/link` answered 202, then `GET /api/recipe-jobs/<key>` answered 200.
 - **A link that cannot be fetched.** `$V type add.textField "http://127.0.0.1:9/x"`, `$V tap add.submitButton`, `$V expect "That link can't be fetched. Check it's a full, public recipe URL."`. The log has the same two requests.
 - **A site that does not answer.** `$V type add.textField "http://example.com:81/x"`, `$V tap add.submitButton`, `$V expect "That site didn't respond. It may be down or blocking us. Try again in a minute."`. The job works for five seconds first, with a `GET` about every second and a half.
@@ -44,6 +46,8 @@ Preconditions:
 - **A server that is killed under a job.** `$V api hold &`, `$V tap add.submitButton`, `$V api stop`, `$V api start`. A frozen process cannot shut down, so `stop` kills it and the job is left `working` with no task. Six minutes after the start `curl -s http://127.0.0.1:8765/api/recipe-jobs/<key>` says `failed`, and `OMLETE_IOS_VERIFY_TIMEOUT_MS=480000 $V expect "Something went wrong making that recipe. Try again."` passes.
 
 ## Gotchas
+
+- The field autocorrects, so a word the keyboard does not know is changed as `$V type` enters it: "quorn" arrives as "quorum". Use words it leaves alone, such as "tofu".
 
 - These recipes rely on the API having no model key, which is how `up` starts it whatever `server/.env` holds. With `OMLETE_IOS_VERIFY_REAL_KEYS=1` the model calls succeed, cost money and never show their failure.
 - With no key, nothing here can end on a saved recipe, so `add-result` (`add.addToList`, `add.openButton`) cannot be driven. `RecipeIntakeTests` and `ExploreAPITests` cover a saved link, description and photos against a scripted server, and a saved job whose recipe has been deleted, and `server/tests/test_recipe_jobs.py` covers a job that ends saved.
