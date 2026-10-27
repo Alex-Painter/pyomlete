@@ -12,11 +12,13 @@
 #   omlete-ios-verify tap <id> [then <id>]...  tap the control with accessibility id <id>, then at once each one after
 #   omlete-ios-verify type <id> <text>      replace the contents of field <id> with <text>
 #   omlete-ios-verify swipe <id> <dir>      swipe up|down|left|right inside scrollable <id>
+#   omlete-ios-verify drag <id> <dir> [d]   drag from element <id> (a sheet's title moves the sheet), d of the screen
 #   omlete-ios-verify relaunch              cold-start the installed build: no rebuild, no reseed
 #   omlete-ios-verify api stop|start|seed   take the local API away, bring it back, or reset its fixtures
 #   omlete-ios-verify api freeze|release    freeze the API now, so nothing is read or answered; let it go again
 #   omlete-ios-verify api hold              freeze the API once it has taken the next recipe job
 #   omlete-ios-verify api bounce            restart the API once it has taken the next recipe job
+#   omlete-ios-verify chef-stub start|stop  point the app at a canned Chef (test-only) in front of the API, or back
 #   omlete-ios-verify down                  stop the app and the local API; shut the simulator down if `up` booted it
 set -euo pipefail
 
@@ -34,6 +36,9 @@ WAIT_MS="${OMLETE_IOS_VERIFY_TIMEOUT_MS:-20000}"
 # the root AGENTS.md.
 API_PORT="${OMLETE_IOS_VERIFY_API_PORT:-8765}"
 API="http://127.0.0.1:$API_PORT"
+# Test-only: a canned Chef in front of the API, for what needs a model (features/chef.md).
+CHEF_STUB_PORT="${OMLETE_IOS_VERIFY_CHEF_STUB_PORT:-8766}"
+CHEF_STUB="http://127.0.0.1:$CHEF_STUB_PORT"
 MONGO_CONTAINER=omlete-ios-verify-mongo
 MONGO_IMAGE=mongodb/mongodb-atlas-local:8.0
 MONGO_PORT="${OMLETE_IOS_VERIFY_MONGO_PORT:-27019}"
@@ -305,6 +310,9 @@ PY
   say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; \"$FIXTURE_WEEK\" ($week) from $start; 4 recipes; 5 suggestions; week plan $plan"
 }
 
+# The API the app is launched against: the stub's while `chef-stub start` holds.
+app_api() { local a; a="$(state_get app_api)"; echo "${a:-$API}"; }
+
 state_get() { [ -f "$STATE" ] || return 0; sed -n "s/^$1=//p" "$STATE" | head -1; }
 
 sim_name() { sed -n 's/^ *simulatorName: *//p' "$IOS/.xcodebuildmcp/config.yaml"; }
@@ -422,6 +430,7 @@ Stop it in Xcode or the simulator first, or re-run with OMLETE_IOS_VERIFY_TAKEOV
 
   npx -y -p xcodebuildmcp@latest which xcodebuildmcp > "$RUN_DIR/xb-path" 2>/dev/null || rm -f "$RUN_DIR/xb-path"
 
+  stop_chef_stub
   start_mongo
   start_api
   seed
@@ -547,17 +556,60 @@ cmd_swipe() {
   capture swipe >/dev/null
 }
 
+# Text as well as controls: a sheet moves when dragged by its title.
+cmd_drag() {
+  [ $# -ge 2 ] && [ $# -le 3 ] || die "usage: omlete-ios-verify drag <accessibility id> up|down|left|right [distance 0-1]"
+  require_up
+  local ref
+  ref="$(xb ui-automation snapshot-ui --simulator-id "$UDID" --output json \
+    | jq -r --arg id "$1" '[.data.capture | (.targets[], .scroll[], .text[]) | split("|") | select(.[-1] == $id) | .[0]][0] // empty')"
+  [ -n "$ref" ] || die "no element with accessibility id '$1' on screen; run: $0 snapshot"
+  act "drag $1 $2" ui-automation drag --simulator-id "$UDID" --element-ref "$ref" --direction "$2" \
+    --distance "${3:-0.4}" --duration 0.8 --steps 80 --post-delay 0.8
+  capture drag >/dev/null
+}
+
 # Cold start of the installed build: no rebuild, no reseed, API left as it is.
 cmd_relaunch() {
   require_up
   xb simulator stop --simulator-id "$UDID" --bundle-id "$BUNDLE_ID" >/dev/null 2>&1 || true
   xb simulator launch-app --simulator-id "$UDID" --bundle-id "$BUNDLE_ID" --output json \
-      --json "$(jq -nc --arg u "$API" '{launchArgs: ["-apiBaseURL", $u]}')" > "$RUN_DIR/launch.json" \
+      --json "$(jq -nc --arg u "$(app_api)" '{launchArgs: ["-apiBaseURL", $u]}')" > "$RUN_DIR/launch.json" \
     || die "relaunch failed (see .verify-run/launch.json)"
   xb ui-automation wait-for-ui --simulator-id "$UDID" --predicate settled --timeout-ms "$WAIT_MS" >/dev/null \
     || die "app relaunched but its UI never answered; run: $0 doctor"
   sed -i '' "s|^pid=.*|pid=$(app_pid "$UDID")|" "$STATE"
-  say "relaunched: Omlete pid $(state_get pid)"
+  say "relaunched: Omlete pid $(state_get pid) against $(app_api)"
+}
+
+stop_chef_stub() {
+  if pid_alive "$RUN_DIR/chef-stub.pid"; then kill "$(cat "$RUN_DIR/chef-stub.pid")" 2>/dev/null || true; say "stopped the Chef stub"; fi
+  rm -f "$RUN_DIR/chef-stub.pid"
+}
+
+# Test-only. The stub answers /api/chef/chat and its own Undo, and passes the
+# rest to the API, so the app sees one server. Relaunches the app against it.
+cmd_chef_stub() {
+  require_up
+  case "${1:-}" in
+    start)
+      pid_alive "$RUN_DIR/api.pid" || die "the API is not running; run: $0 api start"
+      if ! pid_alive "$RUN_DIR/chef-stub.pid"; then
+        [ "$(http_code "$CHEF_STUB/")" = 000 ] || die "$CHEF_STUB is already answering; set OMLETE_IOS_VERIFY_CHEF_STUB_PORT"
+        nohup python3 "$SKILL_DIR/scripts/chef-stub.py" "$CHEF_STUB_PORT" "$API" > "$RUN_DIR/chef-stub.log" 2>&1 &
+        echo $! > "$RUN_DIR/chef-stub.pid"
+        for _ in $(seq 1 20); do [ "$(http_code "$CHEF_STUB/api/lists/")" = 200 ] && break; sleep 0.25; done
+        [ "$(http_code "$CHEF_STUB/api/lists/")" = 200 ] || die "the Chef stub never answered; see .verify-run/chef-stub.log"
+      fi
+      grep -q '^app_api=' "$STATE" && sed -i '' "s|^app_api=.*|app_api=$CHEF_STUB|" "$STATE" || echo "app_api=$CHEF_STUB" >> "$STATE"
+      say "Chef stub on $CHEF_STUB in front of $API (log: .verify-run/chef-stub.log)"
+      cmd_relaunch ;;
+    stop)
+      stop_chef_stub
+      sed -i '' '/^app_api=/d' "$STATE"
+      cmd_relaunch ;;
+    *) die "usage: omlete-ios-verify chef-stub start|stop" ;;
+  esac
 }
 
 cmd_api() {
@@ -574,6 +626,7 @@ cmd_api() {
 }
 
 cmd_down() {
+  stop_chef_stub
   stop_api
   if docker info >/dev/null 2>&1 && [ -n "$(docker ps -aq -f "name=^${MONGO_CONTAINER}$")" ]; then
     docker rm -f "$MONGO_CONTAINER" >/dev/null && say "removed $MONGO_CONTAINER (disposable data)"
@@ -603,8 +656,10 @@ case "$sub" in
   tap)       cmd_tap "$@" ;;
   type)      cmd_type "$@" ;;
   swipe)     cmd_swipe "$@" ;;
+  drag)      cmd_drag "$@" ;;
   relaunch)  cmd_relaunch "$@" ;;
   api)       cmd_api "$@" ;;
+  chef-stub) cmd_chef_stub "$@" ;;
   down)      cmd_down "$@" ;;
-  *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

@@ -80,6 +80,7 @@ The last column is the control's `accessibilityIdentifier`. Every interactive co
 | `$V tap <id> then <id2>` | tap, then tap a second control at once with no capture in between. More can follow (`then <id3>`); all of them must be on screen straight after the first tap |
 | `$V type <id> <text>` | replace a text field's contents with `<text>` |
 | `$V swipe <id> up\|down\|left\|right` | swipe inside a scrollable element (`up` scrolls the content down) |
+| `$V drag <id> up\|down\|left\|right [distance]` | drag from an element, text included, by a fraction of the screen (default 0.4). Dragging a sheet by its title moves the sheet between its heights |
 
 Every step waits up to 20 seconds (`OMLETE_IOS_VERIFY_TIMEOUT_MS` changes that), prints `PASS` or `FAIL`, and exits non-zero on failure. A typical proof:
 
@@ -108,7 +109,18 @@ These three are for recipe jobs, and `features/add.md` has the recipes. `api fre
 
 `tap`, `type` and `swipe` fail with `no tappable or scrollable control with accessibility id ...` when the id is not on screen. Run `$V snapshot` to see what is there. If the control exists but has no id, add an `accessibilityIdentifier` to it in the app rather than driving it another way.
 
-For a gesture the helper does not wrap (long press, drag, hardware buttons, a Return key), call the CLI from `ios/` with a ref from a fresh snapshot, for example `npx -y xcodebuildmcp@latest ui-automation long-press --element-ref e12`. `npx -y xcodebuildmcp@latest ui-automation --help` lists them.
+### Chef without a model
+
+A real Chef reply needs a model key, which `up` never passes. To prove a streamed reply, a change with Undo and the refresh of the screen it touched, put a canned Chef in front of the API:
+
+| step | meaning |
+|---|---|
+| `$V chef-stub start` | start `scripts/chef-stub.py` on `http://127.0.0.1:8766` (`OMLETE_IOS_VERIFY_CHEF_STUB_PORT`) and relaunch the app against it |
+| `$V chef-stub stop` | stop it and relaunch the app against the API |
+
+The stub is test-only and changes nothing on the server. It answers `POST /api/chef/chat` with a paced, canned stream that adds `Verify Chef Lemons` to the list on screen through the real list endpoints, answers Undo for its own action ids (409 when the item has been checked or deleted since), and passes every other request to the API. `features/chef.md` has the recipes. `relaunch` keeps the app on the stub until `chef-stub stop` or the next `up`.
+
+For a gesture the helper does not wrap (long press, hardware buttons, a Return key), call the CLI from `ios/` with a ref from a fresh snapshot, for example `npx -y xcodebuildmcp@latest ui-automation long-press --element-ref e12`. `npx -y xcodebuildmcp@latest ui-automation --help` lists them.
 
 For the per-screen recipes, read [`features/README.md`](features/README.md).
 
@@ -137,7 +149,7 @@ Proof standards:
 $V down
 ```
 
-`down` stops the Omlete process that `up` launched, stops the local API, removes the disposable Mongo container, and shuts the simulator down only if `up` was what booted it. A simulator that was already booted is left booted. It never erases the simulator, never uninstalls the app and never touches `verify-artifacts/`. Run `down` after a failed iteration too.
+`down` stops the Omlete process that `up` launched, stops the canned Chef and the local API, removes the disposable Mongo container, and shuts the simulator down only if `up` was what booted it. A simulator that was already booted is left booted. It never erases the simulator, never uninstalls the app and never touches `verify-artifacts/`. Run `down` after a failed iteration too.
 
 Never `xcrun simctl shutdown all`, `simctl erase`, or `killall Simulator`: those hit simulators and sessions this run did not start.
 

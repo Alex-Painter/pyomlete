@@ -12,7 +12,7 @@ This directory is the maintained source for verifying what a user can do in Omle
 ## Driving conventions
 
 - Start each recipe with `$V begin <label>`, using the sub-feature id as the label.
-- Start from the launch screen (a fresh `$V up`) and tap through, unless the recipe says otherwise. The app opens on Home. The tab bar's ids are `tab.home`, `tab.discover`, `tab.add` and `tab.recipes`.
+- Start from the launch screen (a fresh `$V up`) and tap through, unless the recipe says otherwise. The app opens on Home. The tab bar's ids are `tab.home`, `tab.discover`, `tab.chef` and `tab.recipes`. `tab.chef` opens Chef's sheet over the screen on show and never becomes the selected tab.
 - Find controls by accessibility identifier (`screen.controlName`). Text is for `expect` and `gone` only.
 - Follow each action with an `expect` or `gone` for the state it should produce.
 
@@ -34,6 +34,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 - [Cook](./cook.md): one recipe full screen, a step at a time. Scale servings, start timers, rate it at the end. Resumes where you left off.
 - [Discover](./discover.md): Chef's suggestions in shelves. Save, add to a list, Not for me and Clear all with Undo, Get new ideas, Tune.
 - [Recipes](./recipes.md): the recipe library with search, sort and filters, and the recipe page. Cook, add to a list, rate, keep an ingredient off lists, edit, delete with Undo.
+- [Chef](./chef.md): the chat sheet over every screen but Shop and Cook, from the Chef tab or Plan's Chef button. Its three heights, the line saying what Chef is looking at, a reply streaming in, a change with Undo and the screen it touched refreshing, a 409 on Undo, photos, and the failure without a model. Streaming and changes run against a test-only canned Chef.
 - [Add a recipe](./add.md): one field for a link or a description, or photos. A link already imported, each kind of failure, a start whose answer is lost, a job that outlives the app being killed or left, and a server restarted under one.
 - [Settings](./settings.md): the aisle order behind the cog on each tab. Add, rename, delete with Undo, reorder, and a change made with the API away.
 
