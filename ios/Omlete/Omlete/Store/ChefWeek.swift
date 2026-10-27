@@ -73,7 +73,7 @@ import Observation
                 action: .init(label: "Open") { open(made.list) },
                 lasting: .seconds(8))
             await deps.library.refresh()
-            follow(made.list, ideas: plan.meals.count(where: \.isNew))
+            follow(made.list, evenings: plan.meals.filter(\.isNew).map(\.day))
         }
     }
 
@@ -108,25 +108,29 @@ import Observation
         }
     }
 
-    /// Refreshes the list every `Chef.pollEvery` until `ideas` more meals are
-    /// on it than when it was made, or until the server would have given up
-    /// on their saves. A save that fails says nothing to the phone, so the
-    /// time limit is what ends polling for it.
-    private func follow(_ list: ListID, ideas: Int) {
+    /// Refreshes the list every `Chef.pollEvery` until each new idea's
+    /// evening that was free when the list was made holds a meal, or until
+    /// the server would have given up on their saves. A save that fails says
+    /// nothing to the phone, so the time limit is what ends polling for it.
+    /// An idea whose evening was taken goes on as an any-day meal and is not
+    /// waited for.
+    private func follow(_ list: ListID, evenings: [PlanDate]) {
         following?.cancel()
-        guard ideas > 0 else { return }
+        guard !evenings.isEmpty else { return }
         following = Task { [deps] in
             let store = deps.library.list(list)
             await store.refresh()
-            let meals = { store.replica.current?.recipes.count ?? 0 }
-            let goal = meals() + ideas
+            let free = {
+                Set(store.replica.current?.days.filter { $0.plan.meal == nil }.map(\.date) ?? [])
+            }
+            let waiting = free().intersection(evenings)
             let deadline = deps.now() + Chef.giveUpAfter
-            while meals() < goal, deps.now() < deadline, !store.isGone,
+            while !waiting.isDisjoint(with: free()), deps.now() < deadline, !store.isGone,
                   (try? await deps.pause(Chef.pollEvery)) != nil, !Task.isCancelled {
-                let before = meals()
+                let before = free()
                 await store.refresh()
                 // A recipe the library has not seen: Home names a list's meals from it.
-                if meals() > before { await deps.library.refresh() }
+                if free() != before { await deps.library.refresh() }
             }
         }
     }

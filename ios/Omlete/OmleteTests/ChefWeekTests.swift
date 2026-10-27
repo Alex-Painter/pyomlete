@@ -8,11 +8,15 @@ import Testing
     /// What the server holds, which a test changes to play the new ideas landing.
     @MainActor private final class Server {
         var waiting: String? = ChefWeekTests.planJSON
-        /// The made list's meals, as `GET /api/lists/week` answers them.
-        var meals = ["curry", "dal", "stew"]
+        /// The made list's evenings, as `GET /api/lists/week` answers them: day of the month to recipe.
+        var evenings: [Int: String] = [24: "curry", 25: "dal", 27: "stew"]
         var detail: String {
-            let recipes = meals.map { "\"\($0)\"" }.joined(separator: ",")
-            return #"{"id":"week","name":"Week of 24 Oct","recipes":[\#(recipes)],"items":[]}"#
+            let recipes = Set(evenings.values).sorted().map { "\"\($0)\"" }.joined(separator: ",")
+            let days = (24...30).map { day in
+                let recipe = evenings[day].map { "\"\($0)\"" } ?? "null"
+                return #"{"date":"2026-10-\#(day)","recipe_id":\#(recipe),"status":"open"}"#
+            }.joined(separator: ",")
+            return #"{"id":"week","name":"Week of 24 Oct","recipes":[\#(recipes)],"items":[],"week_start":"2026-10-24","days":[\#(days)]}"#
         }
     }
 
@@ -165,15 +169,30 @@ import Testing
         phone.ticker.tick()
         await eventually { phone.ticker.isWaiting && calls(getMadeList) == 2 }
 
-        // Both ideas have saved and landed on their evenings.
-        server.meals += ["miso", "bao"]
+        // One idea has landed; the other evening is still free, so the list is looked at again.
+        server.evenings[26] = "miso"
         phone.ticker.tick()
-        await eventually { phone.library.list("week").replica.current?.recipes.count == 5 }
+        await eventually { phone.ticker.isWaiting && calls(getMadeList) == 3 }
+
+        server.evenings[29] = "bao"
+        phone.ticker.tick()
+        await eventually { phone.library.list("week").replica.current?.days.first { $0.date.day == 29 }?.plan == .meal("bao") }
         await eventually { !phone.ticker.isWaiting }
         let fetched = calls(getMadeList)
 
         phone.ticker.tick()
         #expect(calls(getMadeList) == fetched)
+    }
+
+    @Test func anIdeaWhoseEveningWasAlreadyTakenIsNotWaitedFor() async {
+        server.evenings = [24: "curry", 25: "dal", 26: "pie", 27: "stew", 29: "soup"]
+        await week.load()
+        week.make { _ in }
+
+        await eventually { calls(getMadeList) == 1 }
+        // Long enough for a poll that should not start to reach its first wait.
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(!phone.ticker.isWaiting)
     }
 
     @Test func theMadeListIsLeftAloneOnceTheSavesWouldHaveEnded() async {
