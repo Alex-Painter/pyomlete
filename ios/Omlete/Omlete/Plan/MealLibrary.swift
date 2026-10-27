@@ -144,7 +144,7 @@ struct MealLibrary: View {
             Text("No recipes yet. Add one, or save something from Discover.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
-                Button("Add a recipe") { navigation.tab = .add }
+                Button("Add a recipe") { navigation.addRecipe() }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("plan.library.addRecipeButton")
                 Button("Browse Discover") { navigation.tab = .discover }

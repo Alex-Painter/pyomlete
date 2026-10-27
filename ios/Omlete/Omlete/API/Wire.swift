@@ -7,7 +7,7 @@ nonisolated enum Wire {
         try JSONDecoder().decode([SummaryDTO].self, from: data).map { dto throws in
             ListSummary(
                 id: ListID(dto.id), name: dto.name, itemCount: dto.item_count, checkedCount: dto.checked_count,
-                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title) },
+                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title, cooked: $0.cooked ?? false) },
                 weekStart: try planDate(dto.week_start))
         }
     }
@@ -31,7 +31,8 @@ nonisolated enum Wire {
         }
         return ListDetail(
             id: ListID(dto.id), name: dto.name, recipes: dto.recipes.map { RecipeID($0) }, items: items,
-            weekStart: try planDate(dto.week_start), days: try (dto.days ?? []).map(day))
+            weekStart: try planDate(dto.week_start), days: try (dto.days ?? []).map(day),
+            cooked: Set((dto.cooked ?? []).map { RecipeID($0) }))
     }
 
     /// A meal wins over Out, as the server keeps it, so the two never arrive together.
@@ -163,12 +164,52 @@ nonisolated enum Wire {
         }
     }
 
+    /// `null` when no plan is waiting.
+    static func waitingWeek(_ data: Data) throws -> WeekPlan? {
+        try JSONDecoder().decode(WeekPlanDTO?.self, from: data).map(week)
+    }
+
+    static func week(_ data: Data) throws -> WeekPlan {
+        try week(JSONDecoder().decode(WeekPlanDTO.self, from: data))
+    }
+
+    private static func week(_ dto: WeekPlanDTO) throws -> WeekPlan {
+        WeekPlan(
+            id: WeekPlanID(dto.id), weekOf: try planDate(dto.week_of), note: dto.note,
+            meals: try dto.meals.map { meal in
+                WeekMeal(
+                    day: try planDate(meal.day), title: meal.title, reason: meal.reason,
+                    recipe: meal.recipe_id.map { RecipeID($0) }, imageURL: meal.image_url.flatMap(URL.init(string:)))
+            }.sorted { $0.day < $1.day })
+    }
+
+    static func madeWeek(_ data: Data) throws -> MadeWeek {
+        let dto = try JSONDecoder().decode(MadeWeekDTO.self, from: data)
+        return MadeWeek(list: ListID(dto.list_id), name: dto.name, undo: ChefActionID(dto.undo))
+    }
+
+    /// A stance or source this build does not know is dropped, as an unknown
+    /// card status is: the row could not say what Chef does with it. Forgotten
+    /// ones are not listed by the server, and are dropped if one ever is.
+    static func preferences(_ data: Data) throws -> [Preference] {
+        try JSONDecoder().decode([PreferenceDTO].self, from: data).compactMap { dto in
+            guard !dto.forgotten, let stance = Stance(rawValue: dto.stance),
+                  let source = Preference.Source(rawValue: dto.source) else { return nil }
+            return Preference(
+                id: PreferenceID(dto.id), subject: dto.subject, stance: stance, evidence: dto.evidence, source: source)
+        }
+    }
+
     static func tune(_ tune: TuneSettings) throws(APIError) -> Data {
         try encode(TuneDTO(diet: tune.diet.rawValue, ease: tune.effort.rawValue, notes: tune.notes))
     }
 
     static func saveSuggestion(onto list: ListID?) throws(APIError) -> Data {
         try encode(SaveSuggestionDTO(list_id: list?.rawValue))
+    }
+
+    static func meal(_ recipe: RecipeID, rating: Int?) throws(APIError) -> Data {
+        try encode(MealDTO(recipe_id: recipe.rawValue, rating: rating))
     }
 
     static func dismissal() throws(APIError) -> Data {
@@ -214,6 +255,36 @@ nonisolated enum Wire {
 
     static let json = "application/json"
 
+    /// The AI SDK's chat request plus `page`, as the web's `askChef` sends it.
+    /// Web searches and tools that did not finish are left out: the search
+    /// results belong to Anthropic's side of the turn.
+    static func chefChat(_ chat: String, messages: [ChefMessage], page: ChefPage) throws(APIError) -> Data {
+        let messages = messages.map { message -> JSONValue in
+            let parts = message.parts.compactMap { part -> JSONValue? in
+                switch part {
+                case .text(let text):
+                    return text.isEmpty ? nil : .object(["type": "text", "text": .string(text)])
+                case .photo(let photo):
+                    return .object([
+                        "type": "file", "mediaType": "image/jpeg",
+                        "url": .string("data:image/jpeg;base64,\(photo.jpeg.base64EncodedString())"),
+                    ])
+                case .tool(let tool):
+                    guard !tool.providerExecuted, case .done(let output) = tool.state else { return nil }
+                    return .object([
+                        "type": .string("tool-\(tool.name)"), "toolCallId": .string(tool.callID),
+                        "state": "output-available", "input": tool.input ?? .object([:]), "output": output,
+                    ])
+                }
+            }
+            return .object(["id": .string(message.id), "role": .string(message.role.rawValue), "parts": .array(parts)])
+        }
+        return try encode(JSONValue.object([
+            "trigger": "submit-message", "id": .string(chat), "messages": .array(messages),
+            "page": .object(["path": .string(page.path)]),
+        ]))
+    }
+
     fileprivate static func source(_ name: String?, _ url: String?) -> RecipeSource? {
         // Cards come from any producer, so only a web page is ever made tappable.
         let url = url.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased()) ? $0 : nil }
@@ -250,6 +321,7 @@ nonisolated private struct SummaryDTO: Decodable {
     struct Meal: Decodable {
         let id: String
         let title: String
+        let cooked: Bool?
     }
 
     let id: String
@@ -288,6 +360,7 @@ nonisolated private struct DetailDTO: Decodable {
     let items: [Item]
     let week_start: String?
     let days: [DayDTO]?
+    let cooked: [String]?
 }
 
 nonisolated private struct DayDTO: Decodable {
@@ -417,6 +490,36 @@ nonisolated private struct SuggestionDTO: Decodable {
     let recipe_id: String?
 }
 
+nonisolated private struct WeekPlanDTO: Decodable {
+    struct Meal: Decodable {
+        let day: String
+        let title: String
+        let reason: String
+        let recipe_id: String?
+        let image_url: String?
+    }
+
+    let id: String
+    let week_of: String
+    let note: String
+    let meals: [Meal]
+}
+
+nonisolated private struct MadeWeekDTO: Decodable {
+    let list_id: String
+    let name: String
+    let undo: String
+}
+
+nonisolated private struct PreferenceDTO: Decodable {
+    let id: String
+    let subject: String
+    let stance: String
+    let evidence: String
+    let source: String
+    let forgotten: Bool
+}
+
 nonisolated private struct TuneDTO: Encodable {
     let diet: String
     let ease: String
@@ -425,6 +528,11 @@ nonisolated private struct TuneDTO: Encodable {
 
 nonisolated private struct SaveSuggestionDTO: Encodable {
     let list_id: String?
+}
+
+nonisolated private struct MealDTO: Encodable {
+    let recipe_id: String
+    let rating: Int?
 }
 
 nonisolated private struct ClearSuggestionsDTO: Encodable {

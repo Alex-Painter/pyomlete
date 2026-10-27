@@ -19,7 +19,7 @@ private struct UndoBannerHost: ViewModifier {
         content
             .overlay(alignment: .bottom) {
                 if let banner = undo.banner, !isCovered {
-                    UndoBanner(banner: banner) { undo.undoTapped() }
+                    UndoBanner(banner: banner, onAction: undo.actionTapped) { undo.undoTapped() }
                         .id(banner.id)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -30,6 +30,7 @@ private struct UndoBannerHost: ViewModifier {
 
 private struct UndoBanner: View {
     let banner: UndoCenter.Banner
+    let onAction: () -> Void
     let onUndo: () -> Void
 
     var body: some View {
@@ -39,6 +40,11 @@ private struct UndoBanner: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("undo.banner")
+            if let action = banner.action {
+                Button(action, action: onAction)
+                    .fontWeight(.semibold)
+                    .accessibilityIdentifier("undo.actionButton")
+            }
             if banner.canUndo {
                 Button("Undo", action: onUndo)
                     .fontWeight(.semibold)

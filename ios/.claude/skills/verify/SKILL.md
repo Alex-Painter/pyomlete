@@ -26,6 +26,8 @@ $V doctor    # must print no FAIL lines before you drive anything
 - **`server/.venv` must exist.** If `up` says it is missing, run `.claude/skills/verify-omlete/scripts/omlete-verify setup` from the repo root once. Docker must be running.
 - **Every `up` reseeds.** It deletes every list in the disposable database and leaves two. `Verify Fixture List` is a plain list with two meals: `Verify Fixture Shakshuka` (3 steps, serves 2, a 10-minute timer in step 2) and `Verify Fixture Soft Egg` (2 steps, no serving count, a 5-second timer in step 1). Its six items are their ingredients plus `milk` (2 pint) and `bananas` (6). It is Home's first row, so Home cooks from it and Add to list adds to it. `Verify Fixture Week` is a week list for the week under way, starting on the Saturday on or before today, with `Verify Fixture Traybake` on its first evening, its sixth evening Out, and `Verify Fixture Soft Egg` on it with no day; `features/plan.md` drives it. Item and list ids change on every seed, so read them from the line `up` prints, `$V snapshot` or `curl -s http://127.0.0.1:8765/api/lists/`.
 - **The seed also leaves four recipes and five Discover cards.** The recipes are the two meals, `Verify Fixture Lemon Drizzle Cake`, and `Verify Fixture Traybake`, which has the shape a link import saves: a source (`https://example.com/verify-fixture-traybake`), 45 minutes, a rating of 5, two ingredient groups and one ingredient kept off shopping lists. Any other recipe is deleted. The cards are named `Verify Card ...` and sit on four shelves; `features/discover.md` lists them.
+- **The seed also leaves a week plan waiting**, Chef's week for the week `GET /api/weeks/current` asks for (the Saturday on or before today, or the next one on a Friday), so Home and Discover show Chef's week card. Planning a week needs a model, so the seed writes the plan straight into Mongo with the server's own `WeekPlanDocument`. Its five dinners, one evening after the week's first: Sunday `Verify Fixture Shakshuka`, Monday `Verify Fixture Soft Egg`, Tuesday the new idea `Verify Week Idea Sheet Pan Chicken`, Wednesday `Verify Fixture Lemon Drizzle Cake` and Friday the new idea `Verify Week Idea Blocked Link`. The Sheet Pan Chicken's link is the Traybake's source, so once the list is made it saves with no model, in about a second, and lands on Tuesday as `Verify Fixture Traybake`. The Blocked Link's link is refused by the fetch guard, so it fails and Friday stays free. `features/home.md` drives the card.
+- **The seed also leaves three preferences** for What Chef knows in Settings: told `Never mushrooms` and `More fish` through `POST /api/preferences`, and inferred `Likes curry`, written straight into Mongo with the server's `PreferenceDocument`. Any other is deleted. `features/settings.md` drives them.
 - **The seed puts the aisle order back** to the server's nine defaults, so a run that renames, deletes or reorders aisles in Settings leaves nothing behind for the next.
 - **No API keys are needed.** `/api/categorize` fails without one, and the app keeps its own aisle guess, which is the offline behaviour anyway. Everything that asks a model fails too: Get new ideas, saving a Discover card and adding a recipe.
 - **Real keys in `server/.env` are not used.** The API is started with placeholder keys whatever that file holds, because the Discover and Add recipes prove the failures and a real key costs money on every run. `OMLETE_IOS_VERIFY_REAL_KEYS=1 $V up` (after `$V api stop`) passes the real ones through; the model calls then succeed and spend money, so use it only when Alex asks for that.
@@ -79,6 +81,7 @@ The last column is the control's `accessibilityIdentifier`. Every interactive co
 | `$V tap <id> then <id2>` | tap, then tap a second control at once with no capture in between. More can follow (`then <id3>`); all of them must be on screen straight after the first tap |
 | `$V type <id> <text>` | replace a text field's contents with `<text>` |
 | `$V swipe <id> up\|down\|left\|right` | swipe inside a scrollable element (`up` scrolls the content down) |
+| `$V drag <id> up\|down\|left\|right [distance]` | drag from an element, text included, by a fraction of the screen (default 0.4). Dragging a sheet by its title moves the sheet between its heights |
 
 Every step waits up to 20 seconds (`OMLETE_IOS_VERIFY_TIMEOUT_MS` changes that), prints `PASS` or `FAIL`, and exits non-zero on failure. A typical proof:
 
@@ -107,7 +110,18 @@ These three are for recipe jobs, and `features/add.md` has the recipes. `api fre
 
 `tap`, `type` and `swipe` fail with `no tappable or scrollable control with accessibility id ...` when the id is not on screen. Run `$V snapshot` to see what is there. If the control exists but has no id, add an `accessibilityIdentifier` to it in the app rather than driving it another way.
 
-For a gesture the helper does not wrap (long press, drag, hardware buttons, a Return key), call the CLI from `ios/` with a ref from a fresh snapshot, for example `npx -y xcodebuildmcp@latest ui-automation long-press --element-ref e12`. `npx -y xcodebuildmcp@latest ui-automation --help` lists them.
+### Chef without a model
+
+A real Chef reply needs a model key, which `up` never passes. To prove a streamed reply, a change with Undo and the refresh of the screen it touched, put a canned Chef in front of the API:
+
+| step | meaning |
+|---|---|
+| `$V chef-stub start` | start `scripts/chef-stub.py` on `http://127.0.0.1:8766` (`OMLETE_IOS_VERIFY_CHEF_STUB_PORT`) and relaunch the app against it |
+| `$V chef-stub stop` | stop it and relaunch the app against the API |
+
+The stub is test-only and changes nothing on the server. It answers `POST /api/chef/chat` with a paced, canned stream that adds `Verify Chef Lemons` to the list on screen through the real list endpoints, answers Undo for its own action ids (409 when the item has been checked or deleted since), and passes every other request to the API. `features/chef.md` has the recipes. `relaunch` keeps the app on the stub until `chef-stub stop` or the next `up`.
+
+For a gesture the helper does not wrap (long press, hardware buttons, a Return key), call the CLI from `ios/` with a ref from a fresh snapshot, for example `npx -y xcodebuildmcp@latest ui-automation long-press --element-ref e12`. `npx -y xcodebuildmcp@latest ui-automation --help` lists them.
 
 For the per-screen recipes, read [`features/README.md`](features/README.md).
 
@@ -136,7 +150,7 @@ Proof standards:
 $V down
 ```
 
-`down` stops the Omlete process that `up` launched, stops the local API, removes the disposable Mongo container, and shuts the simulator down only if `up` was what booted it. A simulator that was already booted is left booted. It never erases the simulator, never uninstalls the app and never touches `verify-artifacts/`. Run `down` after a failed iteration too.
+`down` stops the Omlete process that `up` launched, stops the canned Chef and the local API, removes the disposable Mongo container, and shuts the simulator down only if `up` was what booted it. A simulator that was already booted is left booted. It never erases the simulator, never uninstalls the app and never touches `verify-artifacts/`. Run `down` after a failed iteration too.
 
 Never `xcrun simctl shutdown all`, `simctl erase`, or `killall Simulator`: those hit simulators and sessions this run did not start.
 

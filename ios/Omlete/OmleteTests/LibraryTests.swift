@@ -100,7 +100,7 @@ import Testing
 
         #expect(phone.library.cookShelf == CookShelf(listID: "list", listName: "Week", meals: [
             RecipeSummary(id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg"), totalMinutes: 35),
-        ]))
+        ], cooked: []))
     }
 
     @Test func theListLastOpenedIsRememberedAcrossARelaunch() async {
@@ -206,6 +206,33 @@ import Testing
 
         #expect(log == ["undo"])
         #expect(undo.banner == nil)
+    }
+
+    @Test func theActionKeepsTheChangeAndThenActs() {
+        let undo = UndoCenter()
+        var log: [String] = []
+        undo.offer(
+            "Made", undo: { log.append("undo") }, commit: { log.append("commit") },
+            action: .init(label: "Open") { log.append("open") })
+        #expect(undo.banner?.action == "Open")
+
+        undo.actionTapped()
+        undo.undoTapped()
+
+        #expect(log == ["commit", "open"])
+        #expect(undo.banner == nil)
+    }
+
+    @Test func newsWaitsBehindABannerWithAnActionAndIsSaidOnceItHasSettled() {
+        let undo = UndoCenter()
+        undo.offer("Made", undo: {}, action: .init(label: "Open") {})
+        undo.inform("Couldn't save Bao")
+        #expect(undo.banner?.message == "Made")
+
+        undo.actionTapped()
+
+        #expect(undo.banner?.message == "Couldn't save Bao")
+        #expect(undo.banner?.action == nil)
     }
 
     @Test func aNewOfferCommitsTheOneBeforeIt() {

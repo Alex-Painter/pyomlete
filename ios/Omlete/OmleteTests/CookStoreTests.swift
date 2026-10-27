@@ -28,6 +28,15 @@ import Testing
         await cook(toStep: 4)
         store.next()
         #expect(stove.session?.stage == .finished)
+        await eventually { stove.storage.records[Stove.recipeID]?.mealToSend == nil }
+    }
+
+    /// Every meal PUT in order: the key from its path, and its body.
+    private var mealsSent: [(key: String, body: [String: Any])] {
+        zip(stove.transport.calls, stove.transport.bodies).compactMap { call, body in
+            guard call.method == "PUT", call.path.hasPrefix("/api/meals/") else { return nil }
+            return (String(call.path.dropFirst("/api/meals/".count)), body)
+        }
     }
 
     private var ratingsSent: [Int] {
@@ -256,8 +265,8 @@ import Testing
         stove.kitchen.resume()
         await eventually { stove.storage.records[Stove.recipeID]?.unsentRating == nil }
 
-        #expect(Array(stove.transport.calls[before...]) == [rate])
-        #expect(stove.transport.bodies[before] as? [String: Int] == ["rating": 4])
+        #expect(stove.transport.calls[before...].filter { $0.method == "PATCH" } == [rate])
+        #expect(ratingsSent.last == 4)
     }
 
     @Test func aSecondTapWhileTheFirstIsInFlightEndsWithTheSecondSentLast() async {
@@ -265,15 +274,18 @@ import Testing
         stove.transport.holding = true
 
         store.rate(4)
-        await eventually { stove.transport.calls.last == rate }
+        await eventually { stove.transport.calls.contains(rate) }
         store.rate(5)
         store.rate(2)
         #expect(store.rating.stars == 2)
         stove.transport.release()
 
         await eventually { store.rating == RatingView(stars: 2, status: .sent) }
+        await eventually { stove.storage.records[Stove.recipeID]?.mealToSend == nil }
         #expect(ratingsSent == [4, 2])
-        #expect(stove.transport.peakInFlight == 1)
+        #expect(mealsSent.compactMap { $0.body["rating"] as? Int } == [4, 2])
+        // One rating and one meal.
+        #expect(stove.transport.peakInFlight == 2)
         #expect(stove.session?.recipe.rating == 2)
     }
 
@@ -297,6 +309,120 @@ import Testing
 
         stove.kitchen.resume()
         #expect(ratingsSent == [5])
+    }
+
+    @Test func finishingLogsTheMealOnceUnderAKeyMadeForThisCook() async throws {
+        await finish()
+        store.back()
+        store.next()
+        stove.kitchen.resume()
+        await settle()
+
+        let meals = mealsSent
+        #expect(meals.count == 1)
+        let key = try #require(meals.first?.key)
+        #expect(UUID(uuidString: key)?.uuidString.lowercased() == key)
+        #expect(meals.first?.body as? [String: String] == ["recipe_id": "curry"])
+    }
+
+    @Test func aRatingAfterFinishingRatesTheSameMeal() async {
+        await finish()
+
+        store.rate(4)
+        await eventually { mealsSent.count == 2 && store.rating.status == .sent }
+
+        #expect(mealsSent[1].key == mealsSent[0].key)
+        #expect(mealsSent[1].body["rating"] as? Int == 4)
+        #expect(ratingsSent == [4])
+    }
+
+    @Test func aRelaunchAfterFinishingKeepsTheMealsKey() async {
+        await finish()
+        stove.relaunch()
+        stove.kitchen.resume()
+        await settle()
+        #expect(mealsSent.count == 1)
+
+        store.rate(5)
+        await eventually { mealsSent.count == 2 }
+        #expect(mealsSent[1].key == mealsSent[0].key)
+    }
+
+    @Test func aMealFinishedWithNoSignalIsSentOnceOnResumeWithItsRating() async {
+        await cook(toStep: 4)
+        stove.serverIsUnreachable()
+        store.next()
+        store.rate(4)
+        await eventually { store.rating.status == .savedHere }
+        let key = mealsSent.first?.key
+        #expect(mealsSent.allSatisfy { $0.key == key })
+
+        stove.relaunch()
+        let before = mealsSent.count
+        stove.serverAnswers()
+        stove.kitchen.resume()
+        await eventually { stove.storage.records[Stove.recipeID]?.mealToSend == nil }
+        stove.kitchen.resume()
+        await settle()
+
+        #expect(mealsSent.count == before + 1)
+        #expect(mealsSent.last?.key == key)
+        #expect(mealsSent.last?.body["rating"] as? Int == 4)
+    }
+
+    @Test func cookingItAgainIsANewMeal() async {
+        await finish()
+        await finish()
+
+        #expect(mealsSent.count == 2)
+        #expect(mealsSent[0].key != mealsSent[1].key)
+    }
+
+    /// Finish ticks the meal on its list only when this says so, so a Finish
+    /// tapped again after Last step, or a step before the end, ticks nothing.
+    @Test func onlyTheTapThatFirstFinishesACookMadeItsMeal() async {
+        await cook(toStep: 3)
+        #expect(!store.next())
+        #expect(store.next())
+        store.back()
+        #expect(!store.next())
+
+        await store.open()
+        store.start()
+        for _ in 1..<4 { #expect(!store.next()) }
+        #expect(store.next())
+    }
+
+    @Test func aRatingBeforeTheEndLogsNoMeal() async {
+        await cook(toStep: 2)
+        store.rate(3)
+        await eventually { store.rating.status == .sent }
+
+        #expect(mealsSent.isEmpty)
+    }
+
+    @Test func aMealForADeletedRecipeIsDroppedNotRetried() async {
+        stove.serverAnswers { $0.method == "PUT" ? .status(404) : nil }
+        await finish()
+        stove.kitchen.resume()
+        await settle()
+
+        #expect(mealsSent.count == 1)
+    }
+
+    @Test func aCookUntouchedForAMonthIsKeptWhileItsMealIsUnsent() async {
+        await cook(toStep: 4)
+        stove.serverIsUnreachable()
+        store.next()
+        stove.clock.advance(by: Kitchen.keepsCooksFor + 1)
+        stove.relaunch()
+
+        #expect(stove.storage.records[Stove.recipeID]?.mealToSend != nil)
+    }
+
+    /// Lets any request a step started go out and be answered.
+    private func settle() async {
+        for _ in 0..<50 { await Task.yield() }
     }
 
     @Test func aCookUntouchedForAMonthIsForgottenUnlessARatingIsUnsent() async {
