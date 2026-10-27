@@ -131,6 +131,12 @@ nonisolated struct APIClient: Sendable {
         _ = try await call("PATCH", "recipes/\(id.rawValue)/rating", body: try Wire.encode(["rating": stars]))
     }
 
+    /// Records a cooked meal for Chef. The key names the row, so a retry is
+    /// safe and a later call with a rating rates the same meal.
+    func logMeal(_ key: UUID, recipe: RecipeID, rating: Int?) async throws(APIError) {
+        _ = try await call("PUT", "meals/\(key.uuidString.lowercased())", body: try Wire.meal(recipe, rating: rating))
+    }
+
     /// Replaces the title, method and whole ingredient list, and answers with
     /// the recipe as the server now has it. Sending the same edit twice is harmless.
     func updateRecipe(_ id: RecipeID, _ edit: RecipeEdit) async throws(APIError) -> Recipe {

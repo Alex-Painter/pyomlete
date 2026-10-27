@@ -132,6 +132,10 @@ nonisolated enum Wire {
         try encode(SaveSuggestionDTO(list_id: list?.rawValue))
     }
 
+    static func meal(_ recipe: RecipeID, rating: Int?) throws(APIError) -> Data {
+        try encode(MealDTO(recipe_id: recipe.rawValue, rating: rating))
+    }
+
     static func dismissal() throws(APIError) -> Data {
         try encode(["status": "dismissed"])
     }
@@ -352,6 +356,11 @@ nonisolated private struct TuneDTO: Encodable {
 
 nonisolated private struct SaveSuggestionDTO: Encodable {
     let list_id: String?
+}
+
+nonisolated private struct MealDTO: Encodable {
+    let recipe_id: String
+    let rating: Int?
 }
 
 nonisolated private struct ClearSuggestionsDTO: Encodable {

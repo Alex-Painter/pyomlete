@@ -51,6 +51,8 @@ struct SavedFilesTests {
         #expect(record.session.recipe.ingredients.map(\.name) == ["eggs", "chopped tomatoes", "onion", "red pepper"])
         #expect(record.session.recipe.ingredients.map(\.isOnList) == [true, true, true, true])
         #expect(record.session.recipe.source == nil)
+        #expect(record.session.meal == nil)
+        #expect(record.mealToSend == nil)
     }
 
     @Test func anIndexSavedByTheFirstBuildKeepsItsListsAndUnsentDeletes() throws {

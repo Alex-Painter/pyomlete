@@ -32,7 +32,7 @@ struct KitchenDependencies {
         self.deps = deps
         let now = deps.now()
         for record in deps.disk.loadAll() {
-            if record.unsentRating == nil, now.timeIntervalSince(record.session.touchedAt) > Self.keepsCooksFor {
+            if record.unsentRating == nil, record.mealToSend == nil, now.timeIntervalSince(record.session.touchedAt) > Self.keepsCooksFor {
                 deps.disk.discard(record.id)
             } else {
                 stores[record.id] = CookStore(id: record.id, record: record, deps: deps)
@@ -54,7 +54,7 @@ struct KitchenDependencies {
     }
 
     /// The app came to the front, or the network returned: ring what ended
-    /// while away and send unsent ratings.
+    /// while away and send unsent ratings and meals.
     func resume() {
         for store in stores.values { store.resume() }
     }
