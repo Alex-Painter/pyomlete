@@ -2,11 +2,13 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useDraggable } from '@dnd-kit/core'
-import { Check, Clock, Loader2, Plus, RefreshCw, Search, Star } from 'lucide-react'
+import { Check, Clock, Loader2, Plus, RefreshCw, Search, Sparkles, Star } from 'lucide-react'
+import { HelpMeChoose } from '@/components/HelpMeChoose'
+import { MealPickCard } from '@/components/MealPickCard'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { formatMinutes } from '@/components/RecipeMetaRow'
 import { fitContext, rankForDay, sharedWithList } from '@/lib/fitScore'
-import type { Fit, FitContext, Ranked } from '@/lib/fitScore'
+import type { FitContext, Ranked } from '@/lib/fitScore'
 import {
   BEST_SORT,
   FILTERS,
@@ -212,6 +214,7 @@ export function DayLibrary({
  * The three best fits for the evening, each with its reason, so most dinners
  * are one glance and one tap. Something else shows the next three; skipping
  * one says "not tonight", never "not for me", so nothing is sent anywhere.
+ * Help me choose swaps the three for Narrow it down, in the same place.
  */
 function TopThree({
   date,
@@ -227,16 +230,28 @@ function TopThree({
   onPick: (r: RecipeSummary) => void
 }) {
   const [page, setPage] = useState(0)
+  const [choosing, setChoosing] = useState(false)
   // The day's own meal is already chosen; the rest are what you'd swap to.
   const pool = ranked.filter((r) => r.recipe.id !== ctx.day.recipe_id)
   if (pool.length === 0) return null
+  if (choosing) {
+    return (
+      <HelpMeChoose
+        ranked={pool}
+        quickNight={!!ctx.day.quick}
+        markFor={markFor}
+        onPick={onPick}
+        onClose={() => setChoosing(false)}
+      />
+    )
+  }
   const pages = Math.ceil(pool.length / TOP)
   const shown = pool.slice((page % pages) * TOP, (page % pages) * TOP + TOP)
   return (
     <section aria-label={`Top three for ${dayLong(date)}`} className="mb-4">
       <ul className="space-y-2">
         {shown.map(({ recipe, fit }) => (
-          <TopCard
+          <MealPickCard
             key={recipe.id}
             recipe={recipe}
             fit={fit}
@@ -245,64 +260,29 @@ function TopThree({
           />
         ))}
       </ul>
-      {pages > 1 && (
-        <button
-          type="button"
-          onClick={() => setPage((p) => p + 1)}
-          className="mt-2 flex min-h-[44px] items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink-soft hover:bg-sand"
-        >
-          <RefreshCw className="size-4" />
-          {(page + 1) % pages === 0 ? 'Back to the top three' : 'Something else'}
-        </button>
-      )}
-    </section>
-  )
-}
-
-function TopCard({
-  recipe,
-  fit,
-  mark,
-  onPick,
-}: {
-  recipe: RecipeSummary
-  fit: Fit
-  mark: RowMark
-  onPick: () => void
-}) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onPick}
-        disabled={mark === 'busy'}
-        aria-pressed={mark === 'added' ? true : undefined}
-        className="flex min-h-[72px] w-full items-center gap-3 rounded-2xl border border-line bg-white p-2 text-left shadow-sm hover:bg-sand"
-      >
-        <RecipeThumb src={recipe.image_url} title={recipe.title} className="size-14 shrink-0 rounded-xl" />
-        <span className="min-w-0 flex-1">
-          <span className="block font-semibold leading-snug">{recipe.title}</span>
-          {fit.reason && (
-            <span className={cn('block text-sm', fit.clash ? 'text-clash' : 'text-ink-soft')}>
-              {fit.reason}
-            </span>
-          )}
-          {recipe.total_minutes != null && (
-            <span className="flex items-center gap-1 text-sm text-ink-muted">
-              <Clock className="size-3" />
-              {formatMinutes(recipe.total_minutes)}
-            </span>
-          )}
-        </span>
-        {mark === 'added' ? (
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary">
-            <Check className="size-4" strokeWidth={3} />
-          </span>
-        ) : (
-          <Plus className="size-5 shrink-0 text-ink-muted" />
+      <div className="mt-2 flex flex-wrap gap-2">
+        {pages > 1 && (
+          <button
+            type="button"
+            onClick={() => setPage((p) => p + 1)}
+            className="flex min-h-[44px] items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink-soft hover:bg-sand"
+          >
+            <RefreshCw className="size-4" />
+            {(page + 1) % pages === 0 ? 'Back to the top three' : 'Something else'}
+          </button>
         )}
-      </button>
-    </li>
+        {pool.length > TOP && (
+          <button
+            type="button"
+            onClick={() => setChoosing(true)}
+            className="flex min-h-[44px] items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink-soft hover:bg-sand"
+          >
+            <Sparkles className="size-4" />
+            Help me choose
+          </button>
+        )}
+      </div>
+    </section>
   )
 }
 
