@@ -16,20 +16,6 @@
       }
     },
     {
-      "name": "omlete-chef",
-      "source": {
-        "root": "server"
-      },
-      "build": {
-        "builder": "NIXPACKS"
-      },
-      "deploy": {
-        "startCommand": "python -m chef.run",
-        "cronSchedule": "0 * * * *",
-        "restartPolicyType": "NEVER"
-      }
-    },
-    {
       "name": "omlete-client",
       "source": {
         "root": "client"

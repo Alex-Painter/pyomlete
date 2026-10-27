@@ -20,7 +20,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.messages import BinaryContent, ModelRequest, UserPromptPart
 
-from chef import week
+from chef import run, week
 from chef.actions import Change
 from data_models import (
     CategoryConfig,
@@ -564,6 +564,7 @@ async def set_weekly_plan(
     change = Change()
     await change.touching(UserSettingsDocument, current.id)
     await settings.set_weekly_plan(enabled, weekday, hour)
+    run.reschedule()
     summary = (
         f"Chef plans your week on {_WEEKDAYS[weekday]}s at {hour:02d}:00"
         if enabled

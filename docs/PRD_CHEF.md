@@ -33,7 +33,7 @@ The full plan, with the data model, the tool list and a diagram, is the [Chef pl
 | Make the list is undone with Chef's Undo (`POST /chef/actions/{id}/undo`), from the toast, which also offers Open. An idea that finishes saving after an Undo keeps its recipe but goes on no list | One Undo for Chef's changes, in chat or on the card. Nothing navigates on its own. |
 | A week is planned by the weekly run, by Plan my week on Discover, or by asking Chef in chat | Home shows the card only when a plan is waiting. |
 | The weekly run plans the coming week on Sunday at 08:00 UK time by default, and the day, hour and on/off are settings, in Settings and in chat (`set_weekly_plan`) | Alex asked for Sunday rather than Saturday, and for the day and time to be configurable (27 Oct 2026). |
-| The `omlete-chef` service runs `python -m chef.run` every hour, and the run checks the chosen day and hour in UK time itself. It plans when the hour is up to 4 hours past, and only if the coming week has no plan yet, made, skipped or waiting | A setting can change without a redeploy, the clocks changing moves nothing, and a failed run is tried again the next hour. A week they skipped is not planned again. |
+| The API server schedules the run itself: a background task sleeps until the chosen day and hour in UK time, and a change to the time wakes it to reschedule. A run up to 4 hours late still happens (after a restart, or an hour after a failure), and a week with a plan, made, skipped or waiting, is never planned again | Alex asked for something better than a cron that checks the time every hour (27 Oct 2026). This needs no extra service, and a new time takes effect at once. |
 | The coming week is the first week starting on or after the run's day. Its card shows on Home from then, before that week begins | With weeks from Saturday, a Sunday run plans the week from next Saturday, so the list is ready for that shop. |
 | On phones Chef stays out of Shop and Cook | Both take the whole screen and have no tab bar for the sheet to sit on. The sidebar on wide windows stays. |
 | Notifications, iOS first: week ready, recipe ready, Cook timer done | The timer is a local notification. The others are APNs pushes from the server. Permission is asked the first time one is useful, not at launch. |
@@ -48,7 +48,7 @@ Each phase is its own PR.
 4. Memory: a meal log from Cook, told and inferred preferences, and What Chef knows in Settings.
 5. Parked on 18 Oct 2026 at Alex's request: a rough nutrition profile on each recipe, so Chef can balance a week. Until it comes back, the weekly plan balances on variety and the household's taste alone.
 6. Week cards and Make the list.
-7. The `omlete-chef` Railway cron service runs the week on its own.
+7. Chef runs the week on its own, scheduled by the API server.
 8. iOS notifications. Alex creates the APNs key and turns on the Push capability in Xcode first.
 
 Still open, with the default the build uses: a week is 5 dinners (3 from the library, 2 new), nutrition is tracked as food groups rather than calories, balance starts from NHS guidance, Chef plans on Sunday at 08:00 UK time (a setting), and inferred preferences are shown with their evidence.

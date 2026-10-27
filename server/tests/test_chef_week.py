@@ -5,6 +5,7 @@ in memory, and a new idea's save is a mock (tests/test_suggestion_saves.py
 covers saving).
 """
 
+import asyncio
 from datetime import date, datetime, time, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -359,3 +360,29 @@ async def test_the_weekly_plan_time_is_a_setting_chef_can_change(api):
     assert seen["returns"][0]["done"] == "Chef plans your week on Sundays at 19:00"
     await api.post(f"/api/chef/actions/{seen['returns'][0]['undo']}/undo")
     assert (await api.get("/api/settings/weekly-plan")).json() == body
+
+
+async def test_the_server_runs_it_and_a_new_time_wakes_it(api, monkeypatch):
+    weekly = AsyncMock(return_value=None)
+    monkeypatch.setattr(run, "weekly", weekly)
+    task = asyncio.create_task(run.keep_planning())
+    try:
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert weekly.await_count == 1
+        await api.put(
+            "/api/settings/weekly-plan",
+            json={"weekly_plan": True, "weekly_plan_weekday": 2, "weekly_plan_hour": 7},
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert weekly.await_count == 2
+    finally:
+        task.cancel()
+
+
+def test_the_next_run_is_a_week_after_the_last_chosen_time():
+    s = a_settings()
+    assert run.last_chosen(datetime(2026, 11, 1, 8), s) == datetime(2026, 11, 1, 8)
+    assert run.last_chosen(datetime(2026, 11, 1, 7, 59), s) == datetime(2026, 10, 25, 8)
+    assert run.last_chosen(datetime(2026, 11, 4, 12), s) + timedelta(days=7) == datetime(2026, 11, 8, 8)

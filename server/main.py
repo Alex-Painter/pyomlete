@@ -14,7 +14,7 @@ from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pymongo.errors import DuplicateKeyError
 
 from chef import actions as chef_actions
-from chef import chat, discover, week
+from chef import chat, discover, run, week
 from data_models import (
     CategoryConfig,
     ListDocument,
@@ -66,7 +66,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     client = get_motor_client()
     await init_documents(client)
+    weekly_run = asyncio.create_task(run.keep_planning())
     yield
+    weekly_run.cancel()
     await _end_running_work()
     client.close()
 
@@ -272,9 +274,9 @@ async def get_weekly_plan_settings():
 
 @router.put("/settings/weekly-plan")
 async def update_weekly_plan_settings(body: WeeklyPlanSettings):
-    return _weekly_plan_out(
-        await settings.set_weekly_plan(body.weekly_plan, body.weekly_plan_weekday, body.weekly_plan_hour)
-    )
+    saved = await settings.set_weekly_plan(body.weekly_plan, body.weekly_plan_weekday, body.weekly_plan_hour)
+    run.reschedule()
+    return _weekly_plan_out(saved)
 
 
 # --- Week plans ---
@@ -1039,6 +1041,8 @@ async def undo_chef_action(action_id: PydanticObjectId):
     """Put back what one of Chef's changes changed. 409 when something else
     has changed it since."""
     action = await chef_actions.undo(action_id)
+    # It may have put back the weekly plan's time.
+    run.reschedule()
     return {"id": str(action.id), "summary": action.summary, "undone": True}
 
 
