@@ -173,7 +173,8 @@ release_api() {
 # saves (source, time, rating, ingredient groups, no picture), and five
 # Discover cards across four shelves, in a fixed feed order. The Traybake
 # card's link is the Traybake's source, so saving it finds that recipe without
-# asking a model.
+# asking a model. And a waiting week plan for Chef's week card, written with
+# the server's models because planning one needs a model.
 # Only ever runs against the disposable database.
 seed() {
   local py="$ROOT/server/.venv/bin/python"

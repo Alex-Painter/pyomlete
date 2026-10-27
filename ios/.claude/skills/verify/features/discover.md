@@ -10,6 +10,7 @@ Chef's suggestions as shelves of cards that scroll sideways: For this week, Unde
 - `discover-not-for-me` hides a card at once with Undo, and tells the server after the banner.
 - `discover-clear-all` hides every card that is not saving, with Undo. The server learns nothing about taste from it.
 - `discover-get-ideas` asks for a new batch from the toolbar button or by pulling down.
+- `discover-week` shows Chef's week card at the top, the same card as Home's (`features/home.md`) with `discover.` ids. With no week waiting it offers Plan my week (`POST /api/weeks/plan`), which waits on a model for up to 180 seconds and carries on when you leave Discover.
 - `discover-tune` sets diet, effort and a note for the next batch, and remembers them.
 
 ## How to get to it (user POV)
@@ -39,10 +40,14 @@ Preconditions:
 - **Not for me.** `$V tap discover.notForMe.<card> then undo.button`, then `$V expect "<title>"`: the card is back and the API still has it as `new`. Without `then undo.button` the tap's `NN-tap.json` holds `Hid <title>. You'll see less like it.`, and seven seconds later `curl -s http://127.0.0.1:8765/api/suggestions/` no longer lists it and `.verify-run/api.log` has one `PATCH /api/suggestions/<card>`.
 - **Clear all.** `$V tap discover.clearAllButton`, then `$V expect "No ideas here yet"`. Seven seconds later the API lists no cards and the log has `POST /api/suggestions/clear`. `$V tap discover.clearAllButton then undo.button` keeps them.
 - **Get new ideas, failing.** `$V tap discover.getIdeasButton`. The tap's `NN-tap.json` holds `Couldn't get new ideas right now. Try again in a bit.` and the log has `POST /api/suggestions/refresh` answered 500.
+- **Chef's week.** `$V expect-id discover.week.makeButton`, then `$V tap discover.week.skipButton then undo.button` and `$V expect-id discover.week.makeButton`: the card is back. `$V tap discover.week.skipButton` and `$V expect-id discover.week.planButton`: Plan my week takes its place, and seven seconds later the log has one `POST /api/weeks/<plan>/skip`. Home then has no `home.week.` row.
+- **Plan my week, failing.** With no week waiting, `$V tap discover.week.planButton`, `$V expect "Chef couldn't plan a week right now"`. The log has `POST /api/weeks/plan` answered 500: with no model key the plan always fails.
+- **Plan my week while you are elsewhere.** `$V api freeze`, `$V tap discover.week.planButton`, `$V tap tab.home`, `$V tap tab.discover`, `$V expect "Chef is planning your week"`, then `$V api release` and `$V expect "Chef couldn't plan a week right now"`. The log has one `POST /api/weeks/plan` for the tap.
 - **Tune.** `$V tap discover.tuneButton`, `$V tap tune.diet.vegan`, `$V tap tune.effort.quick`, `$V type tune.notesField "more fish"`, `$V tap tune.applyButton`. The log has `POST /api/suggestions/refresh`. Then `$V relaunch`, `$V tap tab.discover`, `$V tap discover.tuneButton`, `$V expect "More fish"` (the field capitalises the first letter as the keyboard would). The screenshot shows Vegan and Quick & easy still chosen.
 
 ## Gotchas
 
+- With a week waiting and no cards, "No ideas here yet" sits below the week card instead of over it.
 - These recipes rely on the API having no model key, which is how `up` starts it whatever `server/.env` holds. With `OMLETE_IOS_VERIFY_REAL_KEYS=1` the model calls succeed, cost money and never show their failure.
 - With no key, only `Verify Card Imported Traybake` can be saved. Its link is the source of the `Verify Fixture Traybake` recipe, so the server finds that recipe without asking a model. Every other card fails to save, and Get new ideas always fails. Their success is covered by `ChefTests`.
 - Saving the Traybake card takes under a second, so "Saving." is rarely on screen for a capture. `Verify Card Bean Chilli` shows it for a moment before it fails.
