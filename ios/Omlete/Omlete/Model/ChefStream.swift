@@ -2,13 +2,17 @@ import Foundation
 
 /// Any JSON. A tool's input and output are the model's and the server's to
 /// shape, so the phone keeps them as they came and sends them back unchanged.
-nonisolated enum JSONValue: Equatable, Sendable, Codable {
+nonisolated enum JSONValue: Equatable, Sendable, Codable, ExpressibleByStringLiteral {
     case null
     case bool(Bool)
     case number(Double)
     case string(String)
     case array([JSONValue])
     case object([String: JSONValue])
+
+    init(stringLiteral value: String) {
+        self = .string(value)
+    }
 
     subscript(key: String) -> JSONValue? {
         if case .object(let fields) = self { fields[key] } else { nil }

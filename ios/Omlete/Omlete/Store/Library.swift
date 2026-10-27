@@ -125,6 +125,14 @@ struct CookShelf: Equatable {
         refreshing = nil
     }
 
+    /// `refresh()`, and every list already on the phone, whose replica is what
+    /// Plan, Shop and the Home rows show. For a change made elsewhere, by Chef.
+    func refreshEverything() async {
+        let lists = stores.values.filter { $0.replica.current != nil }.map { $0.sync(refresh: true) }
+        await refresh()
+        for list in lists { await list.value }
+    }
+
     /// Loads the recipes alone, for a screen that shows nothing else of what
     /// `refresh()` loads. Joins a full refresh if one is running.
     func refreshRecipes() async {

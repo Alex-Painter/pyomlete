@@ -238,6 +238,36 @@ nonisolated enum Wire {
 
     static let json = "application/json"
 
+    /// The AI SDK's chat request plus `page`, as the web's `askChef` sends it.
+    /// Web searches and tools that did not finish are left out: the search
+    /// results belong to Anthropic's side of the turn.
+    static func chefChat(_ chat: String, messages: [ChefMessage], page: ChefPage) throws(APIError) -> Data {
+        let messages = messages.map { message -> JSONValue in
+            let parts = message.parts.compactMap { part -> JSONValue? in
+                switch part {
+                case .text(let text):
+                    return text.isEmpty ? nil : .object(["type": "text", "text": .string(text)])
+                case .photo(let photo):
+                    return .object([
+                        "type": "file", "mediaType": "image/jpeg",
+                        "url": .string("data:image/jpeg;base64,\(photo.jpeg.base64EncodedString())"),
+                    ])
+                case .tool(let tool):
+                    guard !tool.providerExecuted, case .done(let output) = tool.state else { return nil }
+                    return .object([
+                        "type": .string("tool-\(tool.name)"), "toolCallId": .string(tool.callID),
+                        "state": "output-available", "input": tool.input ?? .object([:]), "output": output,
+                    ])
+                }
+            }
+            return .object(["id": .string(message.id), "role": .string(message.role.rawValue), "parts": .array(parts)])
+        }
+        return try encode(JSONValue.object([
+            "trigger": "submit-message", "id": .string(chat), "messages": .array(messages),
+            "page": .object(["path": .string(page.path)]),
+        ]))
+    }
+
     fileprivate static func source(_ name: String?, _ url: String?) -> RecipeSource? {
         // Cards come from any producer, so only a web page is ever made tappable.
         let url = url.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased()) ? $0 : nil }

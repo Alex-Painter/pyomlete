@@ -46,6 +46,27 @@ enum Immersive: Hashable, Identifiable {
         self[tab].append(route)
     }
 
+    /// The screen on show, for Chef.
+    var chefPage: ChefPage {
+        switch immersive {
+        case .shop(let id): return .shop(id)
+        case .cook(let id): return .cook(id)
+        case nil: break
+        }
+        switch self[tab].last {
+        case .plan(let id): return .list(id)
+        case .recipe(let id): return .recipe(id)
+        case .settings: return .settings
+        case nil:
+            switch tab {
+            case .home: return .home
+            case .discover: return .discover
+            case .add: return .addRecipe
+            case .recipes: return .recipes
+            }
+        }
+    }
+
     var shopping: ListID? {
         if case .shop(let id) = immersive { id } else { nil }
     }

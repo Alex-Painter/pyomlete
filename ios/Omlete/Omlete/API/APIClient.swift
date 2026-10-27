@@ -34,6 +34,8 @@ nonisolated enum APIError: Error, Equatable, Sendable {
 /// The network seam: bytes out, bytes back. Tests script a fake.
 nonisolated protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+    /// The status at once, and the body as it arrives.
+    func stream(_ request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<Data, any Error>)
 }
 
 /// Typed endpoints that return domain values and throw `APIError`. The JSON
@@ -259,6 +261,41 @@ nonisolated struct APIClient: Sendable {
         _ = try await call("POST", "chef/actions/\(id.rawValue)/undo")
     }
 
+    /// Sends the conversation from `page` and answers with Chef's reply as it
+    /// streams in. A request the server will not take throws here, before any
+    /// event; a reply cut short or unreadable throws from the stream.
+    func askChef(
+        chat: String, messages: [ChefMessage], from page: ChefPage
+    ) async throws(APIError) -> AsyncThrowingStream<ChefStreamEvent, any Error> {
+        let request = try self.request(
+            "POST", "chef/chat", body: try Wire.chefChat(chat, messages: messages, page: page), patience: .slow)
+        let response: HTTPURLResponse
+        let chunks: AsyncThrowingStream<Data, any Error>
+        do {
+            (response, chunks) = try await transport.stream(request)
+        } catch {
+            throw .unreachable
+        }
+        if let failure = APIError(status: response.statusCode) { throw failure }
+        return AsyncThrowingStream { continuation in
+            let reading = Task {
+                var reader = ServerSentEvents()
+                do {
+                    reading: for try await chunk in chunks {
+                        for payload in reader.feed(chunk) {
+                            guard case .data(let data) = payload else { break reading }
+                            continuation.yield(try ChefStreamEvent(payload: data))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in reading.cancel() }
+        }
+    }
+
     private enum Patience {
         case quick
         /// For a call that waits on a model. Overrides the transport's short default.
@@ -296,7 +333,15 @@ nonisolated struct APIClient: Sendable {
         _ method: String, _ path: String, body: Data? = nil, contentType: String = Wire.json,
         patience: Patience = .quick
     ) async throws -> (status: Int, data: Data) {
-        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw APIError.rejected(400) }
+        let request = try request(method, path, body: body, contentType: contentType, patience: patience)
+        let (data, response) = try await transport.send(request)
+        return (response.statusCode, data)
+    }
+
+    private func request(
+        _ method: String, _ path: String, body: Data?, contentType: String = Wire.json, patience: Patience
+    ) throws(APIError) -> URLRequest {
+        guard let url = URL(string: "api/\(path)", relativeTo: baseURL) else { throw .rejected(400) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         if patience == .slow { request.timeoutInterval = Self.slowTimeout }
@@ -304,8 +349,7 @@ nonisolated struct APIClient: Sendable {
             request.httpBody = body
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await transport.send(request)
-        return (response.statusCode, data)
+        return request
     }
 
     private func decode<Value>(_ parse: (Data) throws -> Value, from data: Data) throws(APIError) -> Value {
