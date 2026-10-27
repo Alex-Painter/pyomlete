@@ -66,7 +66,7 @@ A plain list:
   ```
 
   The snapshot holds `Added Verify Fixture Shakshuka to Verify Fixture List` and the row's value `On the list`. Seven seconds later `.verify-run/api.log` has no `DELETE` and no `POST` under `/api/lists/<listID>/recipes`: the second tap was the Undo. On a week list, planning a meal whose removal can still be undone is that Undo too, and clears the meal's other evenings.
-- **A list with no meals.** On Home, `$V tap home.newListButton` opens an empty plain list. `$V expect "Pick this week's meals"`, and `$V snapshot` has no `plan.addMealsButton`. `$V tap plan.pickMealsButton` scrolls to the library.
+- **A list with no meals.** Make an empty plain list with `curl -s -X POST http://127.0.0.1:8765/api/lists/`, `$V relaunch`, and `$V tap home.listRow.<listID>`. `$V expect "Pick this week's meals"`, and `$V snapshot` has no `plan.addMealsButton`. `$V tap plan.pickMealsButton` scrolls to the library.
 - **The library with no recipes.** Delete the four recipes first (`curl -s -X DELETE http://127.0.0.1:8765/api/recipes/<recipeID>` for each), `$V relaunch`, open the plain list, `$V swipe plan.list up`, then `$V expect "No recipes yet"`. `$V tap plan.library.addRecipeButton` lands on Add (`$V expect-id add.textField`) and `plan.library.browseDiscoverButton` on Discover; `$V tap tab.home` shows Plan still open.
 
 The items, on a plain list or a week list's List view:

@@ -28,7 +28,7 @@ Preconditions:
 - **Rate.** On the last page, `$V expect "How was it?"`, `$V tap cook.star.4`, `$V expect "Thanks. Discover will suggest more like this, or less."`. `curl -s http://127.0.0.1:8765/api/recipes/<id> | jq .rating` prints `4`.
 - **Rate offline.** `$V api stop`, `$V tap cook.star.5`, `$V expect "Saved. It will send when you're back online."`, `$V api start`, `$V relaunch`. A few seconds later the API has `5`, and `.verify-run/api.log` holds one `PATCH /api/recipes/<id>/rating`.
 - **Resume.** Mid-cook with a timer running: `$V api stop`, `$V relaunch`, `$V tap home.cookCard.<shakshuka>`, `$V expect "Step 2 of 3"`. The chip is still counting.
-- **Close.** `$V tap cook.closeButton`, then `$V expect-id home.newListButton` (or `plan.startShoppingButton` when opened from Plan, or `recipe.cookButton` when opened from a recipe page).
+- **Close.** `$V tap cook.closeButton`, then `$V expect-id home.planWeekButton` (or `plan.startShoppingButton` when opened from Plan, or `recipe.cookButton` when opened from a recipe page).
 
 ## Gotchas
 
