@@ -92,6 +92,8 @@ nonisolated struct APIClient: Sendable {
             _ = try await call("PATCH", base, body: try Wire.encode(["name": name]))
         case .setDay(let date, let plan):
             _ = try await call("PUT", "\(base)/days/\(date.iso)", body: try Wire.dayUpdate(plan))
+        case .setCooked(let recipe, let cooked):
+            _ = try await call("PUT", "\(base)/recipes/\(recipe.rawValue)/cooked", body: try Wire.encode(["cooked": cooked]))
         }
     }
 
@@ -140,6 +142,12 @@ nonisolated struct APIClient: Sendable {
     /// Setting the same rating twice is harmless, so a retry is safe.
     func rate(_ id: RecipeID, stars: Int) async throws(APIError) {
         _ = try await call("PATCH", "recipes/\(id.rawValue)/rating", body: try Wire.encode(["rating": stars]))
+    }
+
+    /// Records a cooked meal for Chef. The key names the row, so a retry is
+    /// safe and a later call with a rating rates the same meal.
+    func logMeal(_ key: UUID, recipe: RecipeID, rating: Int?) async throws(APIError) {
+        _ = try await call("PUT", "meals/\(key.uuidString.lowercased())", body: try Wire.meal(recipe, rating: rating))
     }
 
     /// Replaces the title, method and whole ingredient list, and answers with

@@ -3,9 +3,10 @@ import SwiftUI
 /// "How was it?" One tap rates the meal, which is what Discover learns from.
 /// The stars show at once and the rating is sent when it can be, so there is
 /// never an error to dismiss with a pan in the other hand.
-struct CookFinished: View {
+struct CookFinished<OnList: View>: View {
     let rating: RatingView
     let onRate: (Int) -> Void
+    @ViewBuilder let onList: OnList
 
     var body: some View {
         ScrollView {
@@ -17,6 +18,7 @@ struct CookFinished: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .accessibilityIdentifier("cook.ratingStatus")
+                onList
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 20)

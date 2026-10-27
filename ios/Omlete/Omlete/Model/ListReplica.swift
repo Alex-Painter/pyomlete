@@ -10,6 +10,7 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
     case reorder(category: String, itemIDs: [ItemID])
     case rename(String)
     case setDay(PlanDate, DayPlan)
+    case setCooked(RecipeID, Bool)
 
     /// Pure reducer that mirrors what the server does with the same request.
     /// Applying an op whose target is missing, or applying one twice, changes nothing.
@@ -27,6 +28,7 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
 
         case .removeRecipe(let recipe):
             list.recipes.removeAll { $0 == recipe }
+            list.cooked.remove(recipe)
             for index in list.days.indices where list.days[index].plan == .meal(recipe) {
                 list.days[index].plan = .open
             }
@@ -55,6 +57,10 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
             guard let index = list.days.firstIndex(where: { $0.date == date }) else { break }
             list.days[index].plan = plan
             if let recipe = plan.meal, !list.recipes.contains(recipe) { list.recipes.append(recipe) }
+
+        // Only a meal still on the list can be cooked, as on the server.
+        case .setCooked(let recipe, let cooked):
+            if cooked, list.recipes.contains(recipe) { list.cooked.insert(recipe) } else { list.cooked.remove(recipe) }
         }
         return list
     }
@@ -222,6 +228,13 @@ nonisolated struct ListReplica: Codable, Equatable, Sendable {
             case (.setDay(let date, _), .setDay(let other, _)) where date == other:
                 return frozen ? nil : index
             case (.setDay, _):
+                return nil
+
+            // Tick, untick, tick is one request. Only into the latest op, as with a day:
+            // a removal or a planned meal in between decides whether the meal is on the list.
+            case (.setCooked(let recipe, _), .setCooked(let other, _)) where recipe == other:
+                return frozen ? nil : index
+            case (.setCooked, _):
                 return nil
 
             case (.add, _), (.delete, _), (.removeRecipe, _):
