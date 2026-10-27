@@ -2,6 +2,8 @@ import SwiftUI
 
 struct CookCard: View {
     let meal: RecipeSummary
+    /// Marked in place: the card keeps its size and its position.
+    let cooked: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -16,6 +18,9 @@ struct CookCard: View {
             }
             .frame(width: 160, height: 120)
             .clipped()
+            .overlay(alignment: .topLeading) {
+                if cooked { CookedBadge().padding(4) }
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(meal.title)

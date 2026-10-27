@@ -100,7 +100,7 @@ import Testing
 
         #expect(phone.library.cookShelf == CookShelf(listID: "list", listName: "Week", meals: [
             RecipeSummary(id: "curry", title: "Thai curry", imageURL: URL(string: "https://img.test/c.jpg"), totalMinutes: 35),
-        ]))
+        ], cooked: []))
     }
 
     @Test func theListLastOpenedIsRememberedAcrossARelaunch() async {

@@ -9,7 +9,7 @@ Chef's chat, a sheet over the screen on show with three heights: a bar with Chef
 - `chef-immersive` hides the sheet while Shop or Cook is up, and brings it back at the same height when they end.
 - `chef-add-recipe` is Add a recipe yourself in the empty chat: it pushes Add a recipe on the tab on show and drops the sheet to its bar.
 - `chef-stream` shows a reply as it arrives: text, "Searching the web…" for a web search, "Working…" for one of Chef's tools, then the change with Undo.
-- `chef-refresh` refreshes what a change touched as it lands, before the reply ends: the lists on the phone, the recipes, the recipe on screen, Discover's cards and Chef's week.
+- `chef-refresh` refreshes what a change touched as it lands, before the reply ends: the lists on the phone, the recipes, the recipe on screen, Discover's cards, Chef's week and What Chef knows in Settings.
 - `chef-undo` undoes one change from its row, which strikes it through. One that has changed since says so (409).
 - `chef-away` gives a reply's changes one banner with Undo when the chat is not on screen: closed, at the bar, or under Shop or Cook.
 - `chef-photos` sends up to six photos with a message, re-encoded as Add's are.

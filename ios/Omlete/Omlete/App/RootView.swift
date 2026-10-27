@@ -61,7 +61,7 @@ struct RootView: View {
         .fullScreenCover(item: Binding(get: { navigation.immersive }, set: { _ in })) { mode in
             switch mode {
             case .shop(let id): ShopScreen(listID: id)
-            case .cook(let id): CookScreen(recipeID: id)
+            case .cook(let id, let list): CookScreen(recipeID: id, listID: list)
             }
         }
         // A job restored at launch is followed from here: `onChange` below does not fire for the first scene phase.
