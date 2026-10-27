@@ -49,7 +49,7 @@ To run the app from Xcode against a local backend with fixture data, start one w
 
 ```bash
 .claude/skills/verify/scripts/omlete-ios-verify api start    # http://127.0.0.1:8765, disposable Mongo
-.claude/skills/verify/scripts/omlete-ios-verify api seed     # one list, "Verify Fixture List"
+.claude/skills/verify/scripts/omlete-ios-verify api seed     # a plain list and a week list, "Verify Fixture List" and "Verify Fixture Week"
 ```
 
 Then add `-apiBaseURL http://127.0.0.1:8765` under the scheme's Run arguments in Xcode. `omlete-ios-verify down` stops it.

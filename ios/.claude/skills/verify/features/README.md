@@ -5,7 +5,7 @@ This directory is the maintained source for verifying what a user can do in Omle
 ## Baseline preconditions
 
 - Commands run from `ios/` with `V=.claude/skills/verify/scripts/omlete-ios-verify`.
-- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`. `up` seeds one list, `Verify Fixture List`, with six items and two meals, four recipes, and five Discover cards, and puts the aisle order back to the server's defaults.
+- `$V up` has run since the last source change, and `$V doctor` prints no `FAIL`. `up` seeds two lists, the plain `Verify Fixture List` (six items, two meals, Home's first row) and the week list `Verify Fixture Week`, four recipes, and five Discover cards, and puts the aisle order back to the server's defaults.
 - Ids are new on every seed. Each recipe below uses `<listID>` and `<itemID>`: read them from `$V snapshot`, or with `curl -s http://127.0.0.1:8765/api/lists/ | jq -r '.[0].id'` and `curl -s http://127.0.0.1:8765/api/lists/<listID> | jq -r '.items[] | "\(.id) \(.name)"'`. Recipe ids: `curl -s http://127.0.0.1:8765/api/recipes/ | jq -r '.[] | "\(.id) \(.title)"'`.
 - Never drive an Omlete instance that `$V up` did not launch.
 
@@ -29,7 +29,7 @@ Each feature file has an H1, a one-paragraph description, and then four H2s in t
 ## Features
 
 - [Home](./home.md): meals to cook, your lists and Chef's picks. Open a list, start a new one, rename, duplicate, delete with Undo. Picks lead to Discover and clear with Undo.
-- [Plan](./plan.md): one list. Quick add, check off, edit, delete with Undo, reorder, meals, Add meals, Start shopping.
+- [Plan](./plan.md): one list. A week list's evenings: pick a meal, clear with Undo, Out, any-day meals, the inline library's search, sort and filters. Quick add, check off, edit, delete with Undo, reorder, meals, Start shopping. Works with the API stopped.
 - [Shop](./shop.md): the list full screen in aisle order. Check with Undo, quick add, works with the API stopped.
 - [Cook](./cook.md): one recipe full screen, a step at a time. Scale servings, start timers, rate it at the end. Resumes where you left off.
 - [Discover](./discover.md): Chef's suggestions in shelves. Save, add to a list, Not for me and Clear all with Undo, Get new ideas, Tune.

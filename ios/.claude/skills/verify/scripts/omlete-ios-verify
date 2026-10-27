@@ -39,6 +39,7 @@ MONGO_IMAGE=mongodb/mongodb-atlas-local:8.0
 MONGO_PORT="${OMLETE_IOS_VERIFY_MONGO_PORT:-27019}"
 DB_URI_LOCAL="mongodb://127.0.0.1:$MONGO_PORT/?directConnection=true"
 FIXTURE_LIST="Verify Fixture List"
+FIXTURE_WEEK="Verify Fixture Week"
 FIXTURE_SOURCE="https://example.com/verify-fixture-traybake"
 
 die() { echo "omlete-ios-verify: $*" >&2; exit 1; }
@@ -159,10 +160,14 @@ release_api() {
   say "released the API"
 }
 
-# Leaves exactly one list, "$FIXTURE_LIST", with two meals: the Shakshuka
-# fixture recipe and "Verify Fixture Soft Egg", whose first step holds a
-# 5-second timer so a recipe can watch one finish. Plus milk and bananas. The
-# list is built through the API so it has the shape the server really produces.
+# Leaves two lists. "$FIXTURE_LIST" is a plain list with two meals: the
+# Shakshuka fixture recipe and "Verify Fixture Soft Egg", whose first step
+# holds a 5-second timer so a recipe can watch one finish. Plus milk and
+# bananas. "$FIXTURE_WEEK" is a week list for the week under way, starting on
+# Saturday, with the Traybake on its first evening, its sixth evening Out and
+# the Soft Egg as an any-day meal. It is made first, so the plain list is still
+# Home's first row. Both are built through the API so they have the shape the
+# server really produces.
 #
 # Also leaves "Verify Fixture Traybake", a recipe in the shape a link import
 # saves (source, time, rating, ingredient groups, no picture), and five
@@ -239,6 +244,17 @@ for age, name in enumerate(newest_first):
 PY
   local id
   for id in $(api "$API/api/lists/" | jq -r '.[].id'); do api -X DELETE "$API/api/lists/$id" >/dev/null; done
+  local recipes start week
+  recipes="$(api "$API/api/recipes/")"
+  start="$("$py" -c 'import datetime as d; t = d.date.today(); print(t - d.timedelta(days=(t.weekday() - 5) % 7))')"
+  week="$(api -X POST "$API/api/lists/" -d "$(jq -n --arg s "$start" '{week_start: $s}')" | jq -r .id)"
+  api -X PATCH "$API/api/lists/$week" -d "$(jq -n --arg n "$FIXTURE_WEEK" '{name: $n}')" >/dev/null
+  api -X PUT "$API/api/lists/$week/days/$start" \
+    -d "$(jq -n --arg r "$(jq -r '[.[] | select(.title == "Verify Fixture Traybake")][0].id' <<<"$recipes")" '{recipe_id: $r}')" >/dev/null
+  api -X PUT "$API/api/lists/$week/days/$("$py" -c "import datetime as d; print(d.date.fromisoformat('$start') + d.timedelta(days=5))")" \
+    -d '{"recipe_id":null,"status":"out"}' >/dev/null
+  api -X POST "$API/api/lists/$week/recipes" \
+    -d "$(jq -n --arg r "$(jq -r '[.[] | select(.title == "Verify Fixture Soft Egg")][0].id' <<<"$recipes")" '{recipe_id: $r}')" >/dev/null
   id="$(api -X POST "$API/api/lists/" | jq -r .id)"
   api -X PATCH "$API/api/lists/$id" -d "$(jq -n --arg n "$FIXTURE_LIST" '{name: $n}')" >/dev/null
   local title recipe
@@ -248,7 +264,7 @@ PY
   done
   api -X POST "$API/api/lists/$id/items" -d '{"name":"milk","amount":2,"unit":"pint","category":"Dairy & Eggs"}' >/dev/null
   api -X POST "$API/api/lists/$id/items" -d '{"name":"bananas","amount":6,"unit":null,"category":"Fresh Produce"}' >/dev/null
-  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; 4 recipes; 5 suggestions"
+  say "seeded \"$FIXTURE_LIST\" ($id): 6 items, 2 meals; \"$FIXTURE_WEEK\" ($week) from $start; 4 recipes; 5 suggestions"
 }
 
 state_get() { [ -f "$STATE" ] || return 0; sed -n "s/^$1=//p" "$STATE" | head -1; }
