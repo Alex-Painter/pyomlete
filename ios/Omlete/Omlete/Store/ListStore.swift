@@ -140,17 +140,55 @@ struct StoreDependencies {
         apply(.rename(name))
     }
 
+    /// Puts a meal on an evening of a week list, taking off whatever was
+    /// there. Works offline: the meal shows on its day at once and its
+    /// ingredients arrive with the refetch once the server has it.
+    func plan(_ recipe: RecipeID, on date: PlanDate) {
+        if undoHeldRemoval(of: recipe), let days = replica.current?.days {
+            // The meal comes back on the days it was taken off, and the server never
+            // heard it left them. Planning it says where it goes now, so clear them.
+            for day in days where day.plan == .meal(recipe) && day.date != date {
+                apply(.setDay(day.date, .open))
+            }
+        }
+        apply(.setDay(date, .meal(recipe)))
+    }
+
+    /// Takes the meal off its evening at once, with Undo. It stays on the list
+    /// as an any-day meal, so Undo only has to put the day back.
+    func clearDay(_ date: PlanDate, title: String) {
+        guard let recipe = day(date)?.plan.meal else { return }
+        apply(.setDay(date, .open))
+        deps.undo.offer("Took \(title) off \(date.dayLong)", undo: { [weak self] in
+            self?.apply(.setDay(date, .meal(recipe)))
+        })
+    }
+
+    /// Out for the evening, or back in. An evening with a meal keeps it.
+    func setOut(_ date: PlanDate, _ out: Bool) {
+        guard let day = day(date), day.plan.meal == nil else { return }
+        apply(.setDay(date, out ? .out : .open))
+    }
+
+    private func day(_ date: PlanDate) -> PlanDay? {
+        replica.current?.days.first { $0.date == date }
+    }
+
+    /// Putting a meal back while its removal is still behind the Undo banner is
+    /// that Undo: the server still has the meal, and the removal, sent later,
+    /// would take it off again.
+    private func undoHeldRemoval(of recipe: RecipeID) -> Bool {
+        guard replica.pending.contains(where: { $0.held && $0.op == .removeRecipe(recipe) }) else { return false }
+        deps.undo.undoTapped()
+        return true
+    }
+
     /// Puts a recipe on the list. The server merges its ingredients into the
     /// list, which cannot be predicted here, so this needs signal: it runs
     /// inside the sync task after the queue has drained, then refetches.
     @discardableResult
     func addMeal(_ recipe: RecipeID) async throws(APIError) -> MealAdd {
-        if replica.pending.contains(where: { $0.held && $0.op == .removeRecipe(recipe) }) {
-            // Its removal is still behind the Undo banner, so the server has the meal and asking
-            // would answer "already there" and then commit the removal. Putting it back is that Undo.
-            deps.undo.undoTapped()
-            return .added
-        }
+        if undoHeldRemoval(of: recipe) { return .added }
         mealsBeingAdded.insert(recipe)
         let result = await withCheckedContinuation { done in
             mealRequests.append(MealRequest(recipe: recipe, done: done))

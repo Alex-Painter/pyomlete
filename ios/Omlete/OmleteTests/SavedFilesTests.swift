@@ -37,6 +37,13 @@ struct SavedFilesTests {
         "deletingLists":[],"deletingRecipes":["6ae9a8af3b1d1a5f0c2e7703"]}
         """
 
+    /// A list file as written by the build before lists had weeks.
+    private static let listFromBeforeWeeks = """
+        {"id":"list","base":{"id":"list","name":"Week","recipes":["curry"],"items":[{"id":"rice","name":"rice",\
+        "amount":200,"unit":"g","category":"Pantry","checked":false,"sources":[{"recipeID":"curry","amount":200}]}]},\
+        "pending":[{"id":"op1","op":{"rename":{"_0":"Weekend"}},"held":false}]}
+        """
+
     private func roundTrip<Value: Codable>(_ value: Value) throws -> Value {
         try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(value))
     }
@@ -77,6 +84,24 @@ struct SavedFilesTests {
         #expect(index.deletingRecipes == ["6ae9a8af3b1d1a5f0c2e7703"])
     }
 
+    @Test func aListSavedBeforeWeeksIsAPlainListWithItsUnsentChanges() throws {
+        let replica = try JSONDecoder().decode(ListReplica.self, from: Data(Self.listFromBeforeWeeks.utf8))
+
+        #expect(replica.current?.name == "Weekend")
+        #expect(replica.current?.items.map(\.name) == ["rice"])
+        #expect(replica.current?.weekStart == nil)
+        #expect(replica.current?.days == [])
+        #expect(replica.pending.map(\.op) == [.rename("Weekend")])
+    }
+
+    @Test func recipesSavedBeforeWeeksHaveNoPlanningHistory() throws {
+        let index = try JSONDecoder().decode(LibraryIndex.self, from: Data(Self.indexFromBeforeAddMeals.utf8))
+
+        #expect(index.recipes.map(\.ingredientNames) == [[], []])
+        #expect(index.recipes.map(\.lastPlannedOn) == [nil, nil])
+        #expect(index.summaries.map(\.weekStart) == [nil])
+    }
+
     /// The aisles were in the index before they had a file of their own.
     @MainActor @Test func aislesSavedInAnIndexAreStillReadAndOutliveTheNextIndexWritten() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "saved-files-\(UUID().uuidString)")
@@ -104,7 +129,7 @@ struct SavedFilesTests {
         #expect(try JSONDecoder().decode(LibraryIndex.self, from: Data("{}".utf8)) == LibraryIndex())
     }
 
-    /// The two decoders written by hand must carry every field, or one added later is silently dropped on load.
+    /// The decoders written by hand must carry every field, or one added later is silently dropped on load.
     @Test func everyFieldSurvivesBeingSavedAndLoaded() throws {
         let recipe = Recipe(
             id: "traybake", title: "Traybake", steps: ["Roast."],
@@ -116,11 +141,18 @@ struct SavedFilesTests {
             baseServings: 4, rating: 5, imageURL: URL(string: "https://img.test/t.jpg"), totalMinutes: 45,
             source: RecipeSource(name: "example.com", url: URL(string: "https://example.com/t")),
             createdAt: Date(timeIntervalSinceReferenceDate: 800_000_000))
+        let start = try #require(PlanDate(iso: "2026-10-17"))
+        var summary = recipe.summary
+        (summary.lastPlannedOn, summary.cuisine) = (start.adding(days: -3), "British")
         let index = LibraryIndex(
-            summaries: [ListSummary(id: "list", name: "Week", itemCount: 2, checkedCount: 1, meals: [])],
-            recipes: [recipe.summary], units: ["g"], deletingLists: ["gone"], currentList: "list", deletingRecipes: ["old"])
+            summaries: [ListSummary(id: "list", name: "Week", itemCount: 2, checkedCount: 1, meals: [], weekStart: start)],
+            recipes: [summary], units: ["g"], deletingLists: ["gone"], currentList: "list", deletingRecipes: ["old"])
+        let list = ListDetail(
+            id: "list", name: "Week", recipes: ["traybake"], items: [], weekStart: start,
+            days: [PlanDay(date: start, plan: .meal("traybake")), PlanDay(date: start.adding(days: 1), plan: .out)])
 
         #expect(try roundTrip(recipe) == recipe)
         #expect(try roundTrip(index) == index)
+        #expect(try roundTrip(list) == list)
     }
 }

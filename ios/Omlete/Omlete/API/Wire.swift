@@ -4,10 +4,11 @@ import Foundation
 /// rest of the app can only name domain values.
 nonisolated enum Wire {
     static func summaries(_ data: Data) throws -> [ListSummary] {
-        try JSONDecoder().decode([SummaryDTO].self, from: data).map { dto in
+        try JSONDecoder().decode([SummaryDTO].self, from: data).map { dto throws in
             ListSummary(
                 id: ListID(dto.id), name: dto.name, itemCount: dto.item_count, checkedCount: dto.checked_count,
-                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title) })
+                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title) },
+                weekStart: try planDate(dto.week_start))
         }
     }
 
@@ -26,7 +27,34 @@ nonisolated enum Wire {
                     ItemSource(recipeID: source.recipe_id.map { RecipeID($0) }, amount: source.amount)
                 })
         }
-        return ListDetail(id: ListID(dto.id), name: dto.name, recipes: dto.recipes.map { RecipeID($0) }, items: items)
+        return ListDetail(
+            id: ListID(dto.id), name: dto.name, recipes: dto.recipes.map { RecipeID($0) }, items: items,
+            weekStart: try planDate(dto.week_start), days: try (dto.days ?? []).map(day))
+    }
+
+    /// A meal wins over Out, as the server keeps it, so the two never arrive together.
+    private static func day(_ dto: DayDTO) throws -> PlanDay {
+        let plan: DayPlan = if let recipe = dto.recipe_id { .meal(RecipeID(recipe)) } else if dto.status == "out" { .out } else { .open }
+        return PlanDay(date: try planDate(dto.date), plan: plan)
+    }
+
+    private static func planDate(_ text: String) throws -> PlanDate {
+        guard let date = PlanDate(iso: text) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not a date: \(text)"))
+        }
+        return date
+    }
+
+    private static func planDate(_ text: String?) throws -> PlanDate? {
+        try text.map(planDate)
+    }
+
+    static func dayUpdate(_ plan: DayPlan) throws(APIError) -> Data {
+        switch plan {
+        case .meal(let recipe): try encode(DayUpdateDTO(recipe_id: recipe.rawValue, status: "open"))
+        case .open: try encode(DayUpdateDTO(recipe_id: nil, status: "open"))
+        case .out: try encode(DayUpdateDTO(recipe_id: nil, status: "out"))
+        }
     }
 
     static func aisleOrder(_ data: Data) throws -> AisleOrder {
@@ -51,7 +79,8 @@ nonisolated enum Wire {
             RecipeSummary(
                 id: RecipeID($0.id), title: $0.title, imageURL: $0.image_url.flatMap(URL.init(string:)),
                 totalMinutes: $0.total_minutes, rating: $0.rating, sourceName: $0.source_name,
-                ingredientCount: $0.ingredient_count)
+                ingredientCount: $0.ingredient_count, lastPlannedOn: try planDate($0.last_planned_on),
+                ingredientNames: $0.ingredient_names ?? [], cuisine: $0.cuisine, createdAt: date($0.created_at))
         }
     }
 
@@ -218,6 +247,7 @@ nonisolated private struct SummaryDTO: Decodable {
     let item_count: Int
     let checked_count: Int
     let recipes: [Meal]
+    let week_start: String?
 }
 
 nonisolated private struct CreatedListDTO: Decodable {
@@ -245,6 +275,30 @@ nonisolated private struct DetailDTO: Decodable {
     let name: String
     let recipes: [String]
     let items: [Item]
+    let week_start: String?
+    let days: [DayDTO]?
+}
+
+nonisolated private struct DayDTO: Decodable {
+    let date: String
+    let recipe_id: String?
+    let status: String?
+}
+
+/// `recipe_id` goes as null to clear a day, so it is written out even when nil.
+nonisolated private struct DayUpdateDTO: Encodable {
+    let recipe_id: String?
+    let status: String
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(recipe_id, forKey: .recipe_id)
+        try container.encode(status, forKey: .status)
+    }
+
+    private enum CodingKeys: CodingKey {
+        case recipe_id, status
+    }
 }
 
 nonisolated private struct CategoriesDTO: Encodable {
@@ -268,6 +322,10 @@ nonisolated private struct RecipeDTO: Decodable {
     let rating: Int?
     let source_name: String?
     let ingredient_count: Int?
+    let last_planned_on: String?
+    let ingredient_names: [String]?
+    let cuisine: String?
+    let created_at: String?
 }
 
 /// A whole recipe is the Mongo document, so its id is `_id`.

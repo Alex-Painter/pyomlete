@@ -86,6 +86,8 @@ nonisolated struct APIClient: Sendable {
             _ = try await call("PUT", "\(base)/items/reorder", body: try Wire.reorder(category: category, itemIDs: itemIDs))
         case .rename(let name):
             _ = try await call("PATCH", base, body: try Wire.encode(["name": name]))
+        case .setDay(let date, let plan):
+            _ = try await call("PUT", "\(base)/days/\(date.iso)", body: try Wire.dayUpdate(plan))
         }
     }
 
