@@ -2,13 +2,15 @@ import Foundation
 import Observation
 
 enum AppTab: Hashable {
-    case home, discover, add, recipes
+    case home, discover, recipes
 }
 
 enum Route: Hashable {
     case plan(ListID)
     case recipe(RecipeID)
     case settings
+    /// Add a recipe, on whichever tab asked for it, so leaving it goes back there.
+    case addRecipe
 }
 
 /// The one full-screen mode on top of the tabs, if any. A single optional
@@ -57,14 +59,19 @@ enum Immersive: Hashable, Identifiable {
         case .plan(let id): return .list(id)
         case .recipe(let id): return .recipe(id)
         case .settings: return .settings
+        case .addRecipe: return .addRecipe
         case nil:
             switch tab {
             case .home: return .home
             case .discover: return .discover
-            case .add: return .addRecipe
             case .recipes: return .recipes
             }
         }
+    }
+
+    /// Add a recipe over the tab on show.
+    func addRecipe() {
+        push(.addRecipe, on: tab)
     }
 
     var shopping: ListID? {

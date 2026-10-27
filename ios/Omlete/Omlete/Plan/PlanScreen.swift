@@ -12,6 +12,7 @@ struct PlanScreen: View {
 
     @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
+    @Environment(ChefChat.self) private var chefChat
 
     @State private var editing: ItemID?
     @State private var isRenaming = false
@@ -106,6 +107,11 @@ struct PlanScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Rename", systemImage: "pencil") { isRenaming = true }
                     .accessibilityIdentifier("plan.renameButton")
+            }
+            // Plan hides the tab bar, and "put it on this list" is what Chef is for here.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Chef", systemImage: ChefSymbol.name) { chefChat.toggle() }
+                    .accessibilityIdentifier("plan.chefButton")
             }
             ToolbarItem(placement: .bottomBar) {
                 Button {
