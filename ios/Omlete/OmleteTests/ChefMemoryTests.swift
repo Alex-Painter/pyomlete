@@ -147,4 +147,28 @@ import Testing
         await eventually { phone.transport.answered.last == patchMushrooms }
         #expect(memory.told.map(\.subject) == ["fish"])
     }
+
+    @Test func aLoadAskedForBeforeAForgetWasAnsweredDoesNotBringItBack() async {
+        await memory.load()
+        phone.transport.holding = true
+        let loading = Task { await memory.load() }
+        await eventually { phone.transport.calls.last == get }
+        memory.forget(mushrooms)
+        await eventually { patches.count == 1 }
+
+        phone.transport.release(only: patchMushrooms)
+        await eventually { phone.transport.answered.last == patchMushrooms }
+        phone.transport.release()
+        await loading.value
+
+        #expect(memory.told.map(\.subject) == ["fish"])
+    }
+
+    @Test func loadsAskedForTogetherShareOneRequest() async {
+        async let first: Void = memory.load()
+        async let second: Void = memory.load()
+        _ = await (first, second)
+
+        #expect(phone.transport.calls.count { $0 == get } == 1)
+    }
 }
