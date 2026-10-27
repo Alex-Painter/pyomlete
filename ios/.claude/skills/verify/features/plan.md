@@ -9,9 +9,10 @@ One list. A week list opens on its seven evenings: a Week and List switch and a 
 - `plan-week-pick` plans the selected evening from the library and moves the selection to the next open evening, wrapping round the week. Tapping the meal already on that evening takes it off, as Clear does.
 - `plan-day-clear` (Clear on the card) takes the meal off its evening at once, with Undo. The meal stays on the list as an any-day meal.
 - `plan-day-out` marks an open evening Out in one tap; an Out evening offers Plan anyway.
-- `plan-day-cook` and `plan-day-open` cook the evening's meal or open its recipe. Swap scrolls to the library.
+- `plan-day-cook` and `plan-day-open` cook the evening's meal or open its recipe. Swap scrolls to the library. Cook opened here knows the list, so Finish ticks the meal Cooked on it.
+- `plan-cooked` ticks a meal Cooked, or back, from the day card's Cooked button or a meal chip's menu (`PUT /api/lists/<id>/recipes/<recipe>/cooked`). The tick is its own undo, so there is no banner. A cooked meal's chip is marked in place; nothing moves or hides. Works offline like every list change.
 - `plan-any-day` lists the meals on the list with no evening under "This week, any day".
-- `plan-meal-actions` is a meal chip's menu: Plan for <selected day> (week lists only), Cook this, Open recipe, and Remove from list (with Undo; it also clears the meal's days).
+- `plan-meal-actions` is a meal chip's menu: Plan for <selected day> (week lists only), Cook this, Mark cooked or Not cooked yet, Open recipe, and Remove from list (with Undo; it also clears the meal's days).
 - `plan-library` searches titles, cuisines and ingredients, ignoring case and accents, filters by Quick, Not had lately and Favourites, and sorts by Not had lately (the default), Your favourites, Quickest, Newest or A to Z. Each row says when the meal was last had. A meal on this week counts as had at once.
 - `plan-library-plain` on a plain list: tapping a meal adds it and its ingredients (needs the API); tapping one on the list removes it with Undo. Add meals and "Pick this week's meals" scroll to the library.
 - `plan-library-empty` is the library with no recipes saved: Add a recipe and Browse Discover switch tab and leave Plan open.
@@ -47,6 +48,9 @@ The week:
 - **Search by an ingredient.** `$V type plan.library.searchField "potatoes"`, then `$V gone "Verify Fixture Lemon Drizzle Cake"`: only the Traybake is left, whose title does not say potatoes. `$V tap plan.library.clearSearchButton` brings everything back.
 - **Sort.** `$V tap plan.library.sortMenu`, `$V tap plan.library.sort.quickest`, then `$V expect "Sort, Quickest"`. `$V swipe plan.list up` and the snapshot lists the Shakshuka (25 min), the Traybake (45 min), then the two with no time by title. The other ids are `notLately`, `favourites`, `newest` and `aToZ`.
 - **Filter.** `$V tap plan.library.filter.quick` leaves only meals of 30 minutes or less; tap it again to turn it off. The others are `plan.library.filter.notLately` and `plan.library.filter.favourites`.
+- **Cooked on the day card.** Select the evening with the Traybake (`$V tap plan.day.<first date>`), then `$V tap plan.day.cookedButton`. Its row in `$V snapshot` is `Verify Fixture Traybake cooked|Cooked|plan.day.cookedButton` (value `Not cooked` before), and `curl -s http://127.0.0.1:8765/api/lists/<weekID> | jq .cooked` holds the Traybake's id. Tap again and the value and the API's `.cooked` go back.
+- **Cooked from a chip.** `$V tap plan.mealChip.<Soft Egg>`, then `$V tap plan.cookedMealAction` (labelled `Mark cooked`, or `Not cooked yet` on a cooked meal). The chip's value becomes `Cooked` and the screenshot shows a tick over its picture; the API's `.cooked` has the id.
+- **Cooked offline.** `$V api stop`, tick the day card: the value is `Cooked` with `Offline` on screen. `$V api start`; within about ten seconds `.verify-run/api.log` has one `PUT .../recipes/<id>/cooked` and the API's `.cooked` has it.
 - **Week and List.** `$V tap plan.listViewButton`, then `$V expect-id plan.quickAddField`: the items, with no day strip. `$V tap plan.weekViewButton` goes back.
 - **Offline.** `$V api stop`, select an open evening and tap a library row: `$V expect "<date>, <title>"` and `$V expect "Offline"`. `$V api start`; within about 20 seconds the API's day has the recipe, `.verify-run/api.log` has the `PUT .../days/<date>`, and once the list is fetched again the meal's ingredients are among `.items`.
 

@@ -12,6 +12,7 @@ struct PlanScreen: View {
 
     @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
+    @Environment(ChefChat.self) private var chefChat
 
     @State private var editing: ItemID?
     @State private var isRenaming = false
@@ -107,6 +108,11 @@ struct PlanScreen: View {
                 Button("Rename", systemImage: "pencil") { isRenaming = true }
                     .accessibilityIdentifier("plan.renameButton")
             }
+            // Plan hides the tab bar, and "put it on this list" is what Chef is for here.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Chef", systemImage: ChefSymbol.name) { chefChat.toggle() }
+                    .accessibilityIdentifier("plan.chefButton")
+            }
             ToolbarItem(placement: .bottomBar) {
                 Button {
                     navigation.startShopping(listID)
@@ -186,15 +192,17 @@ struct PlanScreen: View {
         let anyDay = list.recipes.filter { !dayMeals.contains($0) }.compactMap(library.meal)
         if !anyDay.isEmpty {
             Section("This week, any day") {
-                mealsStrip(anyDay, planDay: day, in: store)
+                mealsStrip(anyDay, cooked: list.cooked, planDay: day, in: store)
             }
         }
 
         Section {
             DayCard(
                 day: day, meal: day.plan.meal.flatMap(library.meal),
+                cooked: day.plan.meal.map(list.cooked.contains) ?? false,
+                onCooked: { cooked in day.plan.meal.map { store.setCooked($0, cooked) } },
                 onOpen: { navigation.push(.recipe($0), on: navigation.tab) },
-                onCook: { navigation.startCooking($0) },
+                onCook: { navigation.startCooking($0, from: list.id) },
                 onSwap: { withAnimation { scroller.scrollTo(MealLibrary.scrollID, anchor: .top) } },
                 onClear: {
                     let title = day.plan.meal.flatMap(library.meal)?.title ?? "the meal"
@@ -227,11 +235,14 @@ struct PlanScreen: View {
         if case .ready(let list) = store.phase { focus.planned(day.date, days: list.days) }
     }
 
-    private func mealsStrip(_ meals: [RecipeSummary], planDay: PlanDay?, in store: ListStore) -> some View {
+    private func mealsStrip(
+        _ meals: [RecipeSummary], cooked: Set<RecipeID>, planDay: PlanDay?, in store: ListStore
+    ) -> some View {
         MealsStrip(
-            meals: meals, planDay: planDay?.date,
+            meals: meals, cooked: cooked, planDay: planDay?.date,
+            onCooked: { store.setCooked($0.id, $1) },
             onPlan: { meal in if let planDay { plan(meal, on: planDay, in: store) } },
-            onCook: { navigation.startCooking($0.id) },
+            onCook: { navigation.startCooking($0.id, from: listID) },
             onOpen: { navigation.push(.recipe($0.id), on: navigation.tab) },
             onRemove: { store.removeMeal($0.id, title: $0.title) })
             .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
@@ -246,7 +257,7 @@ struct PlanScreen: View {
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("plan.pickMealsButton")
             } else {
-                mealsStrip(meals, planDay: nil, in: store)
+                mealsStrip(meals, cooked: list.cooked, planDay: nil, in: store)
             }
         } header: {
             HStack {

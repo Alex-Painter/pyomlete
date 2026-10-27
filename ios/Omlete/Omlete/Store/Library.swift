@@ -7,6 +7,8 @@ struct CookShelf: Equatable {
     let listName: String
     /// Never empty: a list with no meals has no shelf.
     let meals: [RecipeSummary]
+    /// Marked in place: a cooked meal keeps its card and its position.
+    let cooked: Set<RecipeID>
 }
 
 /// App-wide: the Home index, the aisle store, the recipe library and unit
@@ -64,7 +66,7 @@ struct CookShelf: Equatable {
                     row.itemCount = list.items.count
                     row.checkedCount = list.items.count(where: \.checked)
                     row.meals = list.recipes.compactMap { id in
-                        meal(id).map { ListSummary.Meal(id: id, title: $0.title) }
+                        meal(id).map { ListSummary.Meal(id: id, title: $0.title, cooked: list.cooked.contains(id)) }
                     }
                 } else if let name = replica.pendingName {
                     row.name = name
@@ -79,7 +81,8 @@ struct CookShelf: Equatable {
     var cookShelf: CookShelf? {
         guard let list = currentList else { return nil }
         let meals = list.meals.compactMap { meal($0.id) }
-        return meals.isEmpty ? nil : CookShelf(listID: list.id, listName: list.name, meals: meals)
+        let cooked = Set(list.meals.filter(\.cooked).map(\.id))
+        return meals.isEmpty ? nil : CookShelf(listID: list.id, listName: list.name, meals: meals, cooked: cooked)
     }
 
     /// The list last opened, else the first row: where Home cooks from and
@@ -198,9 +201,9 @@ struct CookShelf: Equatable {
     func duplicate(_ id: ListID) async throws(APIError) -> ListID {
         var copy = try await deps.api.duplicateList(id)
         if let source = rows.first(where: { $0.id == id }) {
-            // The server copies the items unchecked, and the meals with them.
+            // The server copies the items unchecked, and the meals with them, none of them cooked.
             copy.itemCount = source.itemCount
-            copy.meals = source.meals
+            copy.meals = source.meals.map { ListSummary.Meal(id: $0.id, title: $0.title) }
         }
         index.summaries.insert(copy, at: 0)
         save()
@@ -275,7 +278,7 @@ struct CookShelf: Equatable {
         }
         for list in index.summaries.indices {
             index.summaries[list].meals = index.summaries[list].meals.map {
-                $0.id == recipe.id ? ListSummary.Meal(id: recipe.id, title: recipe.title) : $0
+                $0.id == recipe.id ? ListSummary.Meal(id: recipe.id, title: recipe.title, cooked: $0.cooked) : $0
             }
         }
         save()

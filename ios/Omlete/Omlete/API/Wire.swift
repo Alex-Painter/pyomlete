@@ -7,7 +7,7 @@ nonisolated enum Wire {
         try JSONDecoder().decode([SummaryDTO].self, from: data).map { dto throws in
             ListSummary(
                 id: ListID(dto.id), name: dto.name, itemCount: dto.item_count, checkedCount: dto.checked_count,
-                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title) },
+                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title, cooked: $0.cooked ?? false) },
                 weekStart: try planDate(dto.week_start))
         }
     }
@@ -31,7 +31,8 @@ nonisolated enum Wire {
         }
         return ListDetail(
             id: ListID(dto.id), name: dto.name, recipes: dto.recipes.map { RecipeID($0) }, items: items,
-            weekStart: try planDate(dto.week_start), days: try (dto.days ?? []).map(day))
+            weekStart: try planDate(dto.week_start), days: try (dto.days ?? []).map(day),
+            cooked: Set((dto.cooked ?? []).map { RecipeID($0) }))
     }
 
     /// A meal wins over Out, as the server keeps it, so the two never arrive together.
@@ -187,12 +188,28 @@ nonisolated enum Wire {
         return MadeWeek(list: ListID(dto.list_id), name: dto.name, undo: ChefActionID(dto.undo))
     }
 
+    /// A stance or source this build does not know is dropped, as an unknown
+    /// card status is: the row could not say what Chef does with it. Forgotten
+    /// ones are not listed by the server, and are dropped if one ever is.
+    static func preferences(_ data: Data) throws -> [Preference] {
+        try JSONDecoder().decode([PreferenceDTO].self, from: data).compactMap { dto in
+            guard !dto.forgotten, let stance = Stance(rawValue: dto.stance),
+                  let source = Preference.Source(rawValue: dto.source) else { return nil }
+            return Preference(
+                id: PreferenceID(dto.id), subject: dto.subject, stance: stance, evidence: dto.evidence, source: source)
+        }
+    }
+
     static func tune(_ tune: TuneSettings) throws(APIError) -> Data {
         try encode(TuneDTO(diet: tune.diet.rawValue, ease: tune.effort.rawValue, notes: tune.notes))
     }
 
     static func saveSuggestion(onto list: ListID?) throws(APIError) -> Data {
         try encode(SaveSuggestionDTO(list_id: list?.rawValue))
+    }
+
+    static func meal(_ recipe: RecipeID, rating: Int?) throws(APIError) -> Data {
+        try encode(MealDTO(recipe_id: recipe.rawValue, rating: rating))
     }
 
     static func dismissal() throws(APIError) -> Data {
@@ -304,6 +321,7 @@ nonisolated private struct SummaryDTO: Decodable {
     struct Meal: Decodable {
         let id: String
         let title: String
+        let cooked: Bool?
     }
 
     let id: String
@@ -342,6 +360,7 @@ nonisolated private struct DetailDTO: Decodable {
     let items: [Item]
     let week_start: String?
     let days: [DayDTO]?
+    let cooked: [String]?
 }
 
 nonisolated private struct DayDTO: Decodable {
@@ -492,6 +511,15 @@ nonisolated private struct MadeWeekDTO: Decodable {
     let undo: String
 }
 
+nonisolated private struct PreferenceDTO: Decodable {
+    let id: String
+    let subject: String
+    let stance: String
+    let evidence: String
+    let source: String
+    let forgotten: Bool
+}
+
 nonisolated private struct TuneDTO: Encodable {
     let diet: String
     let ease: String
@@ -500,6 +528,11 @@ nonisolated private struct TuneDTO: Encodable {
 
 nonisolated private struct SaveSuggestionDTO: Encodable {
     let list_id: String?
+}
+
+nonisolated private struct MealDTO: Encodable {
+    let recipe_id: String
+    let rating: Int?
 }
 
 nonisolated private struct ClearSuggestionsDTO: Encodable {

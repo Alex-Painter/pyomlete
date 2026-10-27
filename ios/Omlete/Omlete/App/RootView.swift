@@ -7,37 +7,61 @@ struct RootView: View {
     @Environment(RecipeIntake.self) private var intake
     @Environment(AppNavigation.self) private var navigation
     @Environment(UndoCenter.self) private var undo
+    @Environment(ChefChat.self) private var chefChat
     @Environment(\.scenePhase) private var scenePhase
 
+    /// What the tab bar holds: the three tabs, and Chef, which opens its sheet
+    /// over the screen on show and is never the selected tab.
+    private enum TabBarItem: Hashable {
+        case tab(AppTab)
+        case chef
+    }
+
+    /// The tab bar's own selection. Chef is selected only for the moment it takes to open the sheet and go back.
+    @State private var selection = TabBarItem.tab(.home)
+
     var body: some View {
-        @Bindable var navigation = navigation
-        TabView(selection: $navigation.tab) {
-            Tab(value: AppTab.home) {
+        TabView(selection: $selection) {
+            Tab(value: TabBarItem.tab(.home)) {
                 stack(.home) { HomeScreen() }
             } label: {
                 tabLabel("Home", systemImage: "house", identifier: "tab.home")
             }
-            Tab(value: AppTab.discover) {
+            Tab(value: TabBarItem.tab(.discover)) {
                 stack(.discover) { DiscoverScreen() }
             } label: {
                 tabLabel("Discover", systemImage: "safari", identifier: "tab.discover")
             }
-            Tab(value: AppTab.add) {
-                stack(.add) { AddScreen() }
+            Tab(value: TabBarItem.chef) {
+                Color.clear
             } label: {
-                tabLabel("Add", systemImage: "plus", identifier: "tab.add")
+                tabLabel("Chef", systemImage: "bubble.left.and.text.bubble.right", identifier: "tab.chef")
             }
-            Tab(value: AppTab.recipes) {
+            Tab(value: TabBarItem.tab(.recipes)) {
                 stack(.recipes) { RecipeLibraryScreen() }
             } label: {
                 tabLabel("Recipes", systemImage: "book", identifier: "tab.recipes")
             }
         }
+        .onChange(of: selection) {
+            switch selection {
+            case .tab(let tab):
+                navigation.tab = tab
+            case .chef:
+                chefChat.toggle()
+                // On the next turn: put back in the same update, the stack left
+                // and returned to loses its safe area, and screens pushed on it
+                // lay out under the navigation bar.
+                Task { selection = .tab(navigation.tab) }
+            }
+        }
+        .onChange(of: navigation.tab, initial: true) { selection = .tab(navigation.tab) }
+        .chefSheet()
         // Read-only: only `leaveImmersive()` ends a mode.
         .fullScreenCover(item: Binding(get: { navigation.immersive }, set: { _ in })) { mode in
             switch mode {
             case .shop(let id): ShopScreen(listID: id)
-            case .cook(let id): CookScreen(recipeID: id)
+            case .cook(let id, let list): CookScreen(recipeID: id, listID: list)
             }
         }
         // A job restored at launch is followed from here: `onChange` below does not fire for the first scene phase.
@@ -72,6 +96,7 @@ struct RootView: View {
                     case .plan(let id): PlanScreen(listID: id)
                     case .recipe(let id): RecipeScreen(recipeID: id)
                     case .settings: SettingsScreen()
+                    case .addRecipe: AddScreen()
                     }
                 }
         }

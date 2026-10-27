@@ -60,8 +60,8 @@ struct RatingView: Equatable {
 /// Nothing here ticks. A timer is an end date; the task sleeps until the next
 /// one is due and rings it, and what a chip reads is derived from the clock.
 ///
-/// Invariant: at most one rating request for this recipe is in flight, and the
-/// last one sent carries the latest tap.
+/// Invariant: at most one rating request and one meal request for this recipe
+/// are in flight, and the last one sent carries the latest tap.
 @Observable final class CookStore {
     let id: RecipeID
     private var record: CookRecord?
@@ -75,6 +75,7 @@ struct RatingView: Equatable {
     @ObservationIgnored private let deps: KitchenDependencies
     @ObservationIgnored private var sleeper: Task<Void, Never>?
     @ObservationIgnored private var isSendingRating = false
+    @ObservationIgnored private var isSendingMeal = false
     @ObservationIgnored private var onListSends: Task<Void, Never>?
     /// How many edits have been saved, so a fetch can tell it was asked for before one.
     @ObservationIgnored private var saves = 0
@@ -196,14 +197,24 @@ struct RatingView: Equatable {
         await fetch(reportingFailure: false)
     }
 
-    /// Rings what ended while the app was away and sends an unsent rating.
+    /// Rings what ended while the app was away and sends an unsent rating and meal.
     func resume() {
         arm()
         sendRating()
+        sendMeal()
     }
 
     func start() { move { $0.start(now: $1) } }
-    func next() { move { $0.next(now: $1) } }
+    /// Reaching the end records the meal. Returns true only for the tap that
+    /// first made it, which is when Finish ticks the meal on its list.
+    @discardableResult
+    func next() -> Bool {
+        let hadMeal = record?.session.meal != nil
+        move { $0.next(now: $1, mealKey: UUID()) }
+        sendMeal()
+        return !hadMeal && record?.session.meal != nil
+    }
+
     func back() { move { $0.back(now: $1) } }
     func more() { move { $0.setServings({ $0.more() }, now: $1) } }
     func fewer() { move { $0.setServings({ $0.fewer() }, now: $1) } }
@@ -220,9 +231,28 @@ struct RatingView: Equatable {
     /// cannot be sent now it waits for `resume()`. Never an error to dismiss.
     func rate(_ stars: Int) {
         guard record != nil else { return }
-        mutate { $0.unsentRating = stars }
+        mutate {
+            $0.unsentRating = stars
+            $0.session.rateMeal(stars)
+        }
         if delivery == .confirmed { delivery = .untried }
         sendRating()
+        sendMeal()
+    }
+
+    /// Chef's record of the dinner, never shown. With no signal it waits for
+    /// `resume()`; a refusal (the recipe is gone) is dropped.
+    private func sendMeal() {
+        guard !isSendingMeal, let meal = record?.mealToSend else { return }
+        isSendingMeal = true
+        Task {
+            let failure = await deliver(meal)
+            isSendingMeal = false
+            if failure?.isRetryable == true { return }
+            mutate { $0.loggedMeal = meal }
+            // Rated while that one was on the wire.
+            sendMeal()
+        }
     }
 
     private func sendRating() {
@@ -238,6 +268,15 @@ struct RatingView: Equatable {
     private func deliver(_ stars: Int) async -> APIError? {
         do {
             try await deps.api.rate(id, stars: stars)
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    private func deliver(_ meal: CookSession.Meal) async -> APIError? {
+        do {
+            try await deps.api.logMeal(meal.key, recipe: id, rating: meal.rating)
             return nil
         } catch {
             return error
