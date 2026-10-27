@@ -92,6 +92,7 @@ struct PlanMyWeek: View {
                     if chef.week.isPlanning { ProgressView() }
                     Text("Plan my week")
                 }
+                .fixedSize()
             }
             .buttonStyle(.bordered)
             .disabled(chef.week.isPlanning)

@@ -37,13 +37,17 @@ struct DiscoverScreen: View {
                         ShelfRow(shelf: shelf)
                     }
                 }
+                // Below a week's card, which is taller than the space a centred message leaves.
+                if chef.week.shown != nil, !chef.isFindingIdeas {
+                    stateMessage(for: feed)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 8)
         }
         .accessibilityIdentifier("discover.feed")
         .overlay {
-            if !chef.isFindingIdeas { stateMessage(for: feed) }
+            if !chef.isFindingIdeas, chef.week.shown == nil { stateMessage(for: feed) }
         }
         .contentMargins(.bottom, 72, for: .scrollContent)
         .background(Color(.systemGroupedBackground))
