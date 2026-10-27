@@ -9,6 +9,7 @@ One recipe, full screen over the whole app, screen kept awake. An overview with 
 - `cook-timers` starts a timer from a time written in the step. Running timers show as chips on every step and read "Step n: done" when they end.
 - `cook-rate` sends a 1 to 5 star rating from the last page. With no connection it is kept and sent later.
 - `cook-meal` records the meal for Chef when Finish is tapped (`PUT /api/meals/<key>`), under a key made once per cook and saved with it. A rating given afterwards, in Cook or on the recipe page, sends the same key with the rating. With no connection it is kept and sent later. Nothing on screen shows it.
+- `cook-cooked` ticks the meal Cooked on the list Cook was opened from (Home's cards, the day card's Cook, a chip's Cook this) on the Finish that first records the meal, and shows "On <list>" with the tick on the last page to take it back. Opened from a recipe page there is no list, so nothing is ticked and no tick shows, as on the web.
 - `cook-resume` reopens a cook at the step, servings and timers it had, after closing Cook or a cold relaunch.
 - `cook-close` returns to where Cook was opened: Home, Plan or a recipe page.
 
@@ -30,6 +31,7 @@ Preconditions:
 - **Rate offline.** `$V api stop`, `$V tap cook.star.5`, `$V expect "Saved. It will send when you're back online."`, `$V api start`, `$V relaunch`. A few seconds later the API has `5`, and `.verify-run/api.log` holds one `PATCH /api/recipes/<id>/rating`.
 - **Meal.** Finish the Soft Egg (`cook.startButton`, `cook.nextButton` twice), `$V expect "How was it?"`: `.verify-run/api.log` holds one `PUT /api/meals/<key>`. `$V tap cook.star.4` adds a second `PUT` with the same key. `docker exec omlete-ios-verify-mongo mongosh omlete --quiet --eval 'printjson(db.meal_log.find().toArray())'` shows one row under that key with `rating: 4`. `$V relaunch` sends no new `PUT`; rating it on the recipe page (`tab.recipes`, `recipes.tile.<egg>`, `recipe.star.2`) sends the same key again.
 - **Meal offline.** On the last step, `$V api stop`, `$V tap cook.nextButton`, `$V tap cook.star.5`, `$V api start`, `$V relaunch`. A few seconds later the new `api.log` holds one `PUT /api/meals/<key>` and the row has `rating: 5`.
+- **Cooked on Finish.** `$V tap BackButton` to Home after opening `Verify Fixture Week` in Plan (so Home cooks from it), `$V tap home.cookCard.<Traybake>`, `cook.startButton`, `cook.nextButton` twice, `$V expect "How was it?"`. `$V snapshot` has `Verify Fixture Traybake cooked|Cooked|cook.cookedToggle`, and `curl -s http://127.0.0.1:8765/api/lists/<weekID> | jq .cooked` holds the Traybake's id. `$V tap cook.cookedToggle` takes it off the list's `.cooked`. The same Finish from `recipe.cookButton` shows no `cook.cookedToggle` and sends no `PUT .../cooked`.
 - **Resume.** Mid-cook with a timer running: `$V api stop`, `$V relaunch`, `$V tap home.cookCard.<shakshuka>`, `$V expect "Step 2 of 3"`. The chip is still counting.
 - **Close.** `$V tap cook.closeButton`, then `$V expect-id home.planWeekButton` (or `plan.startShoppingButton` when opened from Plan, or `recipe.cookButton` when opened from a recipe page).
 
