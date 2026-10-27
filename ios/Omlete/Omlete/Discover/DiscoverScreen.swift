@@ -17,6 +17,16 @@ struct DiscoverScreen: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
+                Group {
+                    if let week = chef.week.shown {
+                        WeekCard(plan: week, scope: "discover")
+                            .padding(16)
+                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                    } else {
+                        PlanMyWeek()
+                    }
+                }
+                .padding(.horizontal, 16)
                 if chef.isFindingIdeas {
                     SkeletonShelf(title: "Finding new ideas…")
                 } else if feed == .loading {
@@ -57,7 +67,11 @@ struct DiscoverScreen: View {
         }
         // Returns at once: Chef owns the request, and the shelf above says it is working.
         .refreshable { chef.findIdeas() }
-        .task { await chef.load() }
+        .task {
+            async let week: Void = chef.week.load()
+            await chef.load()
+            await week
+        }
         .sheet(isPresented: $isTuning) {
             TuneSheet(settings: chef.tune, isBusy: chef.isFindingIdeas) { chef.findIdeas(tuned: $0) }
         }

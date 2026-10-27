@@ -33,6 +33,11 @@ struct HomeScreen: View {
                         listRow(row)
                     }
                 }
+                if let week = chef.week.shown {
+                    Section {
+                        WeekCard(plan: week, scope: "home")
+                    }
+                }
                 if !picks.isEmpty {
                     picksSection(picks)
                 }
@@ -72,14 +77,16 @@ struct HomeScreen: View {
     /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.
     private func appear() async {
         async let ideas: Void = chef.loadIfNeeded()
+        async let week: Void = chef.week.load()
         await library.refresh()
-        await ideas
+        _ = await (ideas, week)
     }
 
     private func refresh() async {
         async let ideas: Bool = chef.load()
+        async let week: Void = chef.week.load()
         await library.refresh()
-        _ = await ideas
+        _ = await (ideas, week)
     }
 
     @ViewBuilder private func cover(for content: HomeContent) -> some View {
