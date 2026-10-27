@@ -14,7 +14,9 @@ nonisolated enum Wire {
 
     static func createdList(_ data: Data) throws -> ListSummary {
         let dto = try JSONDecoder().decode(CreatedListDTO.self, from: data)
-        return ListSummary(id: ListID(dto.id), name: dto.name, itemCount: 0, checkedCount: 0, meals: [])
+        return ListSummary(
+            id: ListID(dto.id), name: dto.name, itemCount: 0, checkedCount: 0, meals: [],
+            weekStart: try planDate(dto.week_start))
     }
 
     static func detail(_ data: Data) throws -> ListDetail {
@@ -64,6 +66,14 @@ nonisolated enum Wire {
     /// The whole list, each aisle numbered by its place: the PUT replaces every aisle the server has.
     static func aisleOrderBody(_ order: AisleOrder) throws(APIError) -> Data {
         try encode(CategoriesDTO(categories: order.names.enumerated().map { CategoryDTO(name: $1, order: $0) }))
+    }
+
+    static func weekStartWeekday(_ data: Data) throws -> Int {
+        let weekday = try JSONDecoder().decode(PlanSettingsDTO.self, from: data).week_start_weekday
+        guard (0...6).contains(weekday) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not a weekday: \(weekday)"))
+        }
+        return weekday
     }
 
     static func category(_ data: Data) throws -> String {
@@ -253,6 +263,7 @@ nonisolated private struct SummaryDTO: Decodable {
 nonisolated private struct CreatedListDTO: Decodable {
     let id: String
     let name: String
+    let week_start: String?
 }
 
 nonisolated private struct DetailDTO: Decodable {
@@ -308,6 +319,10 @@ nonisolated private struct CategoriesDTO: Encodable {
 nonisolated private struct CategoryDTO: Codable {
     let name: String
     let order: Int
+}
+
+nonisolated private struct PlanSettingsDTO: Decodable {
+    let week_start_weekday: Int
 }
 
 nonisolated private struct CategorizedDTO: Decodable {

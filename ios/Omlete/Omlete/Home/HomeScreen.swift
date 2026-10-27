@@ -26,7 +26,7 @@ struct HomeScreen: View {
             if case .sections(let lists, let picks) = content {
                 Section("Lists") {
                     if lists.isEmpty {
-                        Label("\(HomeContent.noListsTitle). \(HomeContent.noListsInvitation)", systemImage: "cart")
+                        Label("\(HomeContent.noListsTitle). \(HomeContent.noListsInvitation)", systemImage: "calendar")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(lists) { row in
@@ -50,16 +50,16 @@ struct HomeScreen: View {
             SettingsCog(tab: .home)
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    create { try await library.newList() }
+                    create { try await library.planWeek(today: .today()) }
                 } label: {
                     // A toolbar shows a Label as its icon alone, and this is the screen's main action.
                     HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                        Text("New list")
+                        Image(systemName: "calendar.badge.plus")
+                        Text("Plan a week")
                     }
                 }
                 .disabled(isCreating)
-                .accessibilityIdentifier("home.newListButton")
+                .accessibilityIdentifier("home.planWeekButton")
             }
         }
         .refreshable { await refresh() }
@@ -88,7 +88,7 @@ struct HomeScreen: View {
             EmptyView()
         case .noLists:
             ContentUnavailableView(
-                HomeContent.noListsTitle, systemImage: "cart", description: Text(HomeContent.noListsInvitation))
+                HomeContent.noListsTitle, systemImage: "calendar", description: Text(HomeContent.noListsInvitation))
         case .unavailable(let failure):
             ContentUnavailableView {
                 Label(message(for: failure), systemImage: failure == .unreachable ? "wifi.slash" : "exclamationmark.circle")

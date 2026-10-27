@@ -52,9 +52,11 @@ nonisolated struct APIClient: Sendable {
         try await decode(Wire.summaries, from: call("GET", "lists/"))
     }
 
-    /// The server mints the id and the name, so this needs signal.
-    func createList() async throws(APIError) -> ListSummary {
-        try await decode(Wire.createdList, from: call("POST", "lists/"))
+    /// The server mints the id and the name, so this needs signal. With
+    /// `weekStart` the list is that week, seven open evenings from it.
+    func createList(weekStart: PlanDate? = nil) async throws(APIError) -> ListSummary {
+        let body = try weekStart.map { start throws(APIError) in try Wire.encode(["week_start": start.iso]) }
+        return try await decode(Wire.createdList, from: call("POST", "lists/", body: body))
     }
 
     func list(_ id: ListID) async throws(APIError) -> ListDetail {
@@ -98,6 +100,11 @@ nonisolated struct APIClient: Sendable {
         if answer.status == 400 { return .alreadyOnList }
         if let failure = APIError(status: answer.status) { throw failure }
         return .added
+    }
+
+    /// The weekday a week starts on, 0 for Monday.
+    func weekStartWeekday() async throws(APIError) -> Int {
+        try await decode(Wire.weekStartWeekday, from: call("GET", "settings/plan"))
     }
 
     func aisleOrder() async throws(APIError) -> AisleOrder {

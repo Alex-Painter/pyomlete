@@ -148,6 +148,7 @@ struct CookShelf: Equatable {
         aisles.startLoad()
         async let recipes = result { () async throws(APIError) in try await deps.api.recipes() }
         async let units = result { () async throws(APIError) in try await deps.api.units() }
+        async let weekday = result { () async throws(APIError) in try await deps.api.weekStartWeekday() }
 
         switch await lists {
         case .success(let summaries):
@@ -159,15 +160,27 @@ struct CookShelf: Equatable {
         }
         if case .success(let recipes) = await recipes { take(recipes) }
         if case .success(let units) = await units { index.units = units }
+        if case .success(let weekday) = await weekday { index.weekStartWeekday = weekday }
         save()
     }
 
-    func newList() async throws(APIError) -> ListID {
-        try await startList().id
+    /// Home's Plan a week: opens the list for the week `Week.toPlan` picks,
+    /// or makes it. Waits for a load first when the phone does not yet know
+    /// the lists or the shop day, so it never makes a second copy of a week or
+    /// picks the week by a weekday it was never told. A shop day the server
+    /// cannot be asked for is Saturday, as on the web.
+    func planWeek(today: PlanDate) async throws(APIError) -> ListID {
+        if !hasLoaded || index.weekStartWeekday == nil { await refresh() }
+        // Not knowing the lists is not the same as having none.
+        guard hasLoaded else { throw loadFailure ?? .unreachable }
+        let week = Week.toPlan(
+            today: today, weekday: index.weekStartWeekday ?? Week.defaultStartWeekday, lists: rows)
+        if let existing = week.list { return existing }
+        return try await startList(weekStart: week.start).id
     }
 
-    private func startList() async throws(APIError) -> ListSummary {
-        let created = try await deps.api.createList()
+    private func startList(weekStart: PlanDate? = nil) async throws(APIError) -> ListSummary {
+        let created = try await deps.api.createList(weekStart: weekStart)
         index.summaries.insert(created, at: 0)
         save()
         return created
