@@ -109,9 +109,17 @@ import UniformTypeIdentifiers
     @Test func aLinkIsStartedUnderItsJobsKey() async {
         serverAnswers(202, Self.jobJSON("working"))
 
-        #expect(await api.startRecipe(.link("https://example.com/traybake"), as: job()) == .taken)
+        #expect(await api.startRecipe(.link("https://example.com/traybake", changes: nil), as: job()) == .taken)
         #expect(transport.calls == [Call(method: "PUT", path: "/api/recipe-jobs/job1/link")])
         #expect(transport.bodies[0] as? [String: String] == ["url": "https://example.com/traybake"])
+    }
+
+    @Test func aLinkWithChangesIsStartedWithThem() async {
+        serverAnswers(202, Self.jobJSON("working"))
+
+        #expect(await api.startRecipe(.link("https://example.com/traybake", changes: "but use quorn mince"), as: job()) == .taken)
+        #expect(transport.calls == [Call(method: "PUT", path: "/api/recipe-jobs/job1/link")])
+        #expect(transport.bodies[0] as? [String: String] == ["url": "https://example.com/traybake", "changes": "but use quorn mince"])
     }
 
     @Test func aDescriptionIsStartedFromItsPrompt() async {
@@ -149,7 +157,7 @@ import UniformTypeIdentifiers
     func anyAnswerThatTheServerHasTheJobIsTaken(status: Int, body: String) async {
         serverAnswers(status, body)
 
-        #expect(await api.startRecipe(.link("https://example.com/x"), as: job()) == .taken)
+        #expect(await api.startRecipe(.link("https://example.com/x", changes: nil), as: job()) == .taken)
     }
 
     @Test(arguments: [
@@ -365,10 +373,10 @@ struct ExploreModelTests {
 
     @Test(arguments: [
         ("https://www.bbcgoodfood.com/recipes/x", RecipeRequest.Kind.link), ("  http://a.b  ", .link),
-        ("https://nodot", .describe), ("see https://a.b/c for it", .describe), ("HTTPS://A.B", .describe),
+        ("https://nodot", .describe), ("see https://a.b/c for it", .link), ("HTTPS://A.B", .describe),
         ("leeks and potatoes", .describe), ("egg", .describe),
     ])
-    func oneWebAddressIsALinkAndAnythingElseIsADescription(text: String, expected: RecipeRequest.Kind) {
+    func textWithAWebAddressIsALinkAndAnythingElseIsADescription(text: String, expected: RecipeRequest.Kind) {
         #expect(RecipeRequest(text: text, photos: [])?.kind == expected)
     }
 
@@ -380,6 +388,37 @@ struct ExploreModelTests {
         #expect(RecipeRequest(text: "", photos: [photo]) == .photos([photo]))
         #expect(RecipeRequest(text: "https://a.b", photos: [photo])?.kind == .photos)
         #expect(RecipeRequest(text: " leek soup ", photos: []) == .describe("leek soup"))
+    }
+
+    @Test func whatIsTypedWithALinkIsItsChangesAndALinkOnItsOwnHasNone() {
+        #expect(RecipeRequest(text: " https://example.com/chilli ", photos: []) == .link("https://example.com/chilli", changes: nil))
+        #expect(
+            RecipeRequest(text: "https://example.com/chilli but use quorn mince", photos: [])
+                == .link("https://example.com/chilli", changes: "but use quorn mince"))
+    }
+
+    // Ported case for case from client/src/lib/splitLink.test.ts.
+
+    @Test func splitLinkReturnsABareLinkWithNoChanges() {
+        let link = RecipeRequest.splitLink("  https://thecheekychickpea.com/vegan-burrito/ ")
+        #expect(link?.url == "https://thecheekychickpea.com/vegan-burrito/")
+        #expect(link?.changes == "")
+    }
+
+    @Test func splitLinkSeparatesALinkFromTheChangesTypedAfterIt() {
+        let link = RecipeRequest.splitLink("https://thecheekychickpea.com/vegan-burrito/\n\n\nBut use quorn mince")
+        #expect(link?.url == "https://thecheekychickpea.com/vegan-burrito/")
+        #expect(link?.changes == "But use quorn mince")
+    }
+
+    @Test func splitLinkFindsALinkTypedAfterTheChangesWithoutTrailingPunctuation() {
+        let link = RecipeRequest.splitLink("Make this for 6: https://example.com/recipes/chilli.")
+        #expect(link?.url == "https://example.com/recipes/chilli")
+        #expect(link?.changes == "Make this for 6:")
+    }
+
+    @Test func splitLinkReturnsNilForADescriptionWithNoLink() {
+        #expect(RecipeRequest.splitLink("something warming with leeks and potatoes") == nil)
     }
 }
 

@@ -231,8 +231,8 @@ nonisolated enum Wire {
     static func jobStart(_ request: RecipeRequest, key: RecipeJobID) throws(APIError) -> Upload {
         let path = "recipe-jobs/\(key.rawValue)/\(request.kind.rawValue)"
         switch request {
-        case .link(let url):
-            return Upload(path: path, body: try encode(["url": url]), contentType: json)
+        case .link(let url, let changes):
+            return Upload(path: path, body: try encode(LinkJobDTO(url: url, changes: changes)), contentType: json)
         case .describe(let prompt):
             return Upload(path: path, body: try encode(["prompt": prompt]), contentType: json)
         case .photos(let photos):
@@ -528,6 +528,11 @@ nonisolated private struct TuneDTO: Encodable {
 
 nonisolated private struct SaveSuggestionDTO: Encodable {
     let list_id: String?
+}
+
+nonisolated private struct LinkJobDTO: Encodable {
+    let url: String
+    let changes: String?
 }
 
 nonisolated private struct MealDTO: Encodable {
