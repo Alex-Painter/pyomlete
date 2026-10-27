@@ -92,6 +92,8 @@ nonisolated struct APIClient: Sendable {
             _ = try await call("PATCH", base, body: try Wire.encode(["name": name]))
         case .setDay(let date, let plan):
             _ = try await call("PUT", "\(base)/days/\(date.iso)", body: try Wire.dayUpdate(plan))
+        case .setCooked(let recipe, let cooked):
+            _ = try await call("PUT", "\(base)/recipes/\(recipe.rawValue)/cooked", body: try Wire.encode(["cooked": cooked]))
         }
     }
 

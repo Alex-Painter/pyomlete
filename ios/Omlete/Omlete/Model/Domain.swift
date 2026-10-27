@@ -65,6 +65,8 @@ nonisolated struct ListDetail: Codable, Equatable, Sendable {
     /// nil for a plain list. A week list has its seven days, in order.
     var weekStart: PlanDate? = nil
     var days: [PlanDay] = []
+    /// The meals on the list that have been cooked, a subset of `recipes`. Nothing moves because of it.
+    var cooked: Set<RecipeID> = []
 
     var isWeek: Bool { weekStart != nil && !days.isEmpty }
 }
@@ -73,6 +75,7 @@ nonisolated struct ListSummary: Identifiable, Codable, Equatable, Sendable {
     struct Meal: Codable, Equatable, Sendable {
         let id: RecipeID
         let title: String
+        var cooked = false
     }
 
     let id: ListID
@@ -125,7 +128,7 @@ nonisolated enum MealAdd: Equatable, Sendable {
     case alreadyOnList
 }
 
-/// Written by hand so a list or library saved by an older build, before weeks, still loads.
+/// Written by hand so a list or library saved by an older build, before weeks or the Cooked tick, still loads.
 nonisolated extension ListDetail {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -135,6 +138,17 @@ nonisolated extension ListDetail {
         items = try container.decode([ListItem].self, forKey: .items)
         weekStart = try container.decodeIfPresent(PlanDate.self, forKey: .weekStart)
         days = try container.decodeIfPresent([PlanDay].self, forKey: .days) ?? []
+        cooked = try container.decodeIfPresent(Set<RecipeID>.self, forKey: .cooked) ?? []
+    }
+}
+
+/// An index saved before the Cooked tick has meals with no `cooked`.
+nonisolated extension ListSummary.Meal {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(RecipeID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        cooked = try container.decodeIfPresent(Bool.self, forKey: .cooked) ?? false
     }
 }
 

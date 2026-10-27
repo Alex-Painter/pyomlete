@@ -7,7 +7,7 @@ nonisolated enum Wire {
         try JSONDecoder().decode([SummaryDTO].self, from: data).map { dto throws in
             ListSummary(
                 id: ListID(dto.id), name: dto.name, itemCount: dto.item_count, checkedCount: dto.checked_count,
-                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title) },
+                meals: dto.recipes.map { ListSummary.Meal(id: RecipeID($0.id), title: $0.title, cooked: $0.cooked ?? false) },
                 weekStart: try planDate(dto.week_start))
         }
     }
@@ -31,7 +31,8 @@ nonisolated enum Wire {
         }
         return ListDetail(
             id: ListID(dto.id), name: dto.name, recipes: dto.recipes.map { RecipeID($0) }, items: items,
-            weekStart: try planDate(dto.week_start), days: try (dto.days ?? []).map(day))
+            weekStart: try planDate(dto.week_start), days: try (dto.days ?? []).map(day),
+            cooked: Set((dto.cooked ?? []).map { RecipeID($0) }))
     }
 
     /// A meal wins over Out, as the server keeps it, so the two never arrive together.
@@ -320,6 +321,7 @@ nonisolated private struct SummaryDTO: Decodable {
     struct Meal: Decodable {
         let id: String
         let title: String
+        let cooked: Bool?
     }
 
     let id: String
@@ -358,6 +360,7 @@ nonisolated private struct DetailDTO: Decodable {
     let items: [Item]
     let week_start: String?
     let days: [DayDTO]?
+    let cooked: [String]?
 }
 
 nonisolated private struct DayDTO: Decodable {
