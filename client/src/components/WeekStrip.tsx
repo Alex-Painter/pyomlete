@@ -1,8 +1,10 @@
 import { useDroppable } from '@dnd-kit/core'
-import { Moon } from 'lucide-react'
+import { CalendarX, Moon } from 'lucide-react'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { dayKind, dayLong, dayOfMonth, dayShort, longDate } from '@/lib/week'
 import type { DayKind } from '@/lib/week'
+import { isBusyEvening } from '@/lib/calendarDays'
+import type { Evening } from '@/lib/calendarDays'
 import type { ISODate, PlanDay, RecipeSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -12,16 +14,32 @@ type StripProps = {
   today: ISODate
   recipes: Map<string, RecipeSummary>
   onSelect: (date: ISODate) => void
+  /** What the calendar says about each evening, when one is connected. */
+  evenings?: Map<ISODate, Evening>
 }
 
-function describe(day: PlanDay, recipe: RecipeSummary | undefined, today: ISODate): string {
+/** How a day shows: its own state, or busy when it's open and the calendar says you're out. */
+type Shown = DayKind | 'busy'
+
+function shownKind(day: PlanDay, evening: Evening | undefined): Shown {
+  const kind = dayKind(day)
+  return kind === 'open' && isBusyEvening(evening) ? 'busy' : kind
+}
+
+function describe(
+  day: PlanDay,
+  recipe: RecipeSummary | undefined,
+  today: ISODate,
+  evening: Evening | undefined,
+): string {
   const when = `${day.date === today ? 'Today, ' : ''}${dayLong(day.date)} ${longDate(day.date)}`
   const what: Record<DayKind, string> = {
     planned: recipe?.title ?? 'meal planned',
     open: 'nothing planned',
     out: 'out',
   }
-  return `${when}, ${what[dayKind(day)]}`
+  const calendar = evening && evening.kind !== 'free' && dayKind(day) !== 'out' ? `, calendar: ${evening.reason}` : ''
+  return `${when}, ${what[dayKind(day)]}${calendar}`
 }
 
 /**
@@ -44,7 +62,7 @@ export function WeekStrip({
       </ol>
     )
   }
-  const { days, selected, today, recipes, onSelect } = props
+  const { days, selected, today, recipes, onSelect, evenings } = props
   return (
     <ol aria-label="This week" className="grid grid-cols-7 gap-1">
       {days.map((day) => {
@@ -54,7 +72,7 @@ export function WeekStrip({
             <button
               type="button"
               aria-pressed={isSelected}
-              aria-label={describe(day, recipes.get(day.recipe_id ?? ''), today)}
+              aria-label={describe(day, recipes.get(day.recipe_id ?? ''), today, evenings?.get(day.date))}
               onClick={() => onSelect(day.date)}
               className={cn(
                 'flex min-h-[60px] w-full flex-col items-center justify-center gap-0.5 rounded-xl border-2 border-transparent py-1 transition-colors hover:bg-sand',
@@ -70,7 +88,7 @@ export function WeekStrip({
                 {day.date === today ? 'Today' : dayShort(day.date)}
               </span>
               <span className="text-base font-semibold leading-tight">{dayOfMonth(day.date)}</span>
-              <DayIndicator kind={dayKind(day)} />
+              <DayIndicator kind={shownKind(day, evenings?.get(day.date))} />
             </button>
           </li>
         )
@@ -79,7 +97,7 @@ export function WeekStrip({
   )
 }
 
-function DayIndicator({ kind }: { kind: DayKind }) {
+function DayIndicator({ kind }: { kind: Shown }) {
   switch (kind) {
     case 'planned':
       return <span aria-hidden className="size-2 rounded-full bg-[#b7860b]" />
@@ -87,12 +105,15 @@ function DayIndicator({ kind }: { kind: DayKind }) {
       return <span aria-hidden className="size-2 rounded-full border border-ink-muted" />
     case 'out':
       return <Moon aria-hidden className="size-3 text-ink-muted" />
+    case 'busy':
+      return <CalendarX aria-hidden className="size-3 text-ink-muted" />
   }
 }
 
-function DayColumn({ day, selected, today, recipes, onSelect }: StripProps & { day: PlanDay }) {
+function DayColumn({ day, selected, today, recipes, onSelect, evenings }: StripProps & { day: PlanDay }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${day.date}`, data: { date: day.date } })
-  const kind = dayKind(day)
+  const evening = evenings?.get(day.date)
+  const kind = shownKind(day, evening)
   const recipe = day.recipe_id ? recipes.get(day.recipe_id) : undefined
   const isSelected = day.date === selected
   return (
@@ -100,7 +121,7 @@ function DayColumn({ day, selected, today, recipes, onSelect }: StripProps & { d
       ref={setNodeRef}
       type="button"
       aria-pressed={isSelected}
-      aria-label={describe(day, recipe, today)}
+      aria-label={describe(day, recipe, today, evening)}
       onClick={() => onSelect(day.date)}
       className={cn(
         'flex h-full min-h-[150px] w-full flex-col overflow-hidden rounded-2xl border-2 border-line bg-white text-left shadow-sm transition-colors hover:border-ink-faint',
@@ -135,6 +156,12 @@ function DayColumn({ day, selected, today, recipes, onSelect }: StripProps & { d
         <span className="mx-2 mb-2 flex flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-cream text-xs text-ink-muted">
           <Moon aria-hidden className="size-4" />
           Out
+        </span>
+      )}
+      {kind === 'busy' && evening && evening.kind !== 'free' && (
+        <span className="mx-2 mb-2 flex flex-1 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line px-1 text-center text-xs text-ink-muted">
+          <CalendarX aria-hidden className="size-4" />
+          {evening.reason}
         </span>
       )}
     </button>

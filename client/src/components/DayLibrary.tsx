@@ -38,6 +38,8 @@ export type LibraryDay = {
   day: PlanDay
   items: ListItem[]
   varietyDays: number
+  /** The calendar says you're out: no top three until you choose to plan anyway. */
+  busy?: boolean
 }
 
 /**
@@ -106,7 +108,7 @@ export function DayLibrary({
         {heading}
       </h2>
 
-      {ranking && forDay && forDay.day.status !== 'out' && (
+      {ranking && forDay && forDay.day.status !== 'out' && !forDay.busy && (
         <TopThree
           key={forDay.day.date}
           date={forDay.day.date}

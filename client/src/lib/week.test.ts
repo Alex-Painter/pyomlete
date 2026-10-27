@@ -102,6 +102,12 @@ describe('nextOpenDay', () => {
     expect(nextOpenDay(days, '2026-10-20')).toBe('2026-10-17')
   })
 
+  it('passes over evenings the calendar says are busy', () => {
+    const days = week('2026-10-17')
+    const busy = new Set(['2026-10-18', '2026-10-19'])
+    expect(nextOpenDay(days, '2026-10-17', (d) => busy.has(d))).toBe('2026-10-20')
+  })
+
   it('stays put when every evening is decided', () => {
     const days = week('2026-10-17').map((d) => ({ ...d, recipe_id: 'x' }))
     expect(nextOpenDay(days, '2026-10-19')).toBe('2026-10-19')
