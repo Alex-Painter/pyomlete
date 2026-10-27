@@ -17,9 +17,44 @@ class IngredientDocument(Document, Ingredient):
         name = "ingredients"
 
 
+Base = Literal["rice", "pasta", "potatoes", "bread", "noodles", "none"]
+Main = Literal["chicken", "beef", "pork", "lamb", "fish", "veggie", "beans"]
+Mood = Literal["comforting", "fresh", "different"]
+# Families rather than countries, so Thai then Vietnamese counts as a repeat.
+CuisineFamily = Literal[
+    "british", "french", "italian", "spanish", "greek", "middle_eastern",
+    "north_african", "indian", "chinese", "japanese", "korean",
+    "south_east_asian", "mexican", "latin_american", "american", "other",
+]
+
+
+class RecipeTraits(BaseModel):
+    oily_fish: bool = False
+    red_meat: bool = False
+    veg_led: bool = False
+    legumes: bool = False
+
+
+class RecipeTags(BaseModel):
+    """What a dinner is built on, for the week's variety rules (recipe_tagger.py).
+
+    Closed sets, so the apps can name a clash ("Pasta on Monday") and
+    Narrow it down can group meals by them.
+    """
+
+    base: Base
+    main: Main
+    mood: Mood
+    cuisine: CuisineFamily
+    traits: RecipeTraits = Field(default_factory=RecipeTraits)
+
+
 class RecipeDocument(Document, Recipe, RecipeMetadata):
     ingredients: list[IngredientRecipe]
     rating: Optional[int] = None
+    # Set by Haiku after the recipe is saved, so saving never waits. A recipe
+    # without tags ranks without the tag signals.
+    tags: Optional[RecipeTags] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
