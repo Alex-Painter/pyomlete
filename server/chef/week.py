@@ -45,8 +45,22 @@ def week_to_plan(today: date, weekday: int) -> date:
     return current + timedelta(days=7) if (today - current).days == 6 else current
 
 
+def next_week_from(today: date, weekday: int) -> date:
+    """The first week to start on or after `today`: the one the weekly run plans."""
+    return today + timedelta(days=(weekday - today.weekday()) % 7)
+
+
 async def current_week() -> date:
     return week_to_plan(date.today(), (await settings.get_or_create()).week_start_weekday)
+
+
+async def waiting() -> WeekPlanDocument | None:
+    """The plan waiting for a tap: this week's, or the coming week's once the run has planned it."""
+    return await WeekPlanDocument.find_one(
+        WeekPlanDocument.status == "new",
+        WeekPlanDocument.week_of >= await current_week(),
+        sort=[("week_of", -1)],
+    )
 
 
 class DraftMeal(BaseModel):
@@ -182,12 +196,18 @@ def _prompt(deps: WeekDeps, week_of: date, known: str) -> str:
     return "\n".join(lines)
 
 
-async def plan(fresh: bool = False, chat_id: str | None = None) -> tuple[WeekPlanDocument, str | None]:
-    """Propose this week, or return the proposal already waiting unless `fresh`.
+async def plan(
+    fresh: bool = False, chat_id: str | None = None, week_of: date | None = None
+) -> tuple[WeekPlanDocument, str | None]:
+    """Propose a week, or return the proposal already waiting unless `fresh`.
 
-    Answers the plan and, when this call made or replaced it, the Undo id.
+    The week is `week_of`, or the one a waiting plan is for (the weekly run may
+    have planned next week), or this one. Answers the plan and, when this call
+    made or replaced it, the Undo id.
     """
-    week_of = await current_week()
+    if week_of is None:
+        pending = await waiting()
+        week_of = pending.week_of if pending else await current_week()
     existing = await WeekPlanDocument.find_one(WeekPlanDocument.week_of == week_of)
     if existing and existing.status == "new" and not fresh:
         return existing, None

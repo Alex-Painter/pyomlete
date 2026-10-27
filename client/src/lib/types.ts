@@ -61,6 +61,14 @@ export type PlanSettings = {
   week_start_weekday: number
 }
 
+/** When Chef plans the coming week on its own, in UK time. */
+export type WeeklyPlanSettings = {
+  weekly_plan: boolean
+  /** 0 is Monday. Sunday by default. */
+  weekly_plan_weekday: number
+  weekly_plan_hour: number
+}
+
 export type CategoryConfig = {
   name: string
   order: number

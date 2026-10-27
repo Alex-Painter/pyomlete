@@ -609,7 +609,7 @@ class TestShutdown:
 
         with (
             a_model(async_claude=a_model_that_never_answers(reached)),
-            patch.multiple(main, get_motor_client=MagicMock(), init_beanie=AsyncMock()),
+            patch.multiple(main, get_motor_client=MagicMock(), init_documents=AsyncMock()),
         ):
             async with main.lifespan(main.app):
                 transport = httpx.ASGITransport(app=main.app)

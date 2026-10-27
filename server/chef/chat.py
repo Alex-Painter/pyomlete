@@ -552,6 +552,28 @@ async def set_week_start(ctx: RunContext[ChatDeps], weekday: int) -> dict:
 
 @agent.tool
 @_reported
+async def set_weekly_plan(
+    ctx: RunContext[ChatDeps], enabled: bool = True, weekday: int | None = None, hour: int | None = None
+) -> dict:
+    """Choose when you plan their coming week on your own, in UK time: weekday 0 (Monday) to 6 (Sunday), hour 0 to 23. Leave out what stays the same; `enabled` false stops it."""
+    current = await settings.get_or_create()
+    weekday = current.weekly_plan_weekday if weekday is None else weekday
+    hour = current.weekly_plan_hour if hour is None else hour
+    if not 0 <= weekday <= 6 or not 0 <= hour <= 23:
+        return {"error": "weekday goes from 0 (Monday) to 6 (Sunday), hour from 0 to 23"}
+    change = Change()
+    await change.touching(UserSettingsDocument, current.id)
+    await settings.set_weekly_plan(enabled, weekday, hour)
+    summary = (
+        f"Chef plans your week on {_WEEKDAYS[weekday]}s at {hour:02d}:00"
+        if enabled
+        else "Chef no longer plans your week on its own"
+    )
+    return await _done(ctx, change, summary)
+
+
+@agent.tool
+@_reported
 async def set_aisles(ctx: RunContext[ChatDeps], aisles: list[str]) -> dict:
     """Replace their aisles with these, in the order they walk the shop."""
     current = await settings.get_or_create()

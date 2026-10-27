@@ -187,6 +187,15 @@ class PlanSettingsRequest(BaseModel):
     week_start_weekday: int = Field(ge=0, le=6)
 
 
+class WeeklyPlanSettings(BaseModel):
+    """When Chef plans the coming week on its own, in UK time."""
+
+    weekly_plan: bool
+    # 0 is Monday, 6 is Sunday.
+    weekly_plan_weekday: int = Field(ge=0, le=6)
+    weekly_plan_hour: int = Field(ge=0, le=23)
+
+
 class CategoryConfigRequest(BaseModel):
     name: str
     order: int

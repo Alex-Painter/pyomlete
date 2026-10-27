@@ -5,7 +5,7 @@ in memory, and a new idea's save is a mock (tests/test_suggestion_saves.py
 covers saving).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -17,7 +17,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, RetryPromptPart, T
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 import main
-from chef import week
+from chef import run, week
 from data_models import (
     ChefActionDocument,
     IngredientDocument,
@@ -297,3 +297,65 @@ async def test_a_planner_that_keeps_breaking_the_rules_is_a_502(api):
         r = await api.post("/api/weeks/plan", json={})
     assert r.status_code == 502
     assert await WeekPlanDocument.find_all().count() == 0
+
+
+# --- The weekly run ---
+
+
+def a_settings(**kw) -> UserSettingsDocument:
+    return UserSettingsDocument(**kw)
+
+
+def test_the_run_is_due_for_a_few_hours_after_the_chosen_hour():
+    s = a_settings()  # Sunday 08:00, weeks from Saturday
+    sunday = datetime(2026, 11, 1, 8, 5)
+    assert run.due(sunday, s) == date(2026, 11, 7)
+    assert run.due(sunday.replace(hour=11, minute=59), s) == date(2026, 11, 7)
+    assert run.due(sunday.replace(hour=12), s) is None
+    assert run.due(sunday.replace(hour=7, minute=59), s) is None
+    assert run.due(datetime(2026, 11, 2, 8), s) is None
+    assert run.due(sunday, a_settings(weekly_plan=False)) is None
+    # On a week's first day, it plans the week starting that day.
+    assert run.due(datetime(2026, 11, 2, 18), a_settings(weekly_plan_weekday=0, weekly_plan_hour=18, week_start_weekday=0)) == date(2026, 11, 2)
+
+
+async def test_the_run_learns_then_plans_the_coming_week_once(api, monkeypatch):
+    recipes = await library()
+    distilled = AsyncMock()
+    monkeypatch.setattr(run.chef_memory, "distil", distilled)
+    model, _ = planner(a_week(recipes))
+    sunday = datetime.combine(date.today() + timedelta(days=(6 - date.today().weekday()) % 7), time(8, 30))
+    with model:
+        plan = await run.weekly(sunday)
+        again = await run.weekly(sunday.replace(hour=9))
+    assert plan.week_of == week.next_week_from(sunday.date(), 5)
+    assert again is None
+    assert distilled.await_count == 1
+    # Waiting on Home, even before its week begins.
+    assert plan.week_of > await week.current_week()
+    assert (await api.get("/api/weeks/current")).json()["id"] == str(plan.id)
+
+
+async def test_the_run_leaves_a_week_already_seen_alone(api):
+    recipes = await library()
+    model, _ = planner(a_week(recipes))
+    with model:
+        plan = (await api.post("/api/weeks/plan", json={})).json()
+        await api.post(f"/api/weeks/{plan['id']}/skip")
+        week_of = date.fromisoformat(plan["week_of"])
+        assert await run.weekly(datetime.combine(week_of, time(8)), force=True) is None
+    assert await WeekPlanDocument.find_all().count() == 1
+
+
+async def test_the_weekly_plan_time_is_a_setting_chef_can_change(api):
+    r = await api.get("/api/settings/weekly-plan")
+    assert r.json() == {"weekly_plan": True, "weekly_plan_weekday": 6, "weekly_plan_hour": 8}
+    body = {"weekly_plan": True, "weekly_plan_weekday": 4, "weekly_plan_hour": 19}
+    assert (await api.put("/api/settings/weekly-plan", json=body)).json() == body
+    assert (await api.put("/api/settings/weekly-plan", json={**body, "weekly_plan_hour": 24})).status_code == 422
+
+    chat_model, seen = calling(("set_weekly_plan", {"weekday": 6}))
+    await say(api, chat_model, "plan on sundays instead")
+    assert seen["returns"][0]["done"] == "Chef plans your week on Sundays at 19:00"
+    await api.post(f"/api/chef/actions/{seen['returns'][0]['undo']}/undo")
+    assert (await api.get("/api/settings/weekly-plan")).json() == body
