@@ -321,3 +321,23 @@ class WeekPlanDocument(Document):
     class Settings:
         name = "week_plans"
         indexes = [IndexModel([("week_of", ASCENDING)], unique=True)]
+
+
+class CalendarConnectionDocument(Document):
+    """The household's Google Calendar connection; there is at most one (calendar_google.py)."""
+
+    # Fernet-encrypted; never stored or logged in plain text.
+    refresh_token: Optional[str] = None
+    calendars: list[dict] = []
+    # The calendars whose busy times count: your own, a shared family one.
+    calendar_ids: list[str] = []
+    # Dinner time, local to the person: busy across all of it means out.
+    dinner_start: str = "18:00"
+    dinner_end: str = "20:30"
+    connected_at: Optional[datetime] = None
+    # Between sending someone to Google and their coming back.
+    pending_state: Optional[str] = None
+    pending_return: Optional[str] = None
+
+    class Settings:
+        name = "calendar_connections"

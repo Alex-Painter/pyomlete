@@ -59,6 +59,10 @@ NO_TOOL = {
     ("POST", "/api/suggestions/clear"): "Chef's own output",
     ("PATCH", "/api/suggestions/{suggestion_id}"): "Chef's own output",
     ("POST", "/api/suggestions/{suggestion_id}/save"): "create_recipe, import_recipe",
+    # Connecting a calendar is the person's own consent on Google's screen,
+    # and which calendars count is theirs to choose there and in Settings.
+    ("PUT", "/api/calendar/settings"): "the person's consent, not Chef's",
+    ("DELETE", "/api/calendar"): "the person's consent, not Chef's",
     # Chef itself.
     ("POST", "/api/chef/chat"): "Chef",
     ("POST", "/api/chef/actions/{action_id}/undo"): "Undo is the person's, not Chef's",

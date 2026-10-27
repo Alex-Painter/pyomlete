@@ -35,6 +35,7 @@ async def init_documents(client: AsyncIOMotorClient) -> None:
             d.MealLogDocument,
             d.PreferenceDocument,
             d.WeekPlanDocument,
+            d.CalendarConnectionDocument,
         ],
     )
 
