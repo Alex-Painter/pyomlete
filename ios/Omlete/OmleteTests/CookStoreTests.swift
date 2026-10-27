@@ -378,6 +378,21 @@ import Testing
         #expect(mealsSent[0].key != mealsSent[1].key)
     }
 
+    /// Finish ticks the meal on its list only when this says so, so a Finish
+    /// tapped again after Last step, or a step before the end, ticks nothing.
+    @Test func onlyTheTapThatFirstFinishesACookMadeItsMeal() async {
+        await cook(toStep: 3)
+        #expect(!store.next())
+        #expect(store.next())
+        store.back()
+        #expect(!store.next())
+
+        await store.open()
+        store.start()
+        for _ in 1..<4 { #expect(!store.next()) }
+        #expect(store.next())
+    }
+
     @Test func aRatingBeforeTheEndLogsNoMeal() async {
         await cook(toStep: 2)
         store.rate(3)

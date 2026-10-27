@@ -120,12 +120,13 @@ struct HomeScreen: View {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(shelf.meals) { meal in
                         Button {
-                            navigation.startCooking(meal.id)
+                            navigation.startCooking(meal.id, from: shelf.listID)
                         } label: {
-                            CookCard(meal: meal)
+                            CookCard(meal: meal, cooked: shelf.cooked.contains(meal.id))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Cook \(meal.title)")
+                        .accessibilityValue(shelf.cooked.contains(meal.id) ? "Cooked" : "")
                         .accessibilityIdentifier("home.cookCard.\(meal.id.rawValue)")
                     }
                 }

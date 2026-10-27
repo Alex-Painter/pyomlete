@@ -205,10 +205,14 @@ struct RatingView: Equatable {
     }
 
     func start() { move { $0.start(now: $1) } }
-    /// Reaching the end records the meal.
-    func next() {
+    /// Reaching the end records the meal. Returns true only for the tap that
+    /// first made it, which is when Finish ticks the meal on its list.
+    @discardableResult
+    func next() -> Bool {
+        let hadMeal = record?.session.meal != nil
         move { $0.next(now: $1, mealKey: UUID()) }
         sendMeal()
+        return !hadMeal && record?.session.meal != nil
     }
 
     func back() { move { $0.back(now: $1) } }

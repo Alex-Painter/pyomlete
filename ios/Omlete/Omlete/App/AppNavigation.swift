@@ -17,7 +17,8 @@ enum Route: Hashable {
 /// value, so shopping and cooking at once cannot be written down.
 enum Immersive: Hashable, Identifiable {
     case shop(ListID)
-    case cook(RecipeID)
+    /// `list` is the list it was opened from, whose meal Finish ticks. None from a recipe page.
+    case cook(RecipeID, list: ListID?)
 
     var id: Self { self }
 }
@@ -52,7 +53,7 @@ enum Immersive: Hashable, Identifiable {
     var chefPage: ChefPage {
         switch immersive {
         case .shop(let id): return .shop(id)
-        case .cook(let id): return .cook(id)
+        case .cook(let id, _): return .cook(id)
         case nil: break
         }
         switch self[tab].last {
@@ -91,8 +92,8 @@ enum Immersive: Hashable, Identifiable {
         enter(.shop(id))
     }
 
-    func startCooking(_ id: RecipeID) {
-        enter(.cook(id))
+    func startCooking(_ id: RecipeID, from list: ListID? = nil) {
+        enter(.cook(id, list: list))
     }
 
     func leaveImmersive() {
