@@ -8,6 +8,7 @@ One recipe, full screen over the whole app, screen kept awake. An overview with 
 - `cook-steps` walks the method with Back and Next, showing "Step n of m" and the ingredients for that step.
 - `cook-timers` starts a timer from a time written in the step. Running timers show as chips on every step and read "Step n: done" when they end.
 - `cook-rate` sends a 1 to 5 star rating from the last page. With no connection it is kept and sent later.
+- `cook-meal` records the meal for Chef when Finish is tapped (`PUT /api/meals/<key>`), under a key made once per cook and saved with it. A rating given afterwards, in Cook or on the recipe page, sends the same key with the rating. With no connection it is kept and sent later. Nothing on screen shows it.
 - `cook-resume` reopens a cook at the step, servings and timers it had, after closing Cook or a cold relaunch.
 - `cook-close` returns to where Cook was opened: Home, Plan or a recipe page.
 
@@ -27,6 +28,8 @@ Preconditions:
 - **A timer running.** In the Shakshuka's step 2, `$V tap cook.startTimer.0`; `$V snapshot` shows `cook.timerChip.0` counting down from `10:00`.
 - **Rate.** On the last page, `$V expect "How was it?"`, `$V tap cook.star.4`, `$V expect "Thanks. Discover will suggest more like this, or less."`. `curl -s http://127.0.0.1:8765/api/recipes/<id> | jq .rating` prints `4`.
 - **Rate offline.** `$V api stop`, `$V tap cook.star.5`, `$V expect "Saved. It will send when you're back online."`, `$V api start`, `$V relaunch`. A few seconds later the API has `5`, and `.verify-run/api.log` holds one `PATCH /api/recipes/<id>/rating`.
+- **Meal.** Finish the Soft Egg (`cook.startButton`, `cook.nextButton` twice), `$V expect "How was it?"`: `.verify-run/api.log` holds one `PUT /api/meals/<key>`. `$V tap cook.star.4` adds a second `PUT` with the same key. `docker exec omlete-ios-verify-mongo mongosh omlete --quiet --eval 'printjson(db.meal_log.find().toArray())'` shows one row under that key with `rating: 4`. `$V relaunch` sends no new `PUT`; rating it on the recipe page (`tab.recipes`, `recipes.tile.<egg>`, `recipe.star.2`) sends the same key again.
+- **Meal offline.** On the last step, `$V api stop`, `$V tap cook.nextButton`, `$V tap cook.star.5`, `$V api start`, `$V relaunch`. A few seconds later the new `api.log` holds one `PUT /api/meals/<key>` and the row has `rating: 5`.
 - **Resume.** Mid-cook with a timer running: `$V api stop`, `$V relaunch`, `$V tap home.cookCard.<shakshuka>`, `$V expect "Step 2 of 3"`. The chip is still counting.
 - **Close.** `$V tap cook.closeButton`, then `$V expect-id home.planWeekButton` (or `plan.startShoppingButton` when opened from Plan, or `recipe.cookButton` when opened from a recipe page).
 
@@ -35,6 +38,8 @@ Preconditions:
 - The recipe title, "You'll need" and Home's "Cook from ..." are titles and section headers, which are not in the UI tree. Check them in the screenshot.
 - An ingredient row's label is `<name>, <quantity>`, so `expect "eggs, 8"` matches it.
 - Timer ids are positions, counted from 0: `cook.startTimer.<n>` among the times found in the step, `cook.timerChip.<n>` and `cook.dismissTimer.<n>` among the running timers.
+- `api start` begins a new `api.log`, so read the meal `PUT`s you need before stopping the API.
+- Reopening a finished cook starts a new one, and its Finish logs a new meal with a new key.
 - A finished cook, or one untouched for 8 hours, reopens at the overview. To see resume, leave the cook on a step.
 - Saved cooks survive `up`. A recipe id is new on every seed, so an old cook is never reopened by accident.
 - The chime is a system sound and a haptic. Neither can be observed from here; the unit tests count it.
