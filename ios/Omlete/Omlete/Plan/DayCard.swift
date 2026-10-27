@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// The selected evening: its meal with Cook, Swap and Clear, an open evening
-/// with a one-tap Out, or Out with Plan anyway.
+/// The selected evening: its meal with its Cooked tick, Cook, Swap and Clear,
+/// an open evening with a one-tap Out, or Out with Plan anyway. Nothing else
+/// here changes when the meal is cooked.
 struct DayCard: View {
     let day: PlanDay
     /// The planned meal, known by its title at least.
     let meal: RecipeSummary?
+    let cooked: Bool
+    let onCooked: (Bool) -> Void
     let onOpen: (RecipeID) -> Void
     let onCook: (RecipeID) -> Void
     let onSwap: () -> Void
@@ -16,27 +19,29 @@ struct DayCard: View {
         switch day.plan {
         case .meal(let recipe):
             VStack(alignment: .leading, spacing: 12) {
-                Button {
-                    onOpen(recipe)
-                } label: {
-                    PictureRow(picture: meal?.imageURL, title: meal?.title ?? "Meal") {
-                        HStack(spacing: 10) {
-                            if let minutes = meal?.totalMinutes {
-                                Label(formatMinutes(minutes), systemImage: "clock")
+                HStack(spacing: 8) {
+                    Button {
+                        onOpen(recipe)
+                    } label: {
+                        PictureRow(picture: meal?.imageURL, title: meal?.title ?? "Meal") {
+                            HStack(spacing: 10) {
+                                if let minutes = meal?.totalMinutes {
+                                    Label(formatMinutes(minutes), systemImage: "clock")
+                                }
+                                if let rating = meal?.rating {
+                                    Label("\(rating)", systemImage: "star.fill")
+                                        .accessibilityLabel("\(rating) star\(rating == 1 ? "" : "s")")
+                                }
                             }
-                            if let rating = meal?.rating {
-                                Label("\(rating)", systemImage: "star.fill")
-                                    .accessibilityLabel("\(rating) star\(rating == 1 ? "" : "s")")
-                            }
+                            .labelStyle(.captionLabel)
+                        } mark: {
+                            EmptyView()
                         }
-                        .labelStyle(.captionLabel)
-                    } mark: {
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.tertiary)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("plan.day.openRecipeButton")
+                    CookedToggle(cooked: cooked, title: meal?.title ?? "Meal", identifier: "plan.day.cookedButton", onChange: onCooked)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("plan.day.openRecipeButton")
 
                 HStack(spacing: 8) {
                     Button { onCook(recipe) } label: { actionLabel("Cook", systemImage: "frying.pan") }

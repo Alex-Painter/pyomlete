@@ -48,6 +48,11 @@ struct RecipeLibraryScreen: View {
         .navigationSubtitle(recipes.isEmpty ? "" : "\(recipes.count) saved")
         .toolbar {
             SettingsCog(tab: .recipes)
+            // With Add's tab gone to Chef, the library is where a recipe is added by hand.
+            ToolbarItem(placement: .primaryAction) {
+                Button("Add a recipe", systemImage: "plus") { navigation.addRecipe() }
+                    .accessibilityIdentifier("recipes.addButton")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu("Sort", systemImage: "arrow.up.arrow.down") {
                     ForEach(LibraryQuery.Sort.allCases, id: \.self) { sort in
@@ -95,7 +100,7 @@ struct RecipeLibraryScreen: View {
             } description: {
                 Text("Paste a link, describe a dish, or save one from Discover.")
             } actions: {
-                Button("Add a recipe") { navigation.tab = .add }
+                Button("Add a recipe") { navigation.addRecipe() }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("recipes.addRecipeButton")
                 Button("Browse Discover") { navigation.tab = .discover }

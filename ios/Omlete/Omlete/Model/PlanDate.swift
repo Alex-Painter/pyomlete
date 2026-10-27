@@ -151,6 +151,9 @@ nonisolated enum Week {
         return from
     }
 
+    /// Saturday, the server's own default, for a phone that has never been told.
+    static let defaultStartWeekday = 5
+
     /// The most recent `weekday` on or before `today`.
     static func start(for today: PlanDate, weekday: Int) -> PlanDate {
         today.adding(days: -((today.weekday - weekday + 7) % 7))

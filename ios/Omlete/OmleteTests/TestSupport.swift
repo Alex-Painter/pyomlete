@@ -18,6 +18,8 @@ import Testing
         case lost
         /// 200 with a body made from the request's own.
         case answering(([String: Any]) -> String)
+        /// 200 with a body that arrives in these pieces, each cut again into a few bytes at a time.
+        case streaming([String])
     }
 
     /// Requests in arrival order, without the `/categorize` lookups that adds fire on the side.
@@ -53,6 +55,57 @@ import Testing
         try await answer(request)
     }
 
+    /// While set, a `.streaming` body stops after each piece until `nextPiece()`.
+    var pausesStreams = false
+    private var pieceWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Pieces of streamed bodies handed over so far, across requests.
+    private(set) var piecesSent = 0
+
+    func nextPiece() {
+        let waiters = pieceWaiters
+        pieceWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    nonisolated func stream(_ request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<Data, any Error>) {
+        try await openStream(request)
+    }
+
+    private func openStream(_ request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<Data, any Error>) {
+        let pieces: [String]
+        let head: HTTPURLResponse
+        let call = Call(method: request.httpMethod ?? "GET", path: request.url?.path() ?? "")
+        if case .streaming(let streamed) = reply(call) {
+            allCalls.append(call)
+            requests.append(request)
+            bodies.append(request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            answered.append(call)
+            pieces = streamed
+            head = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        } else {
+            let (data, response) = try await answer(request)
+            pieces = [String(decoding: data, as: UTF8.self)]
+            head = response
+        }
+        let body = AsyncThrowingStream<Data, any Error> { continuation in
+            let feeding = Task { @MainActor in
+                for (index, piece) in pieces.enumerated() {
+                    let bytes = Data(piece.utf8)
+                    for start in stride(from: 0, to: bytes.count, by: 5) {
+                        continuation.yield(bytes[start..<min(start + 5, bytes.count)])
+                    }
+                    piecesSent += 1
+                    if pausesStreams, index < pieces.count - 1 {
+                        await withCheckedContinuation { pieceWaiters.append($0) }
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in feeding.cancel() }
+        }
+        return (head, body)
+    }
+
     private func answer(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let call = Call(method: request.httpMethod ?? "GET", path: request.url?.path() ?? "")
         allCalls.append(call)
@@ -81,6 +134,8 @@ import Testing
             return response(status, body)
         case .answering(let body):
             return response(200, body(sent))
+        case .streaming(let pieces):
+            return response(200, pieces.joined())
         }
     }
 }

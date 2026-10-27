@@ -13,8 +13,8 @@ nonisolated enum HomeContent: Equatable, Sendable {
     /// no lists the invitation is a row in Lists, so it does not cover them.
     case sections(lists: [ListSummary], picks: [Suggestion])
 
-    static let noListsTitle = "No lists yet"
-    static let noListsInvitation = "Start one, add a few meals, and the ingredients collect themselves."
+    static let noListsTitle = "No weeks planned yet"
+    static let noListsInvitation = "Plan one, pick a dinner for each day, and the shopping list builds itself."
 
     /// `feedAnswered` is whether the suggestions have loaded or failed to.
     /// Until then a Home with no lists waits, so the full-screen invitation
