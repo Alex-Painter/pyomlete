@@ -128,8 +128,9 @@ struct CookShelf: Equatable {
     /// `refresh()`, and every list already on the phone, whose replica is what
     /// Plan, Shop and the Home rows show. For a change made elsewhere, by Chef.
     func refreshEverything() async {
-        let lists = stores.values.filter { $0.replica.current != nil }.map { $0.sync(refresh: true) }
         await refresh()
+        // Only lists the server still has: a replica left from a deleted list would only fetch a 404.
+        let lists = rows.compactMap { stores[$0.id] }.filter { $0.replica.current != nil }.map { $0.sync(refresh: true) }
         for list in lists { await list.value }
     }
 
