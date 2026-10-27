@@ -16,4 +16,27 @@ def get_motor_client() -> AsyncIOMotorClient:
     return AsyncIOMotorClient(_uri)
 
 
+async def init_documents(client: AsyncIOMotorClient) -> None:
+    """Set up Beanie with every document type, for the API and the weekly run alike."""
+    from beanie import init_beanie
+
+    import data_models as d
+
+    await init_beanie(
+        database=client["omlete"],
+        document_models=[
+            d.IngredientDocument,
+            d.RecipeDocument,
+            d.ListDocument,
+            d.UserSettingsDocument,
+            d.SuggestionDocument,
+            d.RecipeJobDocument,
+            d.ChefActionDocument,
+            d.MealLogDocument,
+            d.PreferenceDocument,
+            d.WeekPlanDocument,
+        ],
+    )
+
+
 vo = voyageai.Client()

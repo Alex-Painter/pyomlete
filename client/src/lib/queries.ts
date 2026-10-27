@@ -10,6 +10,7 @@ import type {
   RecipeSummary,
   Suggestion,
   WeekPlan,
+  WeeklyPlanSettings,
 } from '@/lib/types'
 
 export function useLists() {
@@ -69,6 +70,13 @@ export function usePlanSettings() {
     queryFn: () => apiJson<PlanSettings>('/api/settings/plan'),
     placeholderData: DEFAULT_PLAN_SETTINGS,
     staleTime: 60 * 60 * 1000,
+  })
+}
+
+export function useWeeklyPlanSettings() {
+  return useQuery({
+    queryKey: ['settings', 'weekly-plan'],
+    queryFn: () => apiJson<WeeklyPlanSettings>('/api/settings/weekly-plan'),
   })
 }
 

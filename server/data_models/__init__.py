@@ -99,6 +99,11 @@ class UserSettingsDocument(Document):
     )
     # 0 is Monday. Saturday by default: the week runs from one shop to the next.
     week_start_weekday: int = 5
+    # When Chef plans the coming week on its own (chef/run.py), in UK time.
+    # Sunday at 08:00 by default; 0 is Monday.
+    weekly_plan: bool = True
+    weekly_plan_weekday: int = 6
+    weekly_plan_hour: int = 8
 
     class Settings:
         name = "user_settings"

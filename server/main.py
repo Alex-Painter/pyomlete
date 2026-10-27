@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable
 from uuid import UUID
 
-from beanie import PydanticObjectId, UpdateResponse, init_beanie
+from beanie import PydanticObjectId, UpdateResponse
 from beanie.operators import In
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,13 +14,10 @@ from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pymongo.errors import DuplicateKeyError
 
 from chef import actions as chef_actions
-from chef import chat, discover, week
+from chef import chat, discover, run, week
 from data_models import (
     CategoryConfig,
-    ChefActionDocument,
-    IngredientDocument,
     ListDocument,
-    MealLogDocument,
     PreferenceDocument,
     RecipeDocument,
     RecipeJobDocument,
@@ -28,7 +25,7 @@ from data_models import (
     UserSettingsDocument,
     WeekPlanDocument,
 )
-from lib.db import get_motor_client
+from lib.db import get_motor_client, init_documents
 from lib.types import (
     CategoriesUpdateRequest,
     CategorizeRequest,
@@ -56,6 +53,7 @@ from lib.types import (
     SuggestionsClearRequest,
     SuggestionsCreateRequest,
     WeekPlanRequest,
+    WeeklyPlanSettings,
 )
 from services import lists, memory, recipes, settings
 from services.errors import AlreadyImported
@@ -67,22 +65,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     client = get_motor_client()
-    await init_beanie(
-        database=client["omlete"],
-        document_models=[
-            IngredientDocument,
-            RecipeDocument,
-            ListDocument,
-            UserSettingsDocument,
-            SuggestionDocument,
-            RecipeJobDocument,
-            ChefActionDocument,
-            MealLogDocument,
-            PreferenceDocument,
-            WeekPlanDocument,
-        ],
-    )
+    await init_documents(client)
+    weekly_run = asyncio.create_task(run.keep_planning())
     yield
+    weekly_run.cancel()
     await _end_running_work()
     client.close()
 
@@ -272,6 +258,27 @@ async def update_plan_settings(body: PlanSettingsRequest):
     return {"week_start_weekday": await settings.set_week_start_weekday(body.week_start_weekday)}
 
 
+def _weekly_plan_out(s: UserSettingsDocument) -> dict:
+    return WeeklyPlanSettings(
+        weekly_plan=s.weekly_plan,
+        weekly_plan_weekday=s.weekly_plan_weekday,
+        weekly_plan_hour=s.weekly_plan_hour,
+    ).model_dump()
+
+
+@router.get("/settings/weekly-plan")
+async def get_weekly_plan_settings():
+    """When Chef plans the coming week on its own, in UK time (chef/run.py)."""
+    return _weekly_plan_out(await settings.get_or_create())
+
+
+@router.put("/settings/weekly-plan")
+async def update_weekly_plan_settings(body: WeeklyPlanSettings):
+    saved = await settings.set_weekly_plan(body.weekly_plan, body.weekly_plan_weekday, body.weekly_plan_hour)
+    run.reschedule()
+    return _weekly_plan_out(saved)
+
+
 # --- Week plans ---
 # Chef proposes a week of dinners on a card; one tap makes the list, with Undo
 # (docs/PRD_CHEF.md, phase 6). Nothing changes until that tap.
@@ -303,10 +310,8 @@ async def _week_out(w: WeekPlanDocument) -> dict:
 
 @router.get("/weeks/current")
 async def current_week_plan():
-    """The week Chef proposes for the week being planned, while it waits for a tap; null otherwise."""
-    w = await WeekPlanDocument.find_one(
-        WeekPlanDocument.week_of == await week.current_week(), WeekPlanDocument.status == "new"
-    )
+    """The week Chef proposes, this one or the next, while it waits for a tap; null otherwise."""
+    w = await week.waiting()
     return await _week_out(w) if w else None
 
 
@@ -1036,6 +1041,8 @@ async def undo_chef_action(action_id: PydanticObjectId):
     """Put back what one of Chef's changes changed. 409 when something else
     has changed it since."""
     action = await chef_actions.undo(action_id)
+    # It may have put back the weekly plan's time.
+    run.reschedule()
     return {"id": str(action.id), "summary": action.summary, "undone": True}
 
 

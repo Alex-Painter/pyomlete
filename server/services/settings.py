@@ -1,4 +1,5 @@
-"""The household's aisle order, which aisle an item belongs in, and the day its week starts."""
+"""The household's aisle order, which aisle an item belongs in, the day its week
+starts, and when Chef plans the coming week."""
 
 import re
 
@@ -31,6 +32,15 @@ async def set_week_start_weekday(weekday: int) -> int:
     settings.week_start_weekday = weekday
     await settings.save()
     return settings.week_start_weekday
+
+
+async def set_weekly_plan(enabled: bool, weekday: int, hour: int) -> UserSettingsDocument:
+    settings = await get_or_create()
+    settings.weekly_plan = enabled
+    settings.weekly_plan_weekday = weekday
+    settings.weekly_plan_hour = hour
+    await settings.save()
+    return settings
 
 
 async def categorize(name: str) -> str:

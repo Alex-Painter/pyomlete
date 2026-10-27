@@ -27,8 +27,8 @@ import { useChef } from '@/components/Chef'
 import { ErrorState } from '@/components/ErrorState'
 import { useUndo } from '@/components/UndoToast'
 import { apiJson } from '@/lib/api'
-import { useCategories, usePreferences } from '@/lib/queries'
-import type { CategoryConfig, Preference, Stance } from '@/lib/types'
+import { useCategories, usePreferences, useWeeklyPlanSettings } from '@/lib/queries'
+import type { CategoryConfig, Preference, Stance, WeeklyPlanSettings } from '@/lib/types'
 
 export const Route = createFileRoute('/settings')({ component: SettingsPage })
 
@@ -152,6 +152,7 @@ function SettingsPage() {
           </form>
         </section>
 
+        <WeeklyPlan />
         <WhatChefKnows />
       </div>
 
@@ -271,6 +272,89 @@ const STANCE_LABEL: Record<Stance, string> = {
   less: 'Less',
   more: 'More',
   prefer: 'Likes',
+}
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+const selectClass =
+  'min-h-[44px] rounded-xl border border-line bg-white px-3 text-base disabled:opacity-50'
+
+/**
+ * When Chef plans the coming week on its own. The plan waits on Home as a card
+ * until you make the list, so this only chooses when the card turns up.
+ */
+function WeeklyPlan() {
+  const queryClient = useQueryClient()
+  const showUndo = useUndo()
+  const { data } = useWeeklyPlanSettings()
+
+  const update = useMutation({
+    mutationFn: (next: WeeklyPlanSettings) =>
+      apiJson<WeeklyPlanSettings>('/api/settings/weekly-plan', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      }),
+    onMutate: (next) => queryClient.setQueryData(['settings', 'weekly-plan'], next),
+    onError: () => showUndo({ message: "Couldn't save that. Try again." }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['settings', 'weekly-plan'] }),
+  })
+
+  if (!data) return null
+  const set = (change: Partial<WeeklyPlanSettings>) => update.mutate({ ...data, ...change })
+
+  return (
+    <section className="mt-10 max-w-xl">
+      <h2 className="mb-1 text-lg font-semibold">Chef's weekly plan</h2>
+      <p className="mb-4 text-sm text-ink-muted">
+        Chef plans five dinners for your coming week and leaves them on Home. Nothing goes on a
+        list until you make it.
+      </p>
+      <div className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+        <label className="flex min-h-[44px] items-center justify-between gap-3">
+          <span className="font-medium">Plan my week</span>
+          <input
+            type="checkbox"
+            role="switch"
+            className="size-5 accent-[#7a5a12]"
+            checked={data.weekly_plan}
+            onChange={(e) => set({ weekly_plan: e.target.checked })}
+          />
+        </label>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+          <span>Every</span>
+          <select
+            aria-label="Day"
+            className={selectClass}
+            value={data.weekly_plan_weekday}
+            disabled={!data.weekly_plan}
+            onChange={(e) => set({ weekly_plan_weekday: Number(e.target.value) })}
+          >
+            {WEEKDAYS.map((d, i) => (
+              <option key={d} value={i}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <span>at</span>
+          <select
+            aria-label="Time"
+            className={selectClass}
+            value={data.weekly_plan_hour}
+            disabled={!data.weekly_plan}
+            onChange={(e) => set({ weekly_plan_hour: Number(e.target.value) })}
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>
+                {String(h).padStart(2, '0')}:00
+              </option>
+            ))}
+          </select>
+          <span>UK time</span>
+        </div>
+      </div>
+    </section>
+  )
 }
 
 /**
