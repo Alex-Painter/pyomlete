@@ -1,0 +1,290 @@
+{
+  "about": "Cases for Narrow it down (client/src/lib/narrow.ts, and the iOS port). `library` is a day's ranked library: each meal has `tags` ('base main mood cuisine', or null), `minutes` (or null), and the fit `score` and `clash` the fit score gave it; order is clean meals first, then by score, then title. Each run starts on `quick` (a quick night presets the time question) and applies `do` in order: 'biggest' answers with the first (largest) answer, 'answer:VALUE' answers the question on screen with VALUE alone, offered or not, 'skip' is Don't mind and 'back' takes back the last step. `expect` checks the view after the steps: the `question` asked and its answer `labels`, or the `finalists`, and `preset` whether a quick night answered the time question. A run's `only` limits the library to those meals.",
+  "library": [
+    {
+      "id": "carbonara",
+      "tags": "pasta pork comforting italian",
+      "minutes": 25,
+      "score": -56,
+      "clash": true
+    },
+    {
+      "id": "pesto",
+      "tags": "pasta veggie fresh italian",
+      "minutes": 15,
+      "score": -36,
+      "clash": true
+    },
+    {
+      "id": "creamy",
+      "tags": "pasta veggie comforting italian",
+      "minutes": 20,
+      "score": -30,
+      "clash": true
+    },
+    {
+      "id": "lasagne",
+      "tags": "pasta beef comforting italian",
+      "minutes": 90,
+      "score": -30,
+      "clash": true
+    },
+    {
+      "id": "stirfry",
+      "tags": "noodles beans fresh chinese",
+      "minutes": 20,
+      "score": 8,
+      "clash": false
+    },
+    {
+      "id": "padthai",
+      "tags": "noodles chicken different south_east_asian",
+      "minutes": 25,
+      "score": 4,
+      "clash": false
+    },
+    {
+      "id": "frittata",
+      "tags": "none veggie fresh greek",
+      "minutes": 20,
+      "score": 16,
+      "clash": false
+    },
+    {
+      "id": "salmon",
+      "tags": "rice fish fresh japanese",
+      "minutes": 25,
+      "score": 14,
+      "clash": false
+    },
+    {
+      "id": "halloumi",
+      "tags": "bread veggie fresh middle_eastern",
+      "minutes": 15,
+      "score": 9,
+      "clash": false
+    },
+    {
+      "id": "tacos",
+      "tags": "bread beef different mexican",
+      "minutes": 25,
+      "score": 5,
+      "clash": false
+    },
+    {
+      "id": "eggfried",
+      "tags": "rice veggie comforting chinese",
+      "minutes": 15,
+      "score": 6,
+      "clash": false
+    },
+    {
+      "id": "curry",
+      "tags": "rice chicken comforting indian",
+      "minutes": 45,
+      "score": 15,
+      "clash": false
+    },
+    {
+      "id": "fishpie",
+      "tags": "potatoes fish comforting british",
+      "minutes": 60,
+      "score": 10,
+      "clash": false
+    },
+    {
+      "id": "shepherds",
+      "tags": "potatoes lamb comforting british",
+      "minutes": 75,
+      "score": 18,
+      "clash": false
+    },
+    {
+      "id": "chilli",
+      "tags": "rice beans comforting mexican",
+      "minutes": 45,
+      "score": 2,
+      "clash": false
+    },
+    {
+      "id": "risotto",
+      "tags": "rice veggie comforting italian",
+      "minutes": 40,
+      "score": 9,
+      "clash": false
+    },
+    {
+      "id": "soup",
+      "tags": "none beans comforting middle_eastern",
+      "minutes": 40,
+      "score": 9,
+      "clash": false
+    },
+    {
+      "id": "stew",
+      "tags": null,
+      "minutes": null,
+      "score": 14,
+      "clash": false
+    }
+  ],
+  "runs": [
+    {
+      "name": "A quick Tuesday after pasta on Monday asks what's in the middle, with pasta folded away",
+      "quick": true,
+      "do": [],
+      "expect": {
+        "question": "base",
+        "labels": [
+          "Rice",
+          "Bread",
+          "Noodles",
+          "Something else"
+        ],
+        "preset": true
+      }
+    },
+    {
+      "name": "A quick Tuesday reaches its finalists in one answer",
+      "quick": true,
+      "do": [
+        "biggest"
+      ],
+      "expect": {
+        "finalists": [
+          "salmon",
+          "eggfried"
+        ]
+      }
+    },
+    {
+      "name": "Thursday, with nothing preset, asks the main first",
+      "quick": false,
+      "do": [],
+      "expect": {
+        "question": "main",
+        "labels": [
+          "Veggie",
+          "Beans and lentils",
+          "Fish",
+          "Something else"
+        ]
+      }
+    },
+    {
+      "name": "Thursday reaches its finalists in two answers",
+      "quick": false,
+      "do": [
+        "biggest",
+        "biggest"
+      ],
+      "expect": {
+        "finalists": [
+          "risotto",
+          "eggfried"
+        ]
+      }
+    },
+    {
+      "name": "Don't mind on every question ends on the ranked top three",
+      "quick": false,
+      "do": [
+        "skip",
+        "skip",
+        "skip",
+        "skip"
+      ],
+      "expect": {
+        "finalists": [
+          "shepherds",
+          "frittata",
+          "curry"
+        ]
+      }
+    },
+    {
+      "name": "Back twice returns to the first question as it was",
+      "quick": false,
+      "do": [
+        "biggest",
+        "biggest",
+        "back",
+        "back"
+      ],
+      "expect": {
+        "question": "main",
+        "labels": [
+          "Veggie",
+          "Beans and lentils",
+          "Fish",
+          "Something else"
+        ]
+      }
+    },
+    {
+      "name": "An answer that leaves nothing is taken back",
+      "quick": false,
+      "do": [
+        "answer:veggie",
+        "answer:noodles"
+      ],
+      "expect": {
+        "question": "base",
+        "labels": [
+          "Rice",
+          "None of those",
+          "Bread",
+          "Pasta"
+        ]
+      }
+    },
+    {
+      "name": "Three good meals or fewer go straight to finalists, clean ones first",
+      "quick": false,
+      "only": [
+        "carbonara",
+        "pesto",
+        "frittata",
+        "salmon"
+      ],
+      "do": [],
+      "expect": {
+        "finalists": [
+          "frittata",
+          "salmon",
+          "pesto"
+        ]
+      }
+    },
+    {
+      "name": "A quick night with no quick meals asks about time like any other night",
+      "quick": true,
+      "only": [
+        "curry",
+        "fishpie",
+        "shepherds",
+        "chilli",
+        "risotto",
+        "soup"
+      ],
+      "do": [],
+      "expect": {
+        "preset": false
+      }
+    },
+    {
+      "name": "Untagged meals leave the run once a tag question is answered",
+      "quick": false,
+      "do": [
+        "answer:veggie",
+        "answer:rice"
+      ],
+      "expect": {
+        "finalists": [
+          "risotto",
+          "eggfried"
+        ]
+      }
+    }
+  ]
+}
