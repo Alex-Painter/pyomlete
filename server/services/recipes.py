@@ -21,6 +21,7 @@ from ingredient_structurer import structure_ingredients
 from lib.claude import async_claude
 from lib.db import vo
 from lib.types import IngredientRecipe, RecipeMetadata, RecipeModelResponse
+from recipe_tagger import tag_later
 from recipe_import import BlockedURL, FetchFailed, ScrapedRecipe, fetch_page, scrape
 from services.errors import AlreadyImported, Invalid, NotFound, Unreachable
 from services.settings import category_names
@@ -74,6 +75,7 @@ async def save(
         **(metadata.model_dump() if metadata else {}),
     )
     await db_recipe.insert()
+    tag_later(db_recipe.id)
     return db_recipe
 
 
@@ -318,6 +320,8 @@ async def update(
     recipe.instructions = instructions
     recipe.ingredients = ingredients
     await recipe.save()
+    # Swapping chicken for tofu changes what the dinner is built on.
+    tag_later(recipe.id)
 
     # Fire-and-forget: embed any new ingredient names
     new_ingredients = [i for i in ingredients if i.name.lower() not in old_names]

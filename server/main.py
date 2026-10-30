@@ -130,6 +130,7 @@ async def list_recipes():
             "ingredient_count": len(r.ingredients),
             "ingredient_names": [i.name for i in r.ingredients],
             "cuisine": r.cuisine,
+            "tags": r.tags.model_dump() if r.tags else None,
             "last_planned_on": last_planned.get(str(r.id)),
             "rating": r.rating,
             # Enough for a card without shipping the whole document.
