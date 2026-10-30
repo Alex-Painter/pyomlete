@@ -42,7 +42,7 @@ export function useCategories() {
   })
 }
 
-type WeekFields = 'ingredient_names' | 'cuisine' | 'last_planned_on'
+type WeekFields = 'ingredient_names' | 'cuisine' | 'last_planned_on' | 'tags'
 // A server from before week plans leaves these out.
 type RecipeRow = Omit<RecipeSummary, WeekFields> & Partial<Pick<RecipeSummary, WeekFields>>
 
@@ -56,12 +56,13 @@ export function useRecipes() {
           ingredient_names: r.ingredient_names ?? [],
           cuisine: r.cuisine ?? null,
           last_planned_on: r.last_planned_on ?? null,
+          tags: r.tags ?? null,
         }),
       ),
   })
 }
 
-const DEFAULT_PLAN_SETTINGS: PlanSettings = { week_start_weekday: 5 }
+const DEFAULT_PLAN_SETTINGS: PlanSettings = { week_start_weekday: 5, variety_days: 3 }
 
 /** Which weekday a week starts on. Falls back to Saturday when unreachable. */
 export function usePlanSettings() {

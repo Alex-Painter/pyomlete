@@ -48,7 +48,7 @@ import { WeekStrip } from '@/components/WeekStrip'
 import { useListActions } from '@/hooks/useListActions'
 import { rememberCurrentList } from '@/hooks/useAddToList'
 import { useOnline } from '@/hooks/useOnline'
-import { useCategories, useList, useRecipes, useUnits } from '@/lib/queries'
+import { useCategories, useList, usePlanSettings, useRecipes, useUnits } from '@/lib/queries'
 import { dayLong, defaultDay, nextOpenDay, todayISO } from '@/lib/week'
 import type { ISODate, ListDetail, ListItem, PlanDay, RecipeSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -438,6 +438,11 @@ function WeekPlan({
   }
 
   const markFor = (r: RecipeSummary): RowMark => (r.id === day.recipe_id ? 'added' : 'add')
+  const varietyDays = usePlanSettings().data?.variety_days ?? 3
+  const forDay = useMemo(
+    () => ({ day, items: list.items, varietyDays }),
+    [day, list.items, varietyDays],
+  )
 
   return (
     <DndContext
@@ -473,6 +478,7 @@ function WeekPlan({
               onSwap={swap}
               onRemove={() => actions.clearDay(day, recipe?.title ?? 'the meal')}
               onOut={(out) => actions.markOut(day, out)}
+              onQuick={(quick) => actions.markQuick(day, quick)}
             />
           </div>
 
@@ -487,6 +493,7 @@ function WeekPlan({
             onPick={onPick}
             draggable
             searchRef={searchRef}
+            forDay={forDay}
           />
         </div>
 

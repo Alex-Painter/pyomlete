@@ -27,8 +27,8 @@ import { useChef } from '@/components/Chef'
 import { ErrorState } from '@/components/ErrorState'
 import { useUndo } from '@/components/UndoToast'
 import { apiJson } from '@/lib/api'
-import { useCategories, usePreferences, useWeeklyPlanSettings } from '@/lib/queries'
-import type { CategoryConfig, Preference, Stance, WeeklyPlanSettings } from '@/lib/types'
+import { useCategories, usePlanSettings, usePreferences, useWeeklyPlanSettings } from '@/lib/queries'
+import type { CategoryConfig, PlanSettings, Preference, Stance, WeeklyPlanSettings } from '@/lib/types'
 
 export const Route = createFileRoute('/settings')({ component: SettingsPage })
 
@@ -152,7 +152,8 @@ function SettingsPage() {
           </form>
         </section>
 
-        <WeeklyPlan />
+        <PlanningTheWeek />
+      <WeeklyPlan />
         <WhatChefKnows />
       </div>
 
@@ -278,6 +279,75 @@ const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 
 const selectClass =
   'min-h-[44px] rounded-xl border border-line bg-white px-3 text-base disabled:opacity-50'
+
+/**
+ * The shop day a week starts on, and how long a base (pasta, rice...) stays
+ * off the menu once it's been had, which ranks each evening's meals on Plan.
+ */
+function PlanningTheWeek() {
+  const queryClient = useQueryClient()
+  const showUndo = useUndo()
+  const { data, isPlaceholderData } = usePlanSettings()
+
+  const update = useMutation({
+    mutationFn: (next: PlanSettings) =>
+      apiJson<PlanSettings>('/api/settings/plan', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      }),
+    onMutate: (next) => queryClient.setQueryData(['settings', 'plan'], next),
+    onError: () => showUndo({ message: "Couldn't save that. Try again." }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['settings', 'plan'] }),
+  })
+
+  if (!data || isPlaceholderData) return null
+  const set = (change: Partial<PlanSettings>) => update.mutate({ ...data, ...change })
+  const until = WEEKDAYS[(data.variety_days + 1) % 7]
+
+  return (
+    <section className="mt-10 max-w-xl">
+      <h2 className="mb-1 text-lg font-semibold">Planning the week</h2>
+      <p className="mb-4 text-sm text-ink-muted">
+        A week runs from one shop to the next. Each evening's meals are ranked so the week stays
+        varied.
+      </p>
+      <div className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
+        <label className="flex min-h-[44px] items-center justify-between gap-3">
+          <span className="font-medium">Week starts on</span>
+          <select
+            className={selectClass}
+            value={data.week_start_weekday}
+            onChange={(e) => set({ week_start_weekday: Number(e.target.value) })}
+          >
+            {WEEKDAYS.map((d, i) => (
+              <option key={d} value={i}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-h-[44px] items-center justify-between gap-3">
+          <span className="font-medium">Same base again after</span>
+          <select
+            className={selectClass}
+            value={data.variety_days}
+            onChange={(e) => set({ variety_days: Number(e.target.value) })}
+          >
+            {Array.from({ length: 7 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n === 1 ? '1 day' : `${n} days`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-sm text-ink-muted">
+          Pasta on Monday ranks pasta lower until {until}.
+        </p>
+      </div>
+    </section>
+  )
+}
 
 /**
  * When Chef plans the coming week on its own. The plan waits on Home as a card

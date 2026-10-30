@@ -248,15 +248,18 @@ async def update_categories(body: CategoriesUpdateRequest):
     return [c.model_dump() for c in saved]
 
 
+def _plan_settings_out(s: UserSettingsDocument) -> dict:
+    return {"week_start_weekday": s.week_start_weekday, "variety_days": s.variety_days}
+
+
 @router.get("/settings/plan")
 async def get_plan_settings():
-    current = await settings.get_or_create()
-    return {"week_start_weekday": current.week_start_weekday}
+    return _plan_settings_out(await settings.get_or_create())
 
 
 @router.put("/settings/plan")
 async def update_plan_settings(body: PlanSettingsRequest):
-    return {"week_start_weekday": await settings.set_week_start_weekday(body.week_start_weekday)}
+    return _plan_settings_out(await settings.set_plan(body.week_start_weekday, body.variety_days))
 
 
 def _weekly_plan_out(s: UserSettingsDocument) -> dict:
@@ -421,7 +424,7 @@ async def set_recipe_cooked(list_id: PydanticObjectId, recipe_id: str, body: Coo
 
 @router.put("/lists/{list_id}/days/{day}")
 async def update_day(list_id: PydanticObjectId, day: date, body: DayUpdateRequest):
-    return _list_out(await lists.set_day(list_id, day, body.recipe_id, body.status))
+    return _list_out(await lists.set_day(list_id, day, body.recipe_id, body.status, quick=body.quick))
 
 
 # --- List Items ---

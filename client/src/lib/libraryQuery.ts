@@ -7,10 +7,14 @@
  * variety without having to remember what you ate.
  */
 import { addDays, daysBetween, shortLabel } from '@/lib/week'
-import type { ISODate, PlanDay, RecipeSummary } from '@/lib/types'
+import type { CuisineFamily, ISODate, PlanDay, RecipeBase, RecipeMain, RecipeSummary } from '@/lib/types'
 
-export type LibrarySort = 'not-lately' | 'favourites' | 'quickest' | 'newest' | 'az'
-export type LibraryFilter = 'quick' | 'not-lately' | 'favourites'
+export type LibrarySort = 'best' | 'not-lately' | 'favourites' | 'quickest' | 'newest' | 'az'
+export type TagFilter = `base:${RecipeBase}` | `main:${RecipeMain}` | `cuisine:${CuisineFamily}`
+export type LibraryFilter = 'quick' | 'not-lately' | 'favourites' | 'uses-list' | TagFilter
+
+/** Best for this day needs a day to rank for, so only a week's library offers it. */
+export const BEST_SORT: { id: LibrarySort; label: string } = { id: 'best', label: 'Best for this day' }
 
 export const SORTS: { id: LibrarySort; label: string }[] = [
   { id: 'not-lately', label: 'Not had lately' },
@@ -26,6 +30,43 @@ export const FILTERS: { id: LibraryFilter; label: string }[] = [
   { id: 'favourites', label: 'Favourites' },
 ]
 
+/** Shown on a week, where there's a list to share ingredients with. */
+export const USES_LIST_FILTER: { id: LibraryFilter; label: string } = {
+  id: 'uses-list',
+  label: 'Uses the list',
+}
+
+const TAG_LABEL: Record<string, string> = {
+  south_east_asian: 'South-east Asian',
+  middle_eastern: 'Middle Eastern',
+  north_african: 'North African',
+  latin_american: 'Latin American',
+  veggie: 'Veggie',
+  beans: 'Beans and lentils',
+}
+
+const tagLabel = (value: string) =>
+  TAG_LABEL[value] ?? value.charAt(0).toUpperCase() + value.slice(1)
+
+const TAG_GROUPS = ['base', 'main', 'cuisine'] as const
+
+/**
+ * A chip for each base, main and cuisine the library actually has, so a
+ * library of curries never offers Pasta. Bases first, then mains, then cuisines.
+ */
+export function tagFilters(recipes: RecipeSummary[]): { id: TagFilter; label: string }[] {
+  const out: { id: TagFilter; label: string }[] = []
+  for (const group of TAG_GROUPS) {
+    const values = new Set<string>()
+    for (const r of recipes) {
+      const v = r.tags?.[group]
+      if (v && v !== 'none' && v !== 'other') values.add(v)
+    }
+    for (const v of [...values].sort()) out.push({ id: `${group}:${v}` as TagFilter, label: tagLabel(v) })
+  }
+  return out
+}
+
 export const QUICK_MINUTES = 30
 export const NOT_LATELY_DAYS = 21
 export const FAVOURITE_RATING = 4
@@ -37,6 +78,7 @@ export type LibraryQuery = {
 }
 
 export const initialLibraryQuery: LibraryQuery = { text: '', sort: 'not-lately', filters: [] }
+export const initialDayQuery: LibraryQuery = { ...initialLibraryQuery, sort: 'best' }
 
 export type LibraryAction =
   | { kind: 'search'; text: string }
@@ -89,11 +131,29 @@ function matchesText(r: RecipeSummary, words: string[]): boolean {
   return words.every((w) => haystack.includes(w))
 }
 
-const passes: Record<LibraryFilter, (r: RecipeSummary, today: ISODate) => boolean> = {
+/** What ranking a week's library brings: the order for the day, and what shares the list. */
+export type DayRanking = {
+  rank: Map<string, number>
+  usesList: (r: RecipeSummary) => boolean
+}
+
+type Fixed = Exclude<LibraryFilter, TagFilter>
+
+const passes: Record<Fixed, (r: RecipeSummary, today: ISODate, day?: DayRanking) => boolean> = {
   quick: (r) => r.total_minutes != null && r.total_minutes <= QUICK_MINUTES,
   'not-lately': (r, today) =>
     r.last_planned_on == null || r.last_planned_on < addDays(today, -NOT_LATELY_DAYS),
   favourites: (r) => r.rating != null && r.rating >= FAVOURITE_RATING,
+  'uses-list': (r, _today, day) => day?.usesList(r) ?? true,
+}
+
+// Tag chips in one group widen (pasta or rice), and groups narrow (pasta and fish).
+function passesTags(r: RecipeSummary, filters: LibraryFilter[]): boolean {
+  for (const group of TAG_GROUPS) {
+    const wanted = filters.filter((f) => f.startsWith(`${group}:`)).map((f) => f.slice(group.length + 1))
+    if (wanted.length > 0 && !wanted.includes(r.tags?.[group] ?? '')) return false
+  }
+  return true
 }
 
 const byTitle = (a: RecipeSummary, b: RecipeSummary) =>
@@ -108,7 +168,12 @@ function nullsLast<T>(a: T | null, b: T | null, cmp: (a: T, b: T) => number): nu
   return cmp(a, b)
 }
 
-const comparators: Record<LibrarySort, (a: RecipeSummary, b: RecipeSummary) => number> = {
+const comparators: Record<
+  LibrarySort,
+  (a: RecipeSummary, b: RecipeSummary, day?: DayRanking) => number
+> = {
+  best: (a, b, day) =>
+    day ? (day.rank.get(a.id) ?? Infinity) - (day.rank.get(b.id) ?? Infinity) : 0,
   'not-lately': (a, b) => {
     if (a.last_planned_on == null || b.last_planned_on == null) {
       return (a.last_planned_on == null ? 0 : 1) - (b.last_planned_on == null ? 0 : 1)
@@ -125,12 +190,19 @@ export function queryLibrary(
   recipes: RecipeSummary[],
   query: LibraryQuery,
   today: ISODate,
+  day?: DayRanking,
 ): RecipeSummary[] {
   const words = fold(query.text).split(/\s+/).filter(Boolean)
   const cmp = comparators[query.sort]
+  const fixed = query.filters.filter((f): f is Fixed => f in passes)
   return recipes
-    .filter((r) => matchesText(r, words) && query.filters.every((f) => passes[f](r, today)))
-    .sort((a, b) => cmp(a, b) || byTitle(a, b))
+    .filter(
+      (r) =>
+        matchesText(r, words) &&
+        fixed.every((f) => passes[f](r, today, day)) &&
+        passesTags(r, query.filters),
+    )
+    .sort((a, b) => cmp(a, b, day) || byTitle(a, b))
 }
 
 /** One line of context for a library row, in place of the ingredient count. */

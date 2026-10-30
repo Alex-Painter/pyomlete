@@ -58,6 +58,7 @@
   --color-line: #e8e4dc; /* borders */
   --color-line-strong: #e0dace; /* nested input borders */
   --color-danger: #c62828; /* destructive actions: 5.6:1 on white */
+  --color-clash: #8f5400; /* a variety clash on Plan ("Pasta on Monday"): 5.9:1 on white */
   --color-success: #2e7d32;
 }
 

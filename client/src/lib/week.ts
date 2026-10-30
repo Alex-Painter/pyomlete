@@ -120,3 +120,6 @@ export function nextOpenDay(days: PlanDay[], from: ISODate): ISODate {
   }
   return from
 }
+
+/** "August" */
+export const monthLong = (date: ISODate) => MONTH_LONG[toUTC(date).getUTCMonth()]

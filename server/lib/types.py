@@ -180,11 +180,14 @@ class ListCreateRequest(BaseModel):
 class DayUpdateRequest(BaseModel):
     recipe_id: Optional[str] = None
     status: Literal["open", "out"] = "open"
+    # Left out, the day keeps whatever it had, so older clients don't clear it.
+    quick: Optional[bool] = None
 
 
 class PlanSettingsRequest(BaseModel):
-    # 0 is Monday, 6 is Sunday, as in date.weekday().
-    week_start_weekday: int = Field(ge=0, le=6)
+    # 0 is Monday, 6 is Sunday, as in date.weekday(). Each is left as it is when not given.
+    week_start_weekday: Optional[int] = Field(None, ge=0, le=6)
+    variety_days: Optional[int] = Field(None, ge=1, le=7)
 
 
 class WeeklyPlanSettings(BaseModel):

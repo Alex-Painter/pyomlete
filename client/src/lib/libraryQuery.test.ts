@@ -25,6 +25,7 @@ function recipe(id: string, fields: Partial<RecipeSummary> = {}): RecipeSummary 
     ingredient_names: [],
     cuisine: null,
     last_planned_on: null,
+    tags: null,
     ...fields,
   }
 }
