@@ -54,6 +54,7 @@ export function WeekCard({
     onSuccess: (made) => {
       queryClient.setQueryData(['week'], null)
       void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      void queryClient.invalidateQueries({ queryKey: ['week-ideas'] })
       showUndo({
         message: `Made ${made.name}. New ideas join it as they're ready.`,
         duration: 8000,

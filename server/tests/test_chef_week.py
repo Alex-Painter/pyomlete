@@ -6,7 +6,7 @@ covers saving).
 """
 
 import asyncio
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -249,6 +249,46 @@ async def test_the_week_already_has_a_list_so_its_free_evenings_are_filled(api):
     await api.post(f"/api/chef/actions/{made['undo']}/undo")
     lst = await ListDocument.get(existing.id)
     assert lst.recipes == [str(mine.id)]
+
+
+async def test_a_new_idea_not_yet_on_its_list_is_shown_until_it_lands(api):
+    recipes = await library()
+    model, _ = planner(a_week(recipes))
+    with model:
+        plan = (await api.post("/api/weeks/plan", json={})).json()
+    made = (await api.post(f"/api/weeks/{plan['id']}/make")).json()
+    laksa = await SuggestionDocument.find_one(SuggestionDocument.title == "Laksa")
+    bibimbap = await SuggestionDocument.find_one(SuggestionDocument.title == "Bibimbap")
+    await laksa.set({"status": "saving", "saving_since": datetime.now(timezone.utc)})
+    await bibimbap.set({"status": "failed", "error": "The site did not respond"})
+
+    ideas = (await api.get("/api/weeks/ideas")).json()
+    assert [(i["title"], i["status"], i["list_id"]) for i in ideas] == [
+        ("Laksa", "saving", made["list_id"]),
+        ("Bibimbap", "failed", made["list_id"]),
+    ]
+    assert ideas[1]["day"] == plan["meals"][4]["day"]
+
+    await laksa.set({"status": "saved"})
+    await api.patch(f"/api/suggestions/{bibimbap.id}", json={"status": "cleared"})
+    assert (await api.get("/api/weeks/ideas")).json() == []
+
+
+async def test_ideas_are_not_shown_once_the_week_is_undone_or_over(api):
+    recipes = await library()
+    model, _ = planner(a_week(recipes))
+    with model:
+        plan = (await api.post("/api/weeks/plan", json={})).json()
+    made = (await api.post(f"/api/weeks/{plan['id']}/make")).json()
+    await SuggestionDocument.find_all().update({"$set": {"status": "failed"}})
+    assert len((await api.get("/api/weeks/ideas")).json()) == 2
+
+    await api.post(f"/api/chef/actions/{made['undo']}/undo")
+    assert (await api.get("/api/weeks/ideas")).json() == []
+
+    w = await WeekPlanDocument.get(plan["id"])
+    await w.set({"status": "made", "week_of": date.today() - timedelta(days=7)})
+    assert (await api.get("/api/weeks/ideas")).json() == []
 
 
 async def test_a_week_made_cannot_be_made_twice(api):

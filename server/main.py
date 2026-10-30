@@ -442,6 +442,27 @@ async def current_week_plan():
     return await _week_out(w) if w else None
 
 
+@router.get("/weeks/ideas")
+async def week_ideas():
+    """A made week's new ideas that are still saving or failed, so a failure is seen and saved again.
+
+    `POST /suggestions/{id}/save` with the idea's `list_id` tries again; a
+    PATCH to `cleared` lets it go.
+    """
+    out = []
+    for card, plan in await week.ideas_not_on_their_list():
+        idea = _suggestion_out(card)
+        out.append({
+            "id": idea["id"],
+            "title": idea["title"],
+            "day": card.plan_day.isoformat() if card.plan_day else None,
+            "list_id": plan.list_id,
+            # A card a save never claimed, after a restart, failed all the same.
+            "status": "saving" if idea["status"] == "saving" else "failed",
+        })
+    return out
+
+
 @router.post("/weeks/plan")
 async def plan_week(body: WeekPlanRequest):
     """Ask Chef for this week's dinners. Waits for the plan; one already waiting is returned unless `fresh`."""

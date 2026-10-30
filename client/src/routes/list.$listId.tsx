@@ -44,6 +44,7 @@ import { ListRow } from '@/components/ListRow'
 import { QuickAdd } from '@/components/QuickAdd'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { RenameListSheet } from '@/components/RenameListSheet'
+import { WeekIdeas } from '@/components/WeekIdeas'
 import { WeekStrip } from '@/components/WeekStrip'
 import { useListActions } from '@/hooks/useListActions'
 import { rememberCurrentList } from '@/hooks/useAddToList'
@@ -493,6 +494,7 @@ function WeekPlan({
             />
           </div>
 
+          <WeekIdeas listId={list.id} className="pt-4" />
           <AnyDayRow meals={anyDay} cooked={list.cooked} onOpen={onMealActions} />
 
           <div className="pt-4">

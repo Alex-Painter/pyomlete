@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { useUndo } from '@/components/UndoToast'
 import { CookedBadge } from '@/components/Cooked'
 import { WeekCard } from '@/components/WeekCard'
+import { WeekIdeas } from '@/components/WeekIdeas'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { RenameListSheet } from '@/components/RenameListSheet'
 import { createList, useCurrentList } from '@/hooks/useAddToList'
@@ -172,6 +173,7 @@ function HomePage() {
           </ul>
         )}
 
+        <WeekIdeas className="mt-8" />
         <WeekCard className="mt-8 mb-0" />
         <ChefPicks />
       </div>
