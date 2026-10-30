@@ -111,12 +111,17 @@ export function defaultDay(days: PlanDay[], today: ISODate): ISODate | null {
 /**
  * The next evening still to plan after `from`, wrapping round the week, so
  * filling a week is one tap per day. Stays on `from` when nothing is left.
+ * `skip` passes over evenings the calendar says you're out.
  */
-export function nextOpenDay(days: PlanDay[], from: ISODate): ISODate {
+export function nextOpenDay(
+  days: PlanDay[],
+  from: ISODate,
+  skip: (date: ISODate) => boolean = () => false,
+): ISODate {
   const i = days.findIndex((d) => d.date === from)
   for (let step = 1; step < days.length; step++) {
     const day = days[(i + step) % days.length]
-    if (isOpenEmpty(day)) return day.date
+    if (isOpenEmpty(day) && !skip(day.date)) return day.date
   }
   return from
 }

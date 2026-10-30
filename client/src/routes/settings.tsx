@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Check, ChefHat, GripVertical, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowDown, ArrowUp, CalendarDays, Check, ChefHat, GripVertical, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
   DndContext,
   KeyboardSensor,
@@ -26,11 +26,21 @@ import { ActionSheet } from '@/components/BottomSheet'
 import { useChef } from '@/components/Chef'
 import { ErrorState } from '@/components/ErrorState'
 import { useUndo } from '@/components/UndoToast'
-import { apiJson } from '@/lib/api'
-import { useCategories, usePlanSettings, usePreferences, useWeeklyPlanSettings } from '@/lib/queries'
-import type { CategoryConfig, PlanSettings, Preference, Stance, WeeklyPlanSettings } from '@/lib/types'
+import { ApiError, apiJson } from '@/lib/api'
+import { useCalendar, useCategories, usePlanSettings, usePreferences, useWeeklyPlanSettings } from '@/lib/queries'
+import type { CalendarStatus, CategoryConfig, PlanSettings, Preference, Stance, WeeklyPlanSettings } from '@/lib/types'
 
-export const Route = createFileRoute('/settings')({ component: SettingsPage })
+type CalendarResult = 'connected' | 'failed' | 'cancelled'
+
+export const Route = createFileRoute('/settings')({
+  component: SettingsPage,
+  // Google sends you back here with how connecting the calendar went.
+  validateSearch: (search: Record<string, unknown>): { calendar?: CalendarResult } => ({
+    calendar: ['connected', 'failed', 'cancelled'].includes(search.calendar as string)
+      ? (search.calendar as CalendarResult)
+      : undefined,
+  }),
+})
 
 function SettingsPage() {
   const queryClient = useQueryClient()
@@ -153,6 +163,7 @@ function SettingsPage() {
         </section>
 
         <PlanningTheWeek />
+        <Calendar />
       <WeeklyPlan />
         <WhatChefKnows />
       </div>
@@ -522,5 +533,172 @@ function PreferenceGroup({
         ))}
       </ul>
     </>
+  )
+}
+
+const RESULT: Record<CalendarResult, string> = {
+  connected: 'Calendar connected.',
+  failed: "Couldn't connect the calendar. Try again.",
+  cancelled: 'Calendar not connected.',
+}
+
+/** Half hours from 4pm to 11pm, for when dinner is. */
+const DINNER_TIMES = Array.from({ length: 15 }, (_, i) => {
+  const minutes = 16 * 60 + i * 30
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${minutes % 60 ? '30' : '00'}`
+})
+
+/**
+ * Google Calendar, so the week shows which evenings you're busy. Omlete sees
+ * only when you're busy, never what your events are, and the calendar only
+ * suggests: nothing on a list changes because of it.
+ */
+function Calendar() {
+  const queryClient = useQueryClient()
+  const showUndo = useUndo()
+  const navigate = useNavigate({ from: '/settings' })
+  const { calendar: result } = Route.useSearch()
+  const { data } = useCalendar()
+  const [connecting, setConnecting] = useState(false)
+  const [shownResult] = useState(result)
+
+  // Show how connecting went once, and take it out of the address.
+  useEffect(() => {
+    if (result) void navigate({ search: {}, replace: true })
+  }, [result, navigate])
+
+  const update = useMutation({
+    mutationFn: (change: Partial<Pick<CalendarStatus, 'dinner_start' | 'dinner_end'>> & { calendar_ids?: string[] }) =>
+      apiJson<CalendarStatus>('/api/calendar/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(change),
+      }),
+    onSuccess: (next) => queryClient.setQueryData(['calendar'], next),
+    onError: () => showUndo({ message: "Couldn't save that. Try again." }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['calendar'] }),
+  })
+
+  const disconnect = useMutation({
+    mutationFn: () => apiJson<CalendarStatus>('/api/calendar', { method: 'DELETE' }),
+    onSuccess: (next) => queryClient.setQueryData(['calendar'], next),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['calendar'] }),
+  })
+
+  const connect = async () => {
+    setConnecting(true)
+    try {
+      const { url } = await apiJson<{ url: string }>(
+        `/api/calendar/google/start?${new URLSearchParams({ return_to: window.location.origin + '/settings' })}`,
+      )
+      window.location.assign(url)
+    } catch {
+      setConnecting(false)
+      showUndo({ message: "Couldn't reach Google. Try again." })
+    }
+  }
+
+  // Google refusing a read means the token was revoked or has expired.
+  const health = useQuery({
+    queryKey: ['calendar', 'health'],
+    queryFn: () => {
+      const now = new Date()
+      const later = new Date(now.getTime() + 60 * 60 * 1000)
+      return apiJson(
+        `/api/calendar/busy?${new URLSearchParams({ start: now.toISOString(), end: later.toISOString() })}`,
+      )
+    },
+    enabled: !!data?.connected,
+    retry: false,
+  })
+  const reconnect = health.error instanceof ApiError && health.error.status === 409
+
+  if (!data || !data.configured) return null
+  const chosen = data.calendars.filter((c) => c.chosen).map((c) => c.id)
+  const toggle = (id: string) =>
+    update.mutate({ calendar_ids: chosen.includes(id) ? chosen.filter((c) => c !== id) : [...chosen, id] })
+
+  return (
+    <section className="mt-10 max-w-xl" aria-labelledby="calendar-heading">
+      <h2 id="calendar-heading" className="mb-1 text-lg font-semibold">
+        Calendar
+      </h2>
+      <p className="mb-4 text-sm text-ink-muted">
+        Your week shows the evenings you're busy, so you plan only the dinners you'll eat at home.
+        Omlete sees when you're busy, never what your events are.
+      </p>
+      {shownResult && (
+        <p role="status" className="mb-3 text-sm font-medium text-ink-soft">
+          {RESULT[shownResult]}
+        </p>
+      )}
+      <div className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
+        {!data.connected || reconnect ? (
+          <div className="flex min-h-[44px] items-center justify-between gap-3">
+            <span className="flex items-center gap-2 font-medium">
+              <CalendarDays className="size-5 text-ink-muted" />
+              {reconnect ? 'Google needs you to connect again' : 'Google Calendar'}
+            </span>
+            <Button type="button" onClick={() => void connect()} disabled={connecting}>
+              {connecting && <Loader2 className="size-4 animate-spin" />}
+              {reconnect ? 'Reconnect' : 'Connect'}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <fieldset>
+              <legend className="mb-1 font-medium">Calendars that count</legend>
+              {data.calendars.map((c) => (
+                <label key={c.id} className="flex min-h-[44px] items-center gap-3">
+                  <input
+                    type="checkbox"
+                    className="size-5 accent-[var(--color-ink)]"
+                    checked={c.chosen}
+                    onChange={() => toggle(c.id)}
+                  />
+                  <span className="min-w-0 truncate">{c.name}</span>
+                </label>
+              ))}
+            </fieldset>
+            <div className="flex min-h-[44px] flex-wrap items-center justify-between gap-3">
+              <span className="font-medium">Dinner is between</span>
+              <span className="flex items-center gap-2">
+                <select
+                  aria-label="Dinner starts"
+                  className={selectClass}
+                  value={data.dinner_start}
+                  onChange={(e) => update.mutate({ dinner_start: e.target.value })}
+                >
+                  {DINNER_TIMES.filter((t) => t < data.dinner_end).map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+                and
+                <select
+                  aria-label="Dinner ends"
+                  className={selectClass}
+                  value={data.dinner_end}
+                  onChange={(e) => update.mutate({ dinner_end: e.target.value })}
+                >
+                  {DINNER_TIMES.filter((t) => t > data.dinner_start).map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </span>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => disconnect.mutate()}
+                disabled={disconnect.isPending}
+                className="min-h-[44px] rounded-xl px-3 text-sm font-semibold text-ink-soft hover:bg-sand hover:text-danger"
+              >
+                Disconnect
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   )
 }

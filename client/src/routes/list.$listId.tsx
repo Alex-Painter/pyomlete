@@ -48,7 +48,9 @@ import { WeekStrip } from '@/components/WeekStrip'
 import { useListActions } from '@/hooks/useListActions'
 import { rememberCurrentList } from '@/hooks/useAddToList'
 import { useOnline } from '@/hooks/useOnline'
-import { useCategories, useList, usePlanSettings, useRecipes, useUnits } from '@/lib/queries'
+import { useCategories, useEvenings, useList, usePlanSettings, useRecipes, useUnits } from '@/lib/queries'
+import { isBusyEvening } from '@/lib/calendarDays'
+import type { Evening } from '@/lib/calendarDays'
 import { dayLong, defaultDay, nextOpenDay, todayISO } from '@/lib/week'
 import type { ISODate, ListDetail, ListItem, PlanDay, RecipeSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -70,6 +72,8 @@ export const Route = createFileRoute('/list/$listId')({
 
 type PlanView = 'week' | 'list'
 
+const NO_DAYS: PlanDay[] = []
+
 /** Everything Plan shows that isn't the list itself. */
 type PlanState = {
   view: PlanView
@@ -84,7 +88,7 @@ type PlanAction =
   | { kind: 'show'; view: PlanView }
   | { kind: 'select'; date: ISODate }
   /** A meal went on `date`: move on to the next evening still to plan. */
-  | { kind: 'planned'; date: ISODate; days: PlanDay[] }
+  | { kind: 'planned'; date: ISODate; days: PlanDay[]; skip: (date: ISODate) => boolean }
 
 function planReducer(state: PlanState, action: PlanAction): PlanState {
   switch (action.kind) {
@@ -93,7 +97,7 @@ function planReducer(state: PlanState, action: PlanAction): PlanState {
     case 'select':
       return { ...state, selected: action.date }
     case 'planned':
-      return { ...state, selected: nextOpenDay(action.days, action.date) }
+      return { ...state, selected: nextOpenDay(action.days, action.date, action.skip) }
   }
 }
 
@@ -120,6 +124,10 @@ function PlanPage() {
   const [state, dispatch] = useReducer(planReducer, { view: 'week', selected: null })
   const [today] = useState(todayISO)
   const [mealActions, setMealActions] = useState<RecipeSummary | null>(null)
+  const evenings = useEvenings(list?.days ?? NO_DAYS)
+  // Busy evenings you chose to plan anyway, for this visit: the calendar only suggests.
+  const [planAnyway, setPlanAnyway] = useState<ReadonlySet<ISODate>>(() => new Set())
+  const busyEvening = (date: ISODate) => isBusyEvening(evenings.get(date)) && !planAnyway.has(date)
 
   const setSearch = (next: PlanSearch) =>
     void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true })
@@ -183,7 +191,7 @@ function PlanPage() {
   const planOn = (day: PlanDay, r: RecipeSummary) => {
     if (day.recipe_id === r.id) return actions.clearDay(day, r.title)
     actions.setDay({ date: day.date, recipeId: r.id })
-    dispatch({ kind: 'planned', date: day.date, days })
+    dispatch({ kind: 'planned', date: day.date, days, skip: busyEvening })
   }
 
   const items = (
@@ -281,6 +289,7 @@ function PlanPage() {
                 today={today}
                 recipes={recipesById}
                 onSelect={(date) => dispatch({ kind: 'select', date })}
+                evenings={evenings}
               />
             )}
           </div>
@@ -307,6 +316,9 @@ function PlanPage() {
           onPick={(r) => planOn(selectedDay, r)}
           onMealActions={setMealActions}
           items={items}
+          evenings={evenings}
+          planAnyway={planAnyway.has(selectedDay.date)}
+          onPlanAnyway={() => setPlanAnyway((prev) => new Set(prev).add(selectedDay.date))}
         />
       ) : (
         <PlainPlan
@@ -394,6 +406,9 @@ function WeekPlan({
   onPick,
   onMealActions,
   items,
+  evenings,
+  planAnyway,
+  onPlanAnyway,
 }: {
   list: ListDetail
   day: PlanDay
@@ -407,6 +422,9 @@ function WeekPlan({
   onPick: (r: RecipeSummary) => void
   onMealActions: (r: RecipeSummary) => void
   items: ReactNode
+  evenings: Map<ISODate, Evening>
+  planAnyway: boolean
+  onPlanAnyway: () => void
 }) {
   const searchRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState<RecipeSummary | null>(null)
@@ -439,9 +457,18 @@ function WeekPlan({
 
   const markFor = (r: RecipeSummary): RowMark => (r.id === day.recipe_id ? 'added' : 'add')
   const varietyDays = usePlanSettings().data?.variety_days ?? 3
+  const evening = evenings.get(day.date)
+  // A part-busy evening ranks like a quick night, without setting the day's own Quick night.
+  const calendarQuick = evening?.kind === 'quick'
+  const busy = isBusyEvening(evening) && !planAnyway && day.recipe_id == null
   const forDay = useMemo(
-    () => ({ day, items: list.items, varietyDays }),
-    [day, list.items, varietyDays],
+    () => ({
+      day: calendarQuick && !day.quick ? { ...day, quick: true } : day,
+      items: list.items,
+      varietyDays,
+      busy,
+    }),
+    [day, list.items, varietyDays, calendarQuick, busy],
   )
 
   return (
@@ -462,6 +489,7 @@ function WeekPlan({
               today={today}
               recipes={recipesById}
               onSelect={onSelect}
+              evenings={evenings}
             />
           </div>
 
@@ -479,6 +507,9 @@ function WeekPlan({
               onRemove={() => actions.clearDay(day, recipe?.title ?? 'the meal')}
               onOut={(out) => actions.markOut(day, out)}
               onQuick={(quick) => actions.markQuick(day, quick)}
+              evening={evening}
+              planAnyway={planAnyway}
+              onPlanAnyway={onPlanAnyway}
             />
           </div>
 

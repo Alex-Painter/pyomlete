@@ -1,9 +1,11 @@
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftRight, ChefHat, Clock, Moon, Star, X, Zap } from 'lucide-react'
+import { ArrowLeftRight, CalendarClock, CalendarX, ChefHat, Clock, Moon, Star, X, Zap } from 'lucide-react'
 import { CookedToggle } from '@/components/Cooked'
 import { RecipeThumb } from '@/components/RecipeThumb'
 import { formatMinutes } from '@/components/RecipeMetaRow'
 import { QUICK_MINUTES } from '@/lib/libraryQuery'
+import { isBusyEvening } from '@/lib/calendarDays'
+import type { Evening } from '@/lib/calendarDays'
 import { dayKind, dayLong, longDate } from '@/lib/week'
 import { cn } from '@/lib/utils'
 import type { PlanDay, RecipeSummary } from '@/lib/types'
@@ -16,6 +18,10 @@ const actionClass =
  * or Out. A quick night ranks dinners over 30 minutes lower; it belongs to the
  * evening, so it stays when a meal goes on. Cooked is a tick the person sets (Finish in Cook sets it too), and
  * nothing else here changes when the meal is cooked.
+ *
+ * With a calendar connected, the card says what it shows for the evening, and
+ * only suggests: an open evening you're busy on offers Out or Plan anyway, and
+ * a part-busy one ranks quick dinners first without turning Quick night on.
  */
 export function DayCard({
   day,
@@ -28,6 +34,9 @@ export function DayCard({
   onRemove,
   onOut,
   onQuick,
+  evening,
+  planAnyway = false,
+  onPlanAnyway,
 }: {
   day: PlanDay
   recipe: RecipeSummary | undefined
@@ -39,8 +48,17 @@ export function DayCard({
   onRemove: () => void
   onOut: (out: boolean) => void
   onQuick: (quick: boolean) => void
+  evening?: Evening
+  /** Plan anyway was tapped on this busy evening. */
+  planAnyway?: boolean
+  onPlanAnyway?: () => void
 }) {
   const kind = dayKind(day)
+  const busy = isBusyEvening(evening) ? evening : undefined
+  let calendarNote: string | null = null
+  if (evening?.kind === 'quick' && kind !== 'out')
+    calendarNote = `${evening.reason} on your calendar, so quick dinners come first`
+  else if (busy && (kind === 'planned' || planAnyway)) calendarNote = `${busy.reason} on your calendar`
   return (
     <section aria-labelledby="day-heading" className="rounded-2xl border border-line bg-white p-3 shadow-sm">
       <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
@@ -68,6 +86,13 @@ export function DayCard({
           )}
         </div>
       </div>
+
+      {calendarNote && (
+        <p className="-mt-1 mb-3 flex items-center gap-1.5 px-1 text-sm text-ink-muted">
+          <CalendarClock aria-hidden className="size-4 shrink-0" />
+          {calendarNote}
+        </p>
+      )}
 
       {kind === 'planned' && day.recipe_id && (
         <>
@@ -128,7 +153,36 @@ export function DayCard({
         </>
       )}
 
-      {kind === 'open' && (
+      {kind === 'open' && busy && !planAnyway && (
+        <div className="rounded-xl border-2 border-dashed border-line p-3 sm:flex sm:items-center sm:gap-3">
+          <p className="flex flex-1 items-center gap-3 px-1 text-sm">
+            <CalendarX aria-hidden className="size-5 shrink-0 text-ink-muted" />
+            <span>
+              <span className="block font-medium text-ink-soft">{busy.reason}</span>
+              <span className="text-ink-muted">From your calendar. Out this evening?</span>
+            </span>
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-0 sm:flex">
+            <button
+              type="button"
+              onClick={() => onOut(true)}
+              className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-ink px-3 text-sm font-semibold text-white hover:bg-ink/90"
+            >
+              <Moon className="size-4" />
+              Out
+            </button>
+            <button
+              type="button"
+              onClick={onPlanAnyway}
+              className="min-h-[44px] rounded-xl bg-cream px-3 text-sm font-semibold hover:bg-sand"
+            >
+              Plan anyway
+            </button>
+          </div>
+        </div>
+      )}
+
+      {kind === 'open' && (!busy || planAnyway) && (
         <div className="flex items-stretch gap-2">
           <p className="flex min-h-[64px] flex-1 flex-col justify-center rounded-xl border-2 border-dashed border-line px-4 text-sm">
             <span className="font-medium text-ink-soft">Nothing planned yet</span>

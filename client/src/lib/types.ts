@@ -58,6 +58,17 @@ export type ListSummary = {
   days: PlanDay[]
 }
 
+/** The household's Google Calendar connection, from `GET /api/calendar`. */
+export type CalendarStatus = {
+  /** False when the server has no Google client: the calendar isn't offered. */
+  configured: boolean
+  connected: boolean
+  calendars: { id: string; name: string; chosen: boolean }[]
+  /** "HH:MM", local. */
+  dinner_start: string
+  dinner_end: string
+}
+
 export type PlanSettings = {
   /** 0 is Monday. Defaults to 5, Saturday: the week runs from one shop to the next. */
   week_start_weekday: number

@@ -1,8 +1,14 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { apiJson } from '@/lib/api'
+import { ApiError, apiJson } from '@/lib/api'
+import { classifyWeek, weekRange } from '@/lib/calendarDays'
+import type { BusyBlock, Evening } from '@/lib/calendarDays'
 import { fetchListWithPending } from '@/lib/offline'
 import type {
+  CalendarStatus,
   CategoryConfig,
+  ISODate,
+  PlanDay,
   ListSummary,
   PlanSettings,
   Preference,
@@ -121,4 +127,43 @@ export function useWeekPlan() {
     queryKey: ['week'],
     queryFn: () => apiJson<WeekPlan | null>('/api/weeks/current'),
   })
+}
+
+export function useCalendar() {
+  return useQuery({
+    queryKey: ['calendar'],
+    queryFn: () => apiJson<CalendarStatus>('/api/calendar'),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
+ * What the calendar says about each evening of a week, or an empty map with
+ * no calendar connected, offline, or when Google wants a reconnect (which
+ * Settings shows). Read live each time, never written to the list.
+ */
+export function useEvenings(days: PlanDay[]): Map<ISODate, Evening> {
+  const { data: calendar } = useCalendar()
+  const range = weekRange(days)
+  const enabled = !!calendar?.connected && range != null
+  const { data: busy } = useQuery({
+    queryKey: ['calendar', 'busy', range?.start, range?.end],
+    queryFn: () =>
+      apiJson<{ busy: BusyBlock[] }>(
+        `/api/calendar/busy?${new URLSearchParams(range!)}`,
+      ).then((r) => r.busy),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    retry: (count, error) => !(error instanceof ApiError) && count < 2,
+  })
+  return useMemo(
+    () =>
+      calendar && busy
+        ? classifyWeek(busy, days, {
+            start: calendar.dinner_start,
+            end: calendar.dinner_end,
+          })
+        : new Map(),
+    [calendar, busy, days],
+  )
 }
