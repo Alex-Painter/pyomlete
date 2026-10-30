@@ -190,6 +190,14 @@ class PlanSettingsRequest(BaseModel):
     variety_days: Optional[int] = Field(None, ge=1, le=7)
 
 
+class CalendarSettingsRequest(BaseModel):
+    """Which calendars count and when dinner is. Each is left as it is when not given."""
+
+    calendar_ids: Optional[list[str]] = None
+    dinner_start: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    dinner_end: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
 class WeeklyPlanSettings(BaseModel):
     """When Chef plans the coming week on its own, in UK time."""
 

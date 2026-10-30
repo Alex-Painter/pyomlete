@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import re
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable
@@ -8,12 +10,14 @@ from uuid import UUID
 from beanie import PydanticObjectId, UpdateResponse
 from beanie.operators import In
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pymongo.errors import DuplicateKeyError
 
 from chef import actions as chef_actions
+import calendar_google
 from chef import chat, discover, run, week
 from data_models import (
     CategoryConfig,
@@ -27,6 +31,7 @@ from data_models import (
 )
 from lib.db import get_motor_client, init_documents
 from lib.types import (
+    CalendarSettingsRequest,
     CategoriesUpdateRequest,
     CategorizeRequest,
     CategorizeResponse,
@@ -268,6 +273,124 @@ def _weekly_plan_out(s: UserSettingsDocument) -> dict:
         weekly_plan_weekday=s.weekly_plan_weekday,
         weekly_plan_hour=s.weekly_plan_hour,
     ).model_dump()
+
+
+# --- Google Calendar (calendar_google.py) ---
+
+# Where the web app may ask to be sent back to after connecting: the same
+# origins the CORS rules allow, so the callback can't bounce anyone elsewhere.
+_WEB_ORIGIN = re.compile(r"^(http://(localhost|127\.0\.0\.1):5173|https://[a-z0-9-]+\.up\.railway\.app)(/|$)")
+
+
+def _calendar_error(exc: Exception) -> JSONResponse:
+    if isinstance(exc, calendar_google.NotConfigured):
+        return JSONResponse(
+            {"detail": "Google Calendar isn't set up on this server (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)."},
+            status_code=503,
+        )
+    if isinstance(exc, calendar_google.Reconnect):
+        return JSONResponse(
+            {"detail": "Google stopped accepting Omlete's access. Connect the calendar again.", "reconnect": True},
+            status_code=409,
+        )
+    return JSONResponse({"detail": "No calendar is connected."}, status_code=404)
+
+
+_CALENDAR_ERRORS = (calendar_google.NotConfigured, calendar_google.NotConnected, calendar_google.Reconnect)
+
+
+def _redirect_uri(request: Request) -> str:
+    if os.environ.get("GOOGLE_REDIRECT_URI"):
+        return os.environ["GOOGLE_REDIRECT_URI"]
+    url = request.url_for("calendar_callback")
+    # Railway's proxy speaks https to the world and http to us.
+    if url.hostname not in ("127.0.0.1", "localhost"):
+        url = url.replace(scheme="https")
+    return str(url)
+
+
+def _calendar_out(conn) -> dict:
+    return {
+        "configured": calendar_google.configured(),
+        "connected": bool(conn and conn.refresh_token),
+        "calendars": [
+            {"id": c["id"], "name": c["name"], "chosen": c["id"] in conn.calendar_ids}
+            for c in (conn.calendars if conn else [])
+        ],
+        "dinner_start": conn.dinner_start if conn else "18:00",
+        "dinner_end": conn.dinner_end if conn else "20:30",
+    }
+
+
+@router.get("/calendar")
+async def get_calendar():
+    return _calendar_out(await calendar_google.connection())
+
+
+@router.get("/calendar/google/start")
+async def start_calendar(request: Request, return_to: str):
+    if not _WEB_ORIGIN.match(return_to):
+        raise HTTPException(400, "return_to must be the Omlete web app")
+    try:
+        return {"url": await calendar_google.consent_url(_redirect_uri(request), return_to)}
+    except _CALENDAR_ERRORS as exc:
+        return _calendar_error(exc)
+
+
+@router.get("/calendar/google/callback", name="calendar_callback")
+async def calendar_callback(
+    request: Request, state: str = "", code: str | None = None, error: str | None = None
+):
+    conn = await calendar_google.connection()
+    back = (conn.pending_return if conn else None) or ""
+    if not _WEB_ORIGIN.match(back):
+        raise HTTPException(400, "This sign-in has expired. Start again from Settings.")
+    sep = "&" if "?" in back else "?"
+    if error or not code:
+        return RedirectResponse(f"{back}{sep}calendar=cancelled")
+    try:
+        await calendar_google.finish(code, state, _redirect_uri(request))
+    except _CALENDAR_ERRORS:
+        return RedirectResponse(f"{back}{sep}calendar=failed")
+    return RedirectResponse(f"{back}{sep}calendar=connected")
+
+
+@router.put("/calendar/settings")
+async def update_calendar_settings(body: CalendarSettingsRequest):
+    conn = await calendar_google.connection()
+    if conn is None or not conn.refresh_token:
+        return _calendar_error(calendar_google.NotConnected())
+    if body.calendar_ids is not None:
+        known = {c["id"] for c in conn.calendars}
+        conn.calendar_ids = [c for c in body.calendar_ids if c in known]
+    if body.dinner_start is not None:
+        conn.dinner_start = body.dinner_start
+    if body.dinner_end is not None:
+        conn.dinner_end = body.dinner_end
+    if conn.dinner_end <= conn.dinner_start:
+        raise HTTPException(422, "Dinner has to end after it starts")
+    await conn.save()
+    calendar_google.forget_cache()
+    return _calendar_out(conn)
+
+
+@router.delete("/calendar")
+async def disconnect_calendar():
+    await calendar_google.disconnect()
+    return _calendar_out(None)
+
+
+@router.get("/calendar/busy")
+async def calendar_busy(start: datetime, end: datetime):
+    """Busy blocks between two times, merged across the chosen calendars, cached for 10 minutes."""
+    if start.tzinfo is None or end.tzinfo is None or end <= start:
+        raise HTTPException(422, "start and end need a time zone, and end must be after start")
+    if end - start > timedelta(days=31):
+        raise HTTPException(422, "Ask for a month at most")
+    try:
+        return {"busy": await calendar_google.busy(start, end)}
+    except _CALENDAR_ERRORS as exc:
+        return _calendar_error(exc)
 
 
 @router.get("/settings/weekly-plan")
