@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiJson } from '@/lib/api'
 import { classifyWeek, weekRange } from '@/lib/calendarDays'
 import type { BusyBlock, Evening } from '@/lib/calendarDays'
@@ -15,6 +15,7 @@ import type {
   RecipeDetail,
   RecipeSummary,
   Suggestion,
+  WeekIdea,
   WeekPlan,
   WeeklyPlanSettings,
 } from '@/lib/types'
@@ -126,6 +127,29 @@ export function useWeekPlan() {
   return useQuery({
     queryKey: ['week'],
     queryFn: () => apiJson<WeekPlan | null>('/api/weeks/current'),
+  })
+}
+
+/**
+ * A made week's new ideas still saving or failed. Keeps looking while one
+ * saves, and fetches the lists again when one lands on its list.
+ */
+export function useWeekIdeas() {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: ['week-ideas'],
+    queryFn: async () => {
+      const before = queryClient.getQueryData<WeekIdea[]>(['week-ideas']) ?? []
+      const ideas = await apiJson<WeekIdea[]>('/api/weeks/ideas')
+      const still = new Set(ideas.map((i) => i.id))
+      for (const landed of before.filter((i) => i.status === 'saving' && !still.has(i.id))) {
+        void queryClient.invalidateQueries({ queryKey: ['list', landed.list_id] })
+        void queryClient.invalidateQueries({ queryKey: ['lists'] })
+      }
+      return ideas
+    },
+    refetchInterval: (query) =>
+      query.state.data?.some((i) => i.status === 'saving') ? 3000 : false,
   })
 }
 

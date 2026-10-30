@@ -209,6 +209,18 @@ export type WeekMeal = {
   source_url: string | null
 }
 
+/**
+ * A new idea from a made week that hasn't reached its list: still saving,
+ * or failed and waiting to be tried again or let go.
+ */
+export type WeekIdea = {
+  id: string
+  title: string
+  day: ISODate | null
+  list_id: string
+  status: 'saving' | 'failed'
+}
+
 /** A week of dinners Chef proposes. Nothing changes until Make the list. */
 export type WeekPlan = {
   id: string

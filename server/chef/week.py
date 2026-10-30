@@ -314,6 +314,23 @@ async def skip(plan_id, chat_id: str | None = None) -> str:
     return await change.record(f"Skipped the week of {week.week_of:%-d %b}", chat_id)
 
 
+async def ideas_not_on_their_list() -> list[tuple[SuggestionDocument, WeekPlanDocument]]:
+    """New ideas from made weeks not yet over that have not reached their list.
+
+    Saving, or failed: Make the list has gone, so this is where a failed save
+    is seen and tried again. Each comes with its plan, for the list it goes on.
+    """
+    plans = await WeekPlanDocument.find(
+        WeekPlanDocument.status == "made",
+        WeekPlanDocument.week_of > date.today() - timedelta(days=7),
+    ).to_list()
+    plan_of = {m.suggestion_id: p for p in plans for m in p.meals if m.suggestion_id}
+    cards = await SuggestionDocument.find(
+        {"_id": {"$in": [PydanticObjectId(i) for i in plan_of]}, "status": {"$in": ["new", "saving", "failed"]}}
+    ).sort("plan_day").to_list()
+    return [(c, plan_of[str(c.id)]) for c in cards]
+
+
 async def still_wanted(card: SuggestionDocument) -> bool:
     """Whether a week idea's recipe should still go on the list: its plan is still made."""
     return (
