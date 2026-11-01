@@ -99,8 +99,9 @@ See `docs/PRD_URL_IMPORT.md` for the design and what's still outstanding.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: a Google Cloud OAuth client (Web application) for Google Calendar, with `https://<api domain>/api/calendar/google/callback` and `http://127.0.0.1:8000/api/calendar/google/callback` as redirect URIs. Optional: without them the calendar is simply unavailable.
 - `CALENDAR_TOKEN_KEY` (optional): a Fernet key for the stored calendar token. Without it the key is derived from the client secret. `GOOGLE_REDIRECT_URI` (optional) overrides the callback URL the server works out from the request.
 - `DB_USER`, `DB_PASS`: credentials for the production Atlas cluster. Or set `DB_URI`, which takes precedence. **Local dev against these reads and writes real data.**
+- `SENTRY_DSN` (optional): turns on error reporting to Sentry (`lib/monitoring.py`): unhandled request errors and 5xx answers, every `logger.exception`/`logger.error` (how background work such as recipe jobs, tagging, embeddings and suggestion saves reports a failure), errors escaping asyncio tasks, and the weekly run as the `weekly-plan` cron monitor, which alerts when a week's run fails or never happens. Unset locally and in tests, so nothing is sent. `SENTRY_ENVIRONMENT` defaults to Railway's environment name; `SENTRY_TRACES_SAMPLE_RATE` (default 0) turns on tracing. Log a failure that nobody is waiting on with `logger.exception`, never a bare `pass`, or it never reaches Sentry.
 
-**Frontend**: `VITE_API_URL`, the base URL for API calls. Required in dev too (`http://127.0.0.1:8000`; see Running locally). On Railway it's set to the API service URL at build time.
+**Frontend**: `VITE_API_URL`, the base URL for API calls. Required in dev too (`http://127.0.0.1:8000`; see Running locally). On Railway it's set to the API service URL at build time. `VITE_SENTRY_DSN` (optional, build time) turns on Sentry in the browser (`src/lib/monitoring.ts`): uncaught errors and routes that fail to render.
 
 ## iOS app (`/ios`)
 

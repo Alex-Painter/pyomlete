@@ -28,6 +28,7 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | Lists live on Home, with Plan a week above the fold | Lists are opened most and Plan a week is the most common action, so a separate Lists tab would add a hop. |
 | Home leads with meals to cook from the current list | Opening the app to cook shouldn't mean opening the list first. |
 | Chef's picks sit below Lists on Home | Suggestions shouldn't push the most common action out of reach. |
+| Failures are reported to Sentry, off unless a DSN is set; the weekly run is a Sentry cron monitor | A Voyage key that stopped working broke embeddings, tagging and the weekly plan for days without anyone noticing (PR #137). Background work has no one waiting on it, so its failures must reach someone; the monitor also catches a week that is never planned. |
 | Chef is the name of the suggestions agent | One named character for "the app suggests things" across Home, Discover and future features. |
 | Clear is separate from "Not for me" | Clearing the feed is tidying, not a verdict on the food; mixing them would skew Chef's taste profile. |
 | Detected timers in Cook | Alex liked them in the audit: times in the method become one-tap timers. |

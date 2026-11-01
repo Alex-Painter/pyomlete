@@ -338,6 +338,59 @@ async def test_the_run_learns_then_plans_the_coming_week_once(api, monkeypatch):
     assert (await api.get("/api/weeks/current")).json()["id"] == str(plan.id)
 
 
+class Checkins:
+    """Stands in for Sentry's cron monitor: records each run and how it ended."""
+
+    def __init__(self):
+        self.runs: list[tuple[str, dict, type | None]] = []
+
+    def __call__(self, slug, monitor_config):
+        outer = self
+
+        class _Run:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, kind, exc, tb):
+                outer.runs.append((slug, monitor_config, kind))
+                return False
+
+        return _Run()
+
+
+async def test_a_scheduled_run_checks_in_with_its_schedule(api, monkeypatch):
+    recipes = await library()
+    monkeypatch.setattr(run.chef_memory, "distil", AsyncMock())
+    checkins = Checkins()
+    monkeypatch.setattr(run, "monitor", checkins)
+    await a_settings(weekly_plan_weekday=4, weekly_plan_hour=19).insert()
+    friday = datetime.combine(date.today() + timedelta(days=(4 - date.today().weekday()) % 7), time(19, 10))
+    model, _ = planner(a_week(recipes))
+    with model:
+        await run.weekly(friday)
+        await run.weekly(friday.replace(hour=20))  # Already planned: still a run that went fine.
+        await run.weekly(friday.replace(hour=12))  # Not due: no check-in.
+    assert [(slug, kind) for slug, _, kind in checkins.runs] == [("weekly-plan", None)] * 2
+    config = checkins.runs[0][1]
+    assert config["schedule"] == {"type": "crontab", "value": "0 19 * * 5"}
+    assert config["timezone"] == "Europe/London"
+    assert config["checkin_margin"] == 240
+
+
+async def test_a_failed_run_checks_in_as_failed_and_plan_now_does_not_check_in(api, monkeypatch):
+    monkeypatch.setattr(run.chef_memory, "distil", AsyncMock())
+    checkins = Checkins()
+    monkeypatch.setattr(run, "monitor", checkins)
+    monkeypatch.setattr(run.week, "plan", AsyncMock(side_effect=RuntimeError("Voyage said 403")))
+    sunday = datetime.combine(date.today() + timedelta(days=(6 - date.today().weekday()) % 7), time(8, 30))
+    with pytest.raises(RuntimeError):
+        await run.weekly(sunday)
+    assert [kind for _, _, kind in checkins.runs] == [RuntimeError]
+    with pytest.raises(RuntimeError):
+        await run.weekly(sunday, force=True)
+    assert len(checkins.runs) == 1
+
+
 async def test_the_run_leaves_a_week_already_seen_alone(api):
     recipes = await library()
     model, _ = planner(a_week(recipes))
