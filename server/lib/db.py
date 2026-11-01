@@ -40,4 +40,7 @@ async def init_documents(client: AsyncIOMotorClient) -> None:
     )
 
 
-vo = voyageai.Client()
+# An Atlas (MongoDB) Voyage key is scoped to a region, and the client only
+# knows the global endpoint: an EU key needs VOYAGE_BASE_URL set to
+# https://eu.ai.mongodb.com/v1. Unset, the client picks its default.
+vo = voyageai.Client(base_url=os.environ.get("VOYAGE_BASE_URL"))

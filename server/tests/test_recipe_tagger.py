@@ -62,6 +62,17 @@ async def test_tags_come_back_validated(db):
     kwargs = client.messages.create.call_args.kwargs
     assert kwargs["model"] == MODEL
     assert kwargs["output_config"]["format"]["type"] == "json_schema"
+    assert kwargs["thinking"] == {"type": "disabled"}
+
+
+async def test_a_thinking_block_before_the_answer_is_skipped(db):
+    client = MagicMock()
+    answer = MagicMock(text=json.dumps(PASTA))
+    thinking = MagicMock(spec=["type", "thinking"], type="thinking", thinking="")
+    reply = MagicMock(content=[thinking, answer], usage=MagicMock(input_tokens=1, output_tokens=1))
+    client.messages.create = AsyncMock(return_value=reply)
+    tags = await tag_recipe(await recipe(), client)
+    assert tags is not None and tags.base == "pasta"
 
 
 async def test_an_answer_outside_the_sets_is_retried_once(db):

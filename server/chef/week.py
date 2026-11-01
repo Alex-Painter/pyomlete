@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from beanie import PydanticObjectId
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai import Agent, ModelRetry, PromptedOutput, RunContext
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.builtin_tools import WebSearchTool
 
@@ -89,7 +89,10 @@ class WeekDeps:
 agent = Agent(
     "anthropic:claude-opus-5-5",
     deps_type=WeekDeps,
-    output_type=WeekDraft,
+    # Opus 5.5 refuses a forced tool call, which is how pydantic-ai asks for
+    # tool output, and this pydantic-ai doesn't know the model takes a JSON
+    # schema. So the week comes back as JSON in the text, checked like a tool's.
+    output_type=PromptedOutput(WeekDraft),
     builtin_tools=[WebSearchTool(max_uses=6)],
     # Each broken rule is sent back once; a few chances before giving up.
     output_retries=3,
