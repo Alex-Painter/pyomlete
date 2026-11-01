@@ -29,6 +29,7 @@ from data_models import (
     UserSettingsDocument,
     WeekPlanDocument,
 )
+from lib import monitoring
 from lib.db import get_motor_client, init_documents
 from lib.types import (
     CalendarSettingsRequest,
@@ -66,9 +67,13 @@ from services.recipes import RecipeImage
 
 logger = logging.getLogger(__name__)
 
+# Before the app is built, so Sentry's FastAPI integration sees it. Off without SENTRY_DSN.
+monitoring.init()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    monitoring.watch_tasks()
     client = get_motor_client()
     await init_documents(client)
     weekly_run = asyncio.create_task(run.keep_planning())
@@ -904,6 +909,9 @@ async def _realise_suggestion(s: SuggestionDocument, list_id: str | None) -> Non
         logger.warning("Saving suggestion %s ran past its time limit", s.id)
         end = {"status": "failed", "error": SAVE_INTERRUPTED}
     except Exception as exc:  # surfaced on the card, so the user can retry
+        if not isinstance(exc, HTTPException) or exc.status_code >= 500:
+            # A refusal (no recipe on the page) is the user's to see; a crash is ours.
+            logger.exception("Saving suggestion %s failed", s.id)
         error = str(exc.detail if isinstance(exc, HTTPException) else exc)[:200]
         end = {"status": "failed", "error": error}
     await _through_shutdown(_end_save(s, end, recipe, list_id))

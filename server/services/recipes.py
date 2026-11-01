@@ -7,6 +7,7 @@ and a tool reads the type.
 
 import asyncio
 import base64
+import logging
 from typing import NamedTuple
 from urllib.parse import urlparse, urlunparse
 
@@ -26,6 +27,8 @@ from recipe_import import BlockedURL, FetchFailed, ScrapedRecipe, fetch_page, sc
 from services.errors import AlreadyImported, Invalid, NotFound, Unreachable
 from services.settings import category_names
 from tools import find_similar_ingredients
+
+logger = logging.getLogger(__name__)
 
 recipeSchema = TypeAdapter(RecipeModelResponse).json_schema()
 recipeSchema = transform_schema(recipeSchema)
@@ -341,7 +344,8 @@ async def update(
                     for idx, item in enumerate(new_ingredients)
                 ])
             except Exception:
-                pass  # Best-effort background embedding
+                # Best-effort, but a broken Voyage key should still be heard about.
+                logger.exception("Embedding new ingredients for recipe %s failed", recipe_id)
         asyncio.create_task(_embed_new())
 
     return recipe
