@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import voyageai
 
@@ -12,7 +13,7 @@ _VOYAGE_OUTPUT_DIMENSION = 2048
 
 class IngredientService:
     def __init__(self) -> None:
-        self._vo = voyageai.Client()
+        self._vo = voyageai.Client(base_url=os.environ.get("VOYAGE_BASE_URL"))
 
     async def find_similar(self, ingredient_names: list[str]) -> list[QueryMatch]:
         if not ingredient_names:

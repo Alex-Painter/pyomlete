@@ -6,6 +6,7 @@ covers saving).
 """
 
 import asyncio
+import json
 from datetime import date, datetime, time, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -14,7 +15,7 @@ import pytest
 from beanie import init_beanie
 from httpx import ASGITransport, AsyncClient
 from mongomock_motor import AsyncMongoMockClient
-from pydantic_ai.messages import ModelMessage, ModelResponse, RetryPromptPart, ToolCallPart
+from pydantic_ai.messages import ModelMessage, ModelResponse, RetryPromptPart, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 import main
@@ -100,7 +101,7 @@ def planner(*answers: list[dict]):
         seen["retries"] = [r.content for r in retries]
         meals = answers[min(len(retries), len(answers) - 1)]
         return ModelResponse(
-            parts=[ToolCallPart(info.output_tools[0].name, {"note": "A good week.", "meals": meals})]
+            parts=[TextPart(json.dumps({"note": "A good week.", "meals": meals}))]
         )
 
     return week.agent.override(model=FunctionModel(respond)), seen

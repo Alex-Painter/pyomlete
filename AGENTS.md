@@ -95,6 +95,7 @@ See `docs/PRD_URL_IMPORT.md` for the design and what's still outstanding.
 
 - `ANTHROPIC_API_KEY`
 - `VOYAGE_API_KEY`
+- `VOYAGE_BASE_URL` (optional): the Voyage endpoint. A MongoDB Atlas key (`al-…`) is scoped to a region and the client only knows the global one, so production's EU key needs `https://eu.ai.mongodb.com/v1`.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: a Google Cloud OAuth client (Web application) for Google Calendar, with `https://<api domain>/api/calendar/google/callback` and `http://127.0.0.1:8000/api/calendar/google/callback` as redirect URIs. Optional: without them the calendar is simply unavailable.
 - `CALENDAR_TOKEN_KEY` (optional): a Fernet key for the stored calendar token. Without it the key is derived from the client secret. `GOOGLE_REDIRECT_URI` (optional) overrides the callback URL the server works out from the request.
 - `DB_USER`, `DB_PASS`: credentials for the production Atlas cluster. Or set `DB_URI`, which takes precedence. **Local dev against these reads and writes real data.**

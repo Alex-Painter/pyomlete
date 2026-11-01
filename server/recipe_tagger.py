@@ -52,6 +52,9 @@ async def tag_recipe(recipe: RecipeDocument, client: AsyncAnthropic) -> RecipeTa
         response = await client.messages.create(
             model=MODEL,
             max_tokens=300,
+            # A lookup, not a puzzle. Haiku 5.5 thinks by default, and its
+            # thinking would eat the 300 tokens before any tags.
+            thinking={"type": "disabled"},
             messages=[{"role": "user", "content": _prompt(recipe)}],
             output_config={"format": {"type": "json_schema", "schema": _schema}},
         )
@@ -62,8 +65,10 @@ async def tag_recipe(recipe: RecipeDocument, client: AsyncAnthropic) -> RecipeTa
                 recipe.id, usage.input_tokens, usage.output_tokens,
             )
         try:
-            return RecipeTags.model_validate_json(response.content[0].text)
-        except (ValidationError, IndexError, AttributeError) as exc:
+            # The answer is the text block; skip any thinking block before it.
+            text = next(b.text for b in response.content if b.type != "thinking")
+            return RecipeTags.model_validate_json(text)
+        except (ValidationError, StopIteration, AttributeError) as exc:
             logger.warning("tags for %s rejected on attempt %d: %s", recipe.id, attempt, exc)
     return None
 
