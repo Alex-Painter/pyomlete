@@ -121,4 +121,39 @@ private func date(_ iso: String) -> PlanDate { PlanDate(iso: iso)! }
         await #expect(throws: APIError.unreachable) { try await phone.library.planWeek(today: Self.tuesday) }
         #expect(!phone.transport.calls.contains(Self.makeList))
     }
+
+    @Test func newListMakesAPlainListWithNoWeek() async throws {
+        serverAnswers(weekStarts: ["2026-10-17"])
+        await phone.library.refresh()
+
+        let id = try await phone.library.newList()
+
+        #expect(id == "new")
+        #expect(made == [nil])
+        #expect(phone.library.rows.first?.weekStart == nil)
+    }
+
+    @Test func aWeekAheadIsMadeOnceAndThenOpened() async throws {
+        serverAnswers(weekStarts: ["2026-10-17"])
+        await phone.library.refresh()
+
+        let ahead = phone.library.weeksAhead(today: Self.tuesday)
+        #expect(ahead.map(\.start) == [date("2026-10-17"), date("2026-10-24"), date("2026-10-31")])
+        #expect(ahead.map(\.list) == ["l0", nil, nil])
+
+        let first = try await phone.library.planWeek(starting: date("2026-10-24"))
+        let second = try await phone.library.planWeek(starting: date("2026-10-24"))
+
+        #expect(first == "new")
+        #expect(second == "new")
+        #expect(made == ["2026-10-24"])
+        #expect(phone.library.weeksAhead(today: Self.tuesday)[1].list == "new")
+    }
+
+    @Test func noWeeksAreOfferedBeforeTheShopDayIsKnown() async {
+        serverAnswers(weekday: nil)
+        await phone.library.refresh()
+
+        #expect(phone.library.weeksAhead(today: Self.tuesday).isEmpty)
+    }
 }

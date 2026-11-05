@@ -182,13 +182,38 @@ struct CookShelf: Equatable {
     /// picks the week by a weekday it was never told. A shop day the server
     /// cannot be asked for is Saturday, as on the web.
     func planWeek(today: PlanDate) async throws(APIError) -> ListID {
+        try await openWeek { weekday in Week.toPlan(today: today, weekday: weekday, lists: rows).start }
+    }
+
+    /// Home's New list, a week ahead: opens that week's list, or makes it.
+    func planWeek(starting start: PlanDate) async throws(APIError) -> ListID {
+        try await openWeek { _ in start }
+    }
+
+    /// Home's New list, Shopping list: a plain list with no days, for adding
+    /// items and meals without planning a week.
+    func newList() async throws(APIError) -> ListID {
+        try await startList().id
+    }
+
+    /// The weeks Home's New list offers, each with its list if one is made.
+    /// None until the phone knows the lists and the shop day, so it never
+    /// offers a week starting on the wrong day; Shopping list is there anyway.
+    func weeksAhead(today: PlanDate) -> [(start: PlanDate, list: ListID?)] {
+        guard hasLoaded, let weekday = index.weekStartWeekday else { return [] }
+        return Week.ahead(today: today, weekday: weekday, lists: rows)
+    }
+
+    /// The shop day the week starts on, as last heard from the server.
+    var shopWeekday: Int { index.weekStartWeekday ?? Week.defaultStartWeekday }
+
+    private func openWeek(_ pick: (Int) -> PlanDate) async throws(APIError) -> ListID {
         if !hasLoaded || index.weekStartWeekday == nil { await refresh() }
         // Not knowing the lists is not the same as having none.
         guard hasLoaded else { throw loadFailure ?? .unreachable }
-        let week = Week.toPlan(
-            today: today, weekday: index.weekStartWeekday ?? Week.defaultStartWeekday, lists: rows)
-        if let existing = week.list { return existing }
-        return try await startList(weekStart: week.start).id
+        let start = pick(shopWeekday)
+        if let existing = rows.first(where: { $0.weekStart == start })?.id { return existing }
+        return try await startList(weekStart: start).id
     }
 
     private func startList(weekStart: PlanDate? = nil) async throws(APIError) -> ListSummary {

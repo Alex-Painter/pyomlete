@@ -54,6 +54,9 @@ struct HomeScreen: View {
         .toolbar {
             SettingsCog(tab: .home)
             ToolbarItem(placement: .primaryAction) {
+                newListMenu
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     create { try await library.planWeek(today: .today()) }
                 } label: {
@@ -72,6 +75,38 @@ struct HomeScreen: View {
         .sheet(item: $renaming) { row in
             RenameListSheet(name: row.name) { library.list(row.id).rename($0) }
         }
+    }
+
+    /// A list without planning a week: a plain shopping list, or a week up
+    /// to two ahead of the one Plan a week opens. A week that already has a
+    /// list opens it, so no week is ever made twice.
+    private var newListMenu: some View {
+        let today = PlanDate.today()
+        let weekday = library.shopWeekday
+        return Menu {
+            Button {
+                create { try await library.newList() }
+            } label: {
+                Label("Shopping list", systemImage: "list.bullet")
+            }
+            .accessibilityIdentifier("home.newList.plain")
+            Section {
+                ForEach(library.weeksAhead(today: today), id: \.start) { week in
+                    Button {
+                        create { try await library.planWeek(starting: week.start) }
+                    } label: {
+                        Label(
+                            Week.choiceLabel(start: week.start, hasList: week.list != nil, today: today, weekday: weekday),
+                            systemImage: "calendar")
+                    }
+                    .accessibilityIdentifier("home.newList.week.\(week.start.iso)")
+                }
+            }
+        } label: {
+            Label("New list", systemImage: "plus")
+        }
+        .disabled(isCreating)
+        .accessibilityIdentifier("home.newListButton")
     }
 
     /// Home asks for the feed itself, so the picks do not wait for a visit to Discover.

@@ -81,6 +81,8 @@ $V browse <path> [steps...] [--label NAME]
 | `--timeout MS` | per-step timeout for the steps after it (default 20000; AI calls need ~120000) |
 | `--accept-dialogs` | auto-accept `confirm()` from now on (the app no longer uses `confirm()`: deletes use an Undo toast, so this is rarely needed) |
 
+Runs at a 1280x900 desktop viewport. Prefix with `OMLETE_VERIFY_PHONE=1` to drive the phone layout instead (390x844, touch), as the app's mobile web is a separate layout worth proving.
+
 The run **fails** if any step fails, if any `/api/` request goes to an origin other than `http://127.0.0.1:8000` (that catches a missing `VITE_API_URL`), or if any `/api/` response is a 4xx/5xx or a network failure. A backend 500 appears in the browser as `net::ERR_FAILED`, as if it were CORS, because Starlette's error response carries no CORS headers. When you see that, read `.verify-run/api.log` for the traceback.
 
 For example, the canonical smoke test of the app working end to end:

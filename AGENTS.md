@@ -45,7 +45,7 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
 ### Frontend (`/client/src/`)
 - **TanStack Start** (React meta-framework with Nitro SSR) + **TanStack Router** for routing
 - **TanStack Query** for server state; routes are in `src/routes/`, shared queries in `src/lib/queries.ts`
-- **Home** (`/`) is a stack of sections: meals to cook from the current list, your lists (with Plan a week), then Chef's week (five dinners Chef proposes, made into a list with one tap) and Chef's picks (Chef is the proactive suggestions agent). Recent activity and stats are planned as further sections.
+- **Home** (`/`) is a stack of sections: meals to cook from the current list, your lists (with Plan a week, and New list for a plain list or a week ahead), then Chef's week (five dinners Chef proposes, made into a list with one tap) and Chef's picks (Chef is the proactive suggestions agent). Recent activity and stats are planned as further sections.
 - Four modes, each its own route and layout: **Explore** (`/discover` suggestion feed, `/recipes` library, `/recipe/$id`, `/create`), **Plan** (`/list/$id`, opens on the list's week of seven dinners), **Shop** (`/shop/$id`, fullscreen, offline) and **Cook** (`/cook/$id`, step by step with timers). Finishing one never navigates to another.
 - `src/lib/offline.ts` — every list change goes through a localStorage queue and list snapshots, so lists work with no signal; `public/sw.js` caches the app shell in production
 - `src/lib/calendarDays.ts` — what the connected calendar says about each evening (busy, part-busy, free), read live by `useEvenings()` and never written to a list
