@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, CalendarPlus, ChefHat, ChevronRight, Clock, Sparkles, Copy, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { CalendarDays, CalendarPlus, ChefHat, ChevronRight, Clock, Sparkles, Copy, ListPlus, Loader2, Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ActionSheet } from '@/components/BottomSheet'
 import { ErrorState } from '@/components/ErrorState'
@@ -15,15 +15,19 @@ import { createList, useCurrentList } from '@/hooks/useAddToList'
 import { apiFetch, apiJson } from '@/lib/api'
 import { useSuggestionActions } from '@/hooks/useSuggestionActions'
 import { useLists, usePlanSettings, useRecipes, useSuggestions } from '@/lib/queries'
-import { todayISO, weekToPlan } from '@/lib/week'
-import type { ListSummary } from '@/lib/types'
+import { daysBetween, shortLabel, todayISO, weekStartFor, weekToPlan, weeksAhead } from '@/lib/week'
+import type { ISODate, ListSummary } from '@/lib/types'
+
+/** What a new-list tap opens: a plain list, the week Plan a week picks, or a given week. */
+type ListTarget = 'plain' | 'plan' | { weekStart: ISODate; listId: string | null }
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
 /**
  * Home: where you land, built as a stack of sections so v2 can add more
  * without a redesign. Today: meals to cook from the current list, your lists
- * (Plan a week is the most common action, so it stays above the fold), then
+ * (Plan a week is the most common action, so it stays above the fold, beside
+ * New list for a plain list or a week ahead), then
  * Chef's week and Chef's picks (the proactive suggestions agent). Recent activity
  * and stats slot in as further sections below.
  */
@@ -42,14 +46,14 @@ function HomePage() {
   } = usePlanSettings()
 
   // The week runs from one shop to the next, so it starts on the most recent
-  // shop day rather than on Monday.
-  const newList = useMutation({
-    mutationFn: async () => {
-      const { weekStart, listId } = weekToPlan(
-        todayISO(),
-        planSettings?.week_start_weekday ?? 5,
-        (lists ?? []).filter((l) => !hidden.has(l.id)),
-      )
+  // shop day rather than on Monday. A week that already has a list opens it.
+  const openList = useMutation({
+    mutationFn: async (target: ListTarget) => {
+      if (target === 'plain') return createList()
+      const { weekStart, listId } =
+        target === 'plan'
+          ? weekToPlan(todayISO(), planSettings?.week_start_weekday ?? 5, visibleLists())
+          : target
       return listId ? { id: listId } : createList({ week_start: weekStart })
     },
     onSuccess: (data) => {
@@ -57,6 +61,10 @@ function HomePage() {
       void navigate({ to: '/list/$listId', params: { listId: data.id } })
     },
   })
+  const visibleLists = () => (lists ?? []).filter((l) => !hidden.has(l.id))
+  const [choosingNew, setChoosingNew] = useState(false)
+  const pendingTarget = openList.isPending ? openList.variables : null
+  const weeksReady = !!lists && !(settingsLoading && !settingsFailed)
 
   const duplicateList = useMutation({
     mutationFn: (listId: string) =>
@@ -97,19 +105,33 @@ function HomePage() {
         <CookFromList hidden={hidden} />
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">Lists</h2>
-          <Button
-            variant={visible && visible.length === 0 ? 'default' : 'outline'}
-            onClick={() => newList.mutate()}
-            disabled={newList.isPending || !lists || (settingsLoading && !settingsFailed)}
-            className="min-h-[44px] font-semibold"
-          >
-            {newList.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <CalendarPlus className="size-4" />
-            )}
-            Plan a week
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setChoosingNew(true)}
+              disabled={openList.isPending}
+              className="min-h-[44px] font-semibold"
+            >
+              {pendingTarget != null && pendingTarget !== 'plan' ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Plus className="size-4" />
+              )}
+              New list
+            </Button>
+            <Button
+              onClick={() => openList.mutate('plan')}
+              disabled={openList.isPending || !weeksReady}
+              className="min-h-[44px] font-semibold"
+            >
+              {pendingTarget === 'plan' ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <CalendarPlus className="size-4" />
+              )}
+              Plan a week
+            </Button>
+          </div>
         </div>
 
         {isLoading && (
@@ -123,8 +145,8 @@ function HomePage() {
         {visible && visible.length === 0 && (
           <p className="flex items-center gap-3 rounded-2xl border border-dashed border-line px-4 py-5 text-sm text-ink-muted">
             <CalendarDays className="size-6 shrink-0 text-ink-faint" />
-            No weeks planned yet. Plan one, pick a dinner for each day, and the shopping list
-            builds itself.
+            No lists yet. Plan a week, pick a dinner for each day, and the shopping list builds
+            itself. Or start a New list and add what you need.
           </p>
         )}
 
@@ -204,9 +226,44 @@ function HomePage() {
         }
       />
 
+      <ActionSheet
+        open={choosingNew}
+        onOpenChange={setChoosingNew}
+        title="New list"
+        message="A list to add meals and items to, or a week of dinners planned ahead."
+        actions={[
+          {
+            label: 'Shopping list',
+            icon: <ListPlus className="size-5 text-ink-muted" />,
+            onSelect: () => openList.mutate('plain'),
+          },
+          ...(weeksReady
+            ? weeksAhead(todayISO(), planSettings?.week_start_weekday ?? 5, visibleLists()).map(
+                (w) => ({
+                  label: weekChoice(w, planSettings?.week_start_weekday ?? 5),
+                  icon: <CalendarDays className="size-5 text-ink-muted" />,
+                  onSelect: () => openList.mutate(w),
+                }),
+              )
+            : []),
+        ]}
+      />
+
       <RenameListSheet list={renaming} onClose={() => setRenaming(null)} />
     </main>
   )
+}
+
+/**
+ * "This week, Sat 31 Oct", "Next week, Sat 7 Nov", then "Week of Sat 14 Nov",
+ * with "Open" in front when the week already has a list.
+ */
+function weekChoice(w: { weekStart: ISODate; listId: string | null }, weekday: number): string {
+  const ahead = daysBetween(weekStartFor(todayISO(), weekday), w.weekStart) / 7
+  const date = shortLabel(w.weekStart)
+  const name =
+    ahead === 0 ? `this week, ${date}` : ahead === 1 ? `next week, ${date}` : `week of ${date}`
+  return w.listId ? `Open ${name}` : name[0].toUpperCase() + name.slice(1)
 }
 
 /**

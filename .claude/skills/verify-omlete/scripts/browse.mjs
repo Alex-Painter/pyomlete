@@ -49,7 +49,13 @@ const problems = []
 const note = (s) => { log.push(s); console.log(s) }
 
 const browser = await chromium.launch()
-const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+// OMLETE_VERIFY_PHONE=1 drives the phone layout (iPhone-sized, touch) instead of desktop.
+const phone = process.env.OMLETE_VERIFY_PHONE === '1'
+const page = await browser.newPage(
+  phone
+    ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }
+    : { viewport: { width: 1280, height: 900 } },
+)
 page.on('console', (m) => { if (m.type() === 'error') log.push(`console.error: ${m.text()}`) })
 page.on('pageerror', (e) => log.push(`pageerror: ${e.message}`))
 page.on('response', (r) => {

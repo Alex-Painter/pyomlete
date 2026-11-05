@@ -94,4 +94,12 @@ struct WeekTests {
 
         #expect(Week.nextOpenDay(days, from: date("2026-10-19")) == date("2026-10-19"))
     }
+
+    @Test func aWeekChoiceSaysHowFarAheadItIsAndWhetherItOpens() {
+        // A Tuesday, with the Saturday shop: this week started on the 17th.
+        let today = date("2026-10-20")
+        #expect(Week.choiceLabel(start: date("2026-10-17"), hasList: true, today: today, weekday: 5) == "Open this week, Sat 17 Oct")
+        #expect(Week.choiceLabel(start: date("2026-10-24"), hasList: false, today: today, weekday: 5) == "Next week, Sat 24 Oct")
+        #expect(Week.choiceLabel(start: date("2026-10-31"), hasList: false, today: today, weekday: 5) == "Week of Sat 31 Oct")
+    }
 }
