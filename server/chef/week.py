@@ -26,6 +26,7 @@ from data_models import (
     SuggestionDocument,
     WeekPlanDocument,
 )
+from lib.claude import OPUS, agent_model
 from services import lists, memory, settings
 from services.errors import Conflict, NotFound, Unreachable
 
@@ -87,16 +88,17 @@ class WeekDeps:
 
 
 agent = Agent(
-    "anthropic:claude-opus-5-5",
+    agent_model(OPUS),
     deps_type=WeekDeps,
     # Opus 5.5 refuses a forced tool call, which is how pydantic-ai asks for
-    # tool output, and this pydantic-ai doesn't know the model takes a JSON
-    # schema. So the week comes back as JSON in the text, checked like a tool's.
+    # tool output. So the week comes back as JSON in the text, checked like a
+    # tool's.
     output_type=PromptedOutput(WeekDraft),
     builtin_tools=[WebSearchTool(max_uses=6)],
     # Each broken rule is sent back once; a few chances before giving up.
     output_retries=3,
-    model_settings={"max_tokens": 4096},
+    # Opus 5.5 always thinks, and thinking counts toward max_tokens.
+    model_settings={"max_tokens": 16000, "anthropic_effort": "medium"},
 )
 
 

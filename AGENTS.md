@@ -67,12 +67,13 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
 - `recipe_tagger.py` — Haiku tags each recipe with its base, main, mood, cuisine family and traits after it is saved or edited (`tag_later()`), for the week's fit score. `scripts/backfill_tags.py` tags recipes saved before tagging existed, and skips tagged ones unless `--force`. Tests stub `tag_later` in `conftest.py`
 - `ingredient_structurer.py` — Haiku pass that turns free-text ingredient lines into structured ingredients (stage 2 of URL import)
 - `lib/db.py` — MongoDB connection (Motor) and Voyage AI client setup
+- `lib/claude.py` — the Anthropic client and the model IDs (`OPUS`, `SONNET`, `HAIKU`, all on the 5.5 family). Use these constants rather than writing a model ID. 5.5 models think by default and thinking counts toward `max_tokens`, so size caps for it and read replies with `answer_text()`, never `content[0].text`. Opus and Sonnet 5.5 reject a forced tool call, so structured answers go through `output_config.format`; build pydantic-ai agents with `agent_model()`, which tells this pydantic-ai that 5.5 takes NativeOutput and effort
 
 ### AI / Data Flow
 
 Generate and extract both go straight to Opus:
 1. Request hits FastAPI → images encoded to base64 if needed
-2. Claude Opus 4.5 called with system prompt + `find_similar_ingredients` tool
+2. Claude Opus 5.5 called with system prompt + `find_similar_ingredients` tool
 3. Claude generates structured JSON recipe, calling the tool for ingredient lookups
 4. New ingredients embedded via Voyage AI and saved to MongoDB
 5. Recipe document saved and returned as JSON

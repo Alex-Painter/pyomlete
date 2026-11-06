@@ -117,6 +117,7 @@ Each of these was settled in discussion; the reason is what to weigh before chan
 | On iOS a change by Chef refreshes, as it lands, the lists and recipes, every list on the phone that the server still has, the recipe on screen, Discover's cards and Chef's week | The web invalidates every query. The phone keeps a replica per list, which Home's rows read, so those are fetched too. |
 | On iOS Chef's chat lasts while the app runs and starts empty on the next launch | The web keeps it in memory, so a reload starts a new chat. |
 | On iOS Chef's replies draw inline Markdown (bold, italics, links) | The web shows the text as it comes, asterisks and all. The model writes Markdown, and on a phone the asterisks are noise. |
+| Every Claude call runs on the 5.5 family, at the tier it had before: Opus for writing recipes, Discover and the week; Sonnet for Chef's chat; Haiku for ingredients, aisles, tags and memory. Opus calls run at medium effort; the aisle guess at low | Alex asked for the newest models throughout (November 2026). Keeping each call's tier keeps the cost picture the same, and 5.5 is cheaper per token at every tier. The model IDs live in one place (`server/lib/claude.py`) so the next move is one edit. |
 
 ## Home plus four modes
 

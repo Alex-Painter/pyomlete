@@ -89,7 +89,7 @@ def model_answering(recipe: RecipeModelResponse | Exception) -> MagicMock:
     if isinstance(recipe, Exception):
         runner.until_done = AsyncMock(side_effect=recipe)
     else:
-        message = SimpleNamespace(content=[SimpleNamespace(text=recipe.model_dump_json())])
+        message = SimpleNamespace(content=[SimpleNamespace(type="text", text=recipe.model_dump_json())])
         runner.until_done = AsyncMock(return_value=message)
     return claude
 

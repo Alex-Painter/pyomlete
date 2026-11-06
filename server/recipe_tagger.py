@@ -15,10 +15,11 @@ from beanie import PydanticObjectId
 from pydantic import TypeAdapter, ValidationError
 
 from data_models import RecipeDocument, RecipeTags
+from lib.claude import HAIKU
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-haiku-5-5"
+MODEL = HAIKU
 # Enough of the method to tell a stir-fry from a stew, and keeps a tag under
 # about 1,000 input tokens.
 _METHOD_CHARS = 1500

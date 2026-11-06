@@ -32,6 +32,7 @@ from data_models import (
     UserSettingsDocument,
     WeekPlanDocument,
 )
+from lib.claude import SONNET, agent_model
 from lib.types import (
     CategoriesUpdateRequest,
     CategoryConfigRequest,
@@ -85,7 +86,7 @@ def deps_for(chat_id: str | None, page: object, messages: list) -> ChatDeps:
 
 
 agent = Agent(
-    "anthropic:claude-sonnet-5-5",
+    agent_model(SONNET),
     deps_type=ChatDeps,
     builtin_tools=[WebSearchTool(max_uses=5)],
     model_settings={

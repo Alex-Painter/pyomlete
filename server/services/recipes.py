@@ -18,7 +18,7 @@ from pydantic import TypeAdapter
 
 from data_models import IngredientDocument, ListDocument, RecipeDocument
 from ingredient_structurer import structure_ingredients
-from lib.claude import async_claude
+from lib.claude import OPUS, answer_text, async_claude
 from lib.db import vo
 from lib.types import IngredientRecipe, RecipeMetadata, RecipeModelResponse
 from recipe_tagger import tag_later
@@ -88,16 +88,19 @@ async def generate(prompt: str) -> RecipeDocument:
     }
 
     runner = async_claude.beta.messages.tool_runner(
-        model="claude-opus-4-5",
-        max_tokens=2048,
+        model=OPUS,
+        max_tokens=16000,
         messages=[system_message, {"role": "user", "content": prompt}],
         tools=[find_similar_ingredients],
         stream=True,
-        output_config={"format": {"type": "json_schema", "schema": recipeSchema}},
+        output_config={
+            "format": {"type": "json_schema", "schema": recipeSchema},
+            "effort": "medium",
+        },
     )
 
     final_message = await runner.until_done()
-    recipe = RecipeModelResponse.model_validate_json(final_message.content[0].text)
+    recipe = RecipeModelResponse.model_validate_json(answer_text(final_message))
     return await save(recipe)
 
 
@@ -120,8 +123,8 @@ async def from_images(images: list[RecipeImage]) -> RecipeDocument:
         })
     image_word = "this image" if len(images) == 1 else "these images"
     runner = async_claude.beta.messages.tool_runner(
-        model="claude-opus-4-5",
-        max_tokens=2048,
+        model=OPUS,
+        max_tokens=16000,
         messages=[{
             "role": "user",
             "content": [
@@ -134,10 +137,13 @@ async def from_images(images: list[RecipeImage]) -> RecipeDocument:
         }],
         tools=[find_similar_ingredients],
         stream=True,
-        output_config={"format": {"type": "json_schema", "schema": recipeSchema}},
+        output_config={
+            "format": {"type": "json_schema", "schema": recipeSchema},
+            "effort": "medium",
+        },
     )
     final_message = await runner.until_done()
-    recipe = RecipeModelResponse.model_validate_json(final_message.content[0].text)
+    recipe = RecipeModelResponse.model_validate_json(answer_text(final_message))
     return await save(recipe)
 
 
@@ -177,18 +183,21 @@ async def _recipe_from_page_text(
     answer with an empty recipe rather than oblige us with an invented one.
     """
     runner = async_claude.beta.messages.tool_runner(
-        model="claude-opus-4-5",
-        max_tokens=2048,
+        model=OPUS,
+        max_tokens=16000,
         messages=[{
             "role": "user",
             "content": f"Below is the text of a web page. Extract the recipe from it verbatim — the instructions are the author's and must not be rewritten or embellished. Include ingredient amounts directly in the instruction steps (e.g. 'add the 500g pasta' not just 'add the pasta'). Use find_similar_ingredients to match ingredients against the database. For each NEW ingredient (is_new=true), assign a category from this list: [{categories_str}]. For existing ingredients matched via the tool, leave the category as 'Other'.\n\nIf this page does not contain a recipe, return empty values for title, instructions and ingredients rather than composing one.\n\n---\n{text}",
         }],
         tools=[find_similar_ingredients],
         stream=True,
-        output_config={"format": {"type": "json_schema", "schema": recipeSchema}},
+        output_config={
+            "format": {"type": "json_schema", "schema": recipeSchema},
+            "effort": "medium",
+        },
     )
     final_message = await runner.until_done()
-    recipe = RecipeModelResponse.model_validate_json(final_message.content[0].text)
+    recipe = RecipeModelResponse.model_validate_json(answer_text(final_message))
 
     if not recipe.title or not recipe.instructions or not recipe.ingredients:
         return None
@@ -204,18 +213,21 @@ async def _apply_changes(
     ones go back through find_similar_ingredients.
     """
     runner = async_claude.beta.messages.tool_runner(
-        model="claude-opus-4-5",
-        max_tokens=4096,
+        model=OPUS,
+        max_tokens=16000,
         messages=[{
             "role": "user",
             "content": f"Here is a recipe as JSON. Apply the user's requested changes to it and return the whole adapted recipe in the same format.\n\n- Change only what the request needs: swap or add ingredients, adjust amounts, and rewrite only the instruction steps the change affects (e.g. cooking times for a substituted ingredient). Leave everything else word for word.\n- Copy unchanged ingredients exactly as given, including is_new and category.\n- For every ingredient you add or swap in, call find_similar_ingredients to match it against the database (similarity over .90). For each NEW one (is_new=true), assign a category from this list: [{categories_str}]. For matched ones, set the category to 'Other'.\n- Update the title only if the change makes it wrong (e.g. it names an ingredient you removed).\n- Keep ingredient amounts in the instruction steps.\n\nRequested changes: {changes}\n\nRecipe:\n{recipe.model_dump_json()}",
         }],
         tools=[find_similar_ingredients],
         stream=True,
-        output_config={"format": {"type": "json_schema", "schema": recipeSchema}},
+        output_config={
+            "format": {"type": "json_schema", "schema": recipeSchema},
+            "effort": "medium",
+        },
     )
     final_message = await runner.until_done()
-    return RecipeModelResponse.model_validate_json(final_message.content[0].text)
+    return RecipeModelResponse.model_validate_json(answer_text(final_message))
 
 
 def _metadata_from(scraped: ScrapedRecipe) -> RecipeMetadata:
