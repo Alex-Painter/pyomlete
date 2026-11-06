@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from lib.claude import HAIKU, answer_text
 from lib.types import IngredientModelResponse
 from recipe_import import IngredientGroup
-from tools import find_similar_ingredients
+from tools import MAX_TOOL_TURNS, find_similar_ingredients, run_until_done
 
 MODEL = HAIKU
 # Haiku 5.5 thinks by default, and its thinking counts toward this.
@@ -102,6 +102,7 @@ async def structure_ingredients(
             "content": _build_prompt(lines, categories_str, groups),
         }],
         tools=[find_similar_ingredients],
+        max_iterations=MAX_TOOL_TURNS,
         stream=True,
         output_config={
             "format": {"type": "json_schema", "schema": _schema},
@@ -111,6 +112,6 @@ async def structure_ingredients(
         },
     )
 
-    final_message = await runner.until_done()
+    final_message = await run_until_done(runner)
     parsed = StructuredIngredients.model_validate_json(answer_text(final_message))
     return parsed.ingredients
