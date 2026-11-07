@@ -4,7 +4,7 @@ starts, and when Chef plans the coming week."""
 import re
 
 from data_models import CategoryConfig, IngredientDocument, UserSettingsDocument
-from lib.claude import async_claude
+from lib.claude import HAIKU, answer_text, async_claude
 
 
 async def get_or_create() -> UserSettingsDocument:
@@ -66,14 +66,17 @@ async def categorize(name: str) -> str:
     categories_str = ", ".join(names)
 
     response = await async_claude.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=50,
+        model=HAIKU,
+        # Room for a little thinking before the one-word answer; low effort
+        # usually skips it.
+        max_tokens=1024,
+        output_config={"effort": "low"},
         messages=[{
             "role": "user",
             "content": f"Categorize this shopping item into exactly one of these categories: [{categories_str}]. Item: \"{name}\". Reply with just the category name, nothing else.",
         }],
     )
-    category = response.content[0].text.strip()
+    category = answer_text(response).strip()
 
     # Validate against user's categories, fall back to "Other"
     if category not in names:

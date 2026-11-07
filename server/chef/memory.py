@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from data_models import ListDocument, PreferenceDocument, RecipeDocument, SuggestionDocument
+from lib.claude import HAIKU, agent_model
 from services import memory
 
 
@@ -33,7 +34,7 @@ class InferredSet(BaseModel):
 
 
 agent = Agent(
-    "anthropic:claude-haiku-5-5",
+    agent_model(HAIKU),
     output_type=InferredSet,
     model_settings={"max_tokens": 1024},
 )

@@ -17,12 +17,14 @@ from typing import Optional
 from anthropic import AsyncAnthropic, transform_schema
 from pydantic import BaseModel, Field, TypeAdapter
 
+from lib.claude import HAIKU, answer_text
 from lib.types import IngredientModelResponse
 from recipe_import import IngredientGroup
 from tools import find_similar_ingredients
 
-MODEL = "claude-haiku-4-5-20251001"
-_MAX_TOKENS = 4096
+MODEL = HAIKU
+# Haiku 5.5 thinks by default, and its thinking counts toward this.
+_MAX_TOKENS = 16000
 
 
 class StructuredIngredients(BaseModel):
@@ -101,9 +103,14 @@ async def structure_ingredients(
         }],
         tools=[find_similar_ingredients],
         stream=True,
-        output_config={"format": {"type": "json_schema", "schema": _schema}},
+        output_config={
+            "format": {"type": "json_schema", "schema": _schema},
+            # Not low: at low effort Haiku 5.5 can skip a tool call it needs,
+            # and every name has to go through find_similar_ingredients.
+            "effort": "medium",
+        },
     )
 
     final_message = await runner.until_done()
-    parsed = StructuredIngredients.model_validate_json(final_message.content[0].text)
+    parsed = StructuredIngredients.model_validate_json(answer_text(final_message))
     return parsed.ingredients

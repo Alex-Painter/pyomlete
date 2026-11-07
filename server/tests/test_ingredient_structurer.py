@@ -14,9 +14,15 @@ from recipe_import import IngredientGroup
 
 
 def make_client(payload: dict) -> MagicMock:
-    """An AsyncAnthropic stand-in whose runner returns `payload` as JSON."""
+    """An AsyncAnthropic stand-in whose runner returns `payload` as JSON.
+
+    The reply opens with a thinking block, as Haiku 5.5's do by default.
+    """
     message = MagicMock()
-    message.content = [MagicMock(text=json.dumps(payload))]
+    message.content = [
+        MagicMock(type="thinking", thinking=""),
+        MagicMock(type="text", text=json.dumps(payload)),
+    ]
 
     runner = MagicMock()
     runner.until_done = AsyncMock(return_value=message)

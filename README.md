@@ -72,7 +72,7 @@ Agents: use the `verify-omlete` skill (`.claude/skills/verify-omlete/`). It does
 Generate and extract both go straight to Opus:
 
 1. Request hits FastAPI → images encoded to base64 if needed
-2. Claude Opus 4.5 called with system prompt + `find_similar_ingredients` tool
+2. Claude Opus 5.5 called with system prompt + `find_similar_ingredients` tool
 3. Claude generates structured JSON recipe, calling the tool for ingredient lookups
 4. New ingredients embedded via Voyage AI and saved to MongoDB
 5. Recipe document saved and returned as JSON

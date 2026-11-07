@@ -10,13 +10,15 @@ from pydantic_ai import Agent, NativeOutput
 
 from chef import memory as chef_memory
 from data_models import ListDocument, RecipeDocument, SuggestionDocument
+from lib.claude import OPUS, agent_model
 from lib.types import SuggestedMeals, SuggestionRefreshRequest
 from services import memory
 
 agent = Agent(
-    "anthropic:claude-opus-4-5",
+    agent_model(OPUS),
     output_type=NativeOutput(SuggestedMeals),
-    model_settings={"max_tokens": 2048},
+    # Opus 5.5 always thinks, and thinking counts toward max_tokens.
+    model_settings={"max_tokens": 16000, "anthropic_effort": "medium"},
 )
 
 
