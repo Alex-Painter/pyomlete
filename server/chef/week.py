@@ -26,6 +26,7 @@ from data_models import (
     SuggestionDocument,
     WeekPlanDocument,
 )
+from lib import analytics
 from lib.claude import OPUS, agent_model
 from services import lists, memory, settings
 from services.errors import Conflict, NotFound, Unreachable
@@ -249,6 +250,10 @@ async def plan(
         week = WeekPlanDocument(week_of=week_of, note=draft.note.strip(), meals=meals)
         await week.insert()
         change.creating(WeekPlanDocument, week.id)
+    analytics.capture(
+        "week planned", replanned=existing is not None, meals=len(meals),
+        new_ideas=sum(1 for m in meals if not m.recipe_id),
+    )
     return week, await change.record(f"Planned the week of {week_of:%-d %b}", chat_id)
 
 
@@ -301,6 +306,7 @@ async def make_list(plan_id, chat_id: str | None = None) -> tuple[ListDocument, 
     week.status, week.list_id = "made", str(lst.id)
     await week.save()
     undo = await change.record(f"Made the list for the week of {week.week_of:%-d %b}", chat_id)
+    analytics.capture("week made into list", meals=len(week.meals), new_ideas=len(ideas))
     # After recording, so Undo covers the list and the plan. A save that lands
     # after an Undo finds the plan no longer made and leaves the list alone.
     if start_save:
@@ -316,6 +322,7 @@ async def skip(plan_id, chat_id: str | None = None) -> str:
     await change.touching(WeekPlanDocument, week.id)
     week.status = "skipped"
     await week.save()
+    analytics.capture("week skipped")
     return await change.record(f"Skipped the week of {week.week_of:%-d %b}", chat_id)
 
 

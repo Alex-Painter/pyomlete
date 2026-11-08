@@ -2,10 +2,10 @@ import { createRouter as createTanStackRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 
 import { getContext } from './integrations/tanstack-query/root-provider'
-import { reportError, startMonitoring } from './lib/monitoring'
+import { reportError, startAnalytics } from './lib/analytics'
 
 export function getRouter() {
-  startMonitoring()
+  startAnalytics()
   const router = createTanStackRouter({
     routeTree,
 

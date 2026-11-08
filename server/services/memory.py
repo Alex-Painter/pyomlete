@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from beanie import PydanticObjectId
 
 from data_models import MealLogDocument, PreferenceDocument, RecipeDocument, Stance
+from lib import analytics
 from services.errors import Invalid, NotFound
 
 # Said in the prompt, in the order they matter.
@@ -49,6 +50,7 @@ async def log_meal(key: str, recipe_id: str, rating: int | None = None) -> MealL
     if meal is None:
         meal = MealLogDocument(id=key, recipe_id=recipe_id, rating=rating)
         await meal.insert()
+        analytics.capture("meal cooked", rated=rating is not None)
     elif rating is not None and meal.rating != rating:
         meal.rating = rating
         await meal.save()
