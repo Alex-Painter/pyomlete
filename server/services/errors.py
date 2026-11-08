@@ -44,3 +44,10 @@ class AlreadyImported(HTTPException):
                 "recipe_id": recipe_id,
             },
         )
+
+
+class Unavailable(HTTPException):
+    """A service we depend on failed, so the work stopped rather than guess."""
+
+    def __init__(self, detail: str):
+        super().__init__(status_code=503, detail=detail)
