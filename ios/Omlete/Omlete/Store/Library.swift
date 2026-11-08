@@ -331,6 +331,7 @@ struct CookShelf: Equatable {
     func recipeEdited(_ recipe: Recipe) {
         if let place = index.recipes.firstIndex(where: { $0.id == recipe.id }) {
             index.recipes[place].title = recipe.title
+            index.recipes[place].imageURL = recipe.imageURL
             index.recipes[place].ingredientCount = recipe.ingredients.count
             index.recipes[place].ingredientNames = recipe.ingredients.map(\.name)
         }

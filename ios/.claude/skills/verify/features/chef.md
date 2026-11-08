@@ -10,6 +10,7 @@ Chef's chat, a sheet over the screen on show with three heights: a bar with Chef
 - `chef-add-recipe` is Add a recipe yourself in the empty chat: it pushes Add a recipe on the tab on show and drops the sheet to its bar.
 - `chef-stream` shows a reply as it arrives: text, "Searching the web…" for a web search, "Working…" for one of Chef's tools, then the change with Undo.
 - `chef-refresh` refreshes what a change touched as it lands, before the reply ends: the lists on the phone, the recipes, the recipe on screen, Discover's cards, Chef's week and What Chef knows in Settings.
+- `chef-open` is Open beside Undo on a change that made a recipe or list, and on a recipe Chef found already saved: it pushes that screen on the tab on show and drops the sheet to its bar. An undone change has no Open.
 - `chef-undo` undoes one change from its row, which strikes it through. One that has changed since says so (409).
 - `chef-away` gives a reply's changes one banner with Undo when the chat is not on screen: closed, at the bar, or under Shop or Cook.
 - `chef-photos` sends up to six photos with a message, re-encoded as Add's are.
@@ -42,6 +43,8 @@ Against the canned Chef (`$V chef-stub start` first):
 - **Undo.** `<undo>` is the id after `undo` on the stub's `added` line. `$V tap chef.undo.<undo>`: the row is struck through, Plan reads `Items (6)`, and the API no longer has the item. The stub log has `undo <undo>: deleted`.
 - **Changed since.** Send another message, wait for the reply, then check the item off behind the app's back: `curl -s -X PATCH http://127.0.0.1:8765/api/lists/<list>/items/<item> -H 'content-type: application/json' -d '{"checked":true}'`. `$V tap chef.undo.<undo>` and `$V expect "That's changed since, so it can't be undone"`. The stub log has `refused` and a 409.
 - **With the chat away.** Send a message, then drag the sheet down to the bar before the reply ends (the stub pauses eight seconds between steps). When the reply ends the bar reads Chef's last line and the screen has `undo.banner` with the change and `undo.button`.
+- **Open what Chef made.** `$V begin chef-open`, `$V tap tab.chef`, `$V type chef.messageField "start a new list"`, `$V tap chef.sendButton`, `$V expect "Started a list"`. `<undo>` is the id after `undo` on the stub's `started list` line. `$V tap chef.open.<undo>`, `$V expect-id chef.bar`, and `$V expect-id plan.library.sortMenu`: the new list is open under the bar. Its `chef.undo.<undo>` deletes the list.
+- **Open a recipe already saved.** `$V tap chef.newChatButton`, `$V type chef.messageField "import the traybake I already have"`, `$V tap chef.sendButton`, `$V expect "Already in your recipes"`, `$V tap chef.open.c1` (the tool call's id), `$V expect-id recipe.cookButton`. The title is a header, so read `Verify Fixture Traybake` from the screenshot.
 - **A reply that fails.** `$V type chef.messageField "please fail"`, `$V tap chef.sendButton`, `$V expect "Chef couldn't answer. Try again?"`. "Let me find that." stays above it.
 - **Photos.** `$V tap chef.addPhotosButton` opens the system picker, which has no identifiers. Tap a photo and the check with the iOS Simulator control tool by device point (on iPhone 17 Pro the first photo is near (67, 410) and the check near (366, 144)), then `$V expect-id chef.removePhoto.0`, type and send. The stub logs `with 1 photo(s)`.
 - **New chat.** `$V tap chef.newChatButton`, `$V expect-id chef.empty`.
@@ -49,7 +52,7 @@ Against the canned Chef (`$V chef-stub start` first):
 ## Gotchas
 
 - The simulator usually has a hardware keyboard connected, so a focused field shows no on-screen keyboard and the sheet sits at full height above nothing. To see the keyboard, focus `chef.messageField` and use the iOS Simulator control tool's `set_keyboard show`; `set_keyboard hide` puts it back.
-- The canned Chef is test-only and lives in this skill (`scripts/chef-stub.py`). It changes nothing on the server: it adds and deletes the item through the ordinary list endpoints, and answers Undo for its own action ids only. `OMLETE_IOS_VERIFY_CHEF_STUB_PACE` scales its pauses (default 1, about eight seconds per tool step so a capture lands inside each).
+- The canned Chef is test-only and lives in this skill (`scripts/chef-stub.py`). It changes nothing on the server: it adds and deletes the item (or, for "new list", the list) through the ordinary list endpoints, and answers Undo for its own action ids only. Its outputs carry what the server's tools carry: `item_id` for an added item, `list_id` for a started list, and `already_saved` with `recipe_id` for an import of a saved recipe. `OMLETE_IOS_VERIFY_CHEF_STUB_PACE` scales its pauses (default 1, about eight seconds per tool step so a capture lands inside each).
 - `up` stops the canned Chef and launches the app against the real API again.
 - `expect "Searching the web"` and `expect "Working"` each have one window of the stub's pause. A slow capture before them can miss it; raise the pace and run again.
 - Plan behind the sheet at half height is mostly covered: the item row is in the UI tree, and the `Items (n)` count is above the sheet in the screenshot.

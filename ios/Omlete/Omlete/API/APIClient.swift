@@ -31,6 +31,12 @@ nonisolated enum APIError: Error, Equatable, Sendable {
     }
 }
 
+/// What Generate image came back with.
+nonisolated enum PhotoAnswer: Equatable, Sendable {
+    case made(URL?)
+    case failed(APIError, message: String?)
+}
+
 /// The network seam: bytes out, bytes back. Tests script a fake.
 nonisolated protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
@@ -165,6 +171,27 @@ nonisolated struct APIClient: Sendable {
 
     func deleteRecipe(_ id: RecipeID) async throws(APIError) {
         _ = try await call("DELETE", "recipes/\(id.rawValue)")
+    }
+
+    /// One call to an image model, a few seconds and about a penny: a photo
+    /// of the dish becomes the recipe's picture. A refusal or failure comes
+    /// back with the server's own sentence when it sent one, such as photos
+    /// not being set up on this server.
+    func generateImage(_ id: RecipeID) async -> PhotoAnswer {
+        let answer: (status: Int, data: Data)
+        do {
+            answer = try await exchange("POST", "recipes/\(id.rawValue)/image", patience: .slow)
+        } catch {
+            return .failed(error, message: nil)
+        }
+        if let failure = APIError(status: answer.status) {
+            return .failed(failure, message: Wire.message(in: answer.data))
+        }
+        do {
+            return .made(try Wire.generatedImage(answer.data))
+        } catch {
+            return .failed(.undecodable, message: nil)
+        }
     }
 
     /// `index` is the ingredient's position in the recipe, which is how the server addresses it.

@@ -195,6 +195,7 @@ extension LabelStyle where Self == CaptionLabelStyle {
 /// The three best fits for the evening, each with its reason, so most dinners
 /// are one glance and one tap. Something else shows the next three; skipping
 /// one says "not tonight", never "not for me", so nothing is sent anywhere.
+/// Help me choose swaps the three for Narrow it down, in the same place.
 private struct TopThree: View {
     static let size = 3
 
@@ -203,11 +204,16 @@ private struct TopThree: View {
     let onPick: (RecipeSummary) -> Void
 
     @State private var page = 0
+    @State private var choosing = false
 
     var body: some View {
         // The day's own meal is already chosen; the rest are what you'd swap to.
         let pool = ranking.ranked.filter { $0.recipe.id != ranking.context.day.plan.meal }
-        if !pool.isEmpty {
+        if choosing, !pool.isEmpty {
+            HelpMeChoose(ranked: pool, quickNight: ranking.context.day.quick, mark: mark, onPick: onPick) {
+                choosing = false
+            }
+        } else if !pool.isEmpty {
             let pages = (pool.count + Self.size - 1) / Self.size
             let start = (page % pages) * Self.size
             Section {
@@ -224,6 +230,16 @@ private struct TopThree: View {
                     }
                     .accessibilityIdentifier("plan.topThree.somethingElseButton")
                 }
+                if pool.count > Self.size {
+                    Button {
+                        choosing = true
+                    } label: {
+                        Label("Help me choose", systemImage: "sparkles")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("plan.topThree.helpMeChooseButton")
+                }
             } header: {
                 Text("Top three for \(ranking.context.day.date.dayLong)")
             }
@@ -231,36 +247,8 @@ private struct TopThree: View {
     }
 
     private func card(_ ranked: FitScore.Ranked) -> some View {
-        let mark = mark(ranked.recipe)
-        return Button {
+        MealPickCard(ranked: ranked, mark: mark(ranked.recipe), identifier: "plan.topThree.recipe.\(ranked.recipe.id.rawValue)") {
             onPick(ranked.recipe)
-        } label: {
-            PictureRow(picture: ranked.recipe.imageURL, title: ranked.recipe.title) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let reason = ranked.fit.reason {
-                        Text(reason)
-                            .foregroundStyle(ranked.fit.clash ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                    }
-                    if let minutes = ranked.recipe.totalMinutes {
-                        Label(formatMinutes(minutes), systemImage: "clock")
-                            .labelStyle(.captionLabel)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } mark: {
-                if mark == .added {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.tint)
-                } else {
-                    Image(systemName: "plus")
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
-        .buttonStyle(.plain)
-        .disabled(mark == .busy)
-        .accessibilityAddTraits(mark == .added ? .isSelected : [])
-        .accessibilityIdentifier("plan.topThree.recipe.\(ranked.recipe.id.rawValue)")
     }
 }
