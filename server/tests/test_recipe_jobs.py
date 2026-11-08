@@ -16,10 +16,13 @@ import main
 from services import recipes
 from lib.types import RecipeJob, RecipeModelResponse
 from recipe_import import BlockedURL, FetchFailed
+from tests.photos import MIME, PAGE, photo
 from tests.test_import_from_url import URL, make_scraped, patch_pipeline, structured
 
 RECIPE_ID = "64b7f0c2a1b2c3d4e5f60718"
 KEY = "0b9f6f0e-5a52-4b53-9d4a-2f1f3c1e7a10"
+FIRST_PAGE = photo(colour="red")
+SECOND_PAGE = photo("PNG", colour="blue")
 
 
 class FakeJobDocument(RecipeJob):
@@ -275,8 +278,8 @@ class TestAPhotosJob:
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/photos",
                 files=[
-                    ("files", ("page-1.jpg", b"first page", "image/jpeg")),
-                    ("files", ("page-2.png", b"second page", "image/png")),
+                    ("files", ("page-1.jpg", FIRST_PAGE, "image/jpeg")),
+                    ("files", ("page-2.png", SECOND_PAGE, "image/png")),
                 ],
             ))
 
@@ -287,10 +290,27 @@ class TestAPhotosJob:
         images = [block["source"] for block in content if block["type"] == "image"]
         assert images == [
             {"type": "base64", "media_type": "image/jpeg",
-             "data": base64.standard_b64encode(b"first page").decode()},
+             "data": base64.standard_b64encode(FIRST_PAGE).decode()},
             {"type": "base64", "media_type": "image/png",
-             "data": base64.standard_b64encode(b"second page").decode()},
+             "data": base64.standard_b64encode(SECOND_PAGE).decode()},
         ]
+
+    async def test_an_iphone_heic_photo_reaches_the_model_as_a_jpeg(self, api):
+        claude = model_answering(SOUP)
+
+        with patch.multiple(
+            recipes, async_claude=claude, save=saved_recipe(), category_names=AsyncMock(return_value=["Other"])
+        ):
+            job = await finished(api, await api.put(
+                f"/api/recipe-jobs/{KEY}/photos",
+                files=[("files", ("IMG_0001.HEIC", photo("HEIF"), "image/heic"))],
+            ))
+
+        assert job["status"] == "saved"
+        content = claude.beta.messages.tool_runner.call_args.kwargs["messages"][0]["content"]
+        [image] = [block["source"] for block in content if block["type"] == "image"]
+        assert image["media_type"] == "image/jpeg"
+        assert base64.standard_b64decode(image["data"])[:2] == b"\xff\xd8"
 
     async def test_a_model_error_is_a_general_failure(self, api):
         with patch.multiple(
@@ -301,7 +321,7 @@ class TestAPhotosJob:
         ):
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/photos",
-                files=[("files", ("page.jpg", b"page", "image/jpeg"))],
+                files=[("files", ("page.jpg", PAGE, "image/jpeg"))],
             ))
 
         assert (job["status"], job["failure"]) == ("failed", "other")
@@ -423,8 +443,8 @@ class TestStartingAJob:
     @pytest.mark.parametrize(
         "photos",
         [
-            [b"page"] * (main.MAX_JOB_PHOTOS + 1),
-            [b"page", b"x" * (main.MAX_JOB_PHOTO_BYTES + 1)],
+            [PAGE] * (main.MAX_JOB_PHOTOS + 1),
+            [PAGE, PAGE + b"\0" * (main.MAX_JOB_PHOTO_BYTES + 1 - len(PAGE))],
         ],
         ids=["too many", "one too large"],
     )
@@ -446,9 +466,9 @@ class TestStartingAJob:
         [
             [("files", ("page.jpg", b"", "image/jpeg"))],
             [("files", ("notes.txt", b"not a photo", "text/plain"))],
-            [("files", ("page.heic", b"page", "image/heic"))],
+            [("files", ("page.jpg", b"not a photo", "image/jpeg"))],
         ],
-        ids=["empty", "not an image", "an image the model does not read"],
+        ids=["empty", "not an image", "says it is a photo but is not one"],
     )
     async def test_a_photo_that_is_empty_or_not_an_image_starts_nothing(self, api, jobs, files):
         claude = model_answering(SOUP)
@@ -460,11 +480,11 @@ class TestStartingAJob:
         assert jobs == {}
         claude.beta.messages.tool_runner.assert_not_called()
 
-    @pytest.mark.parametrize("media_type", sorted(main.JOB_PHOTO_TYPES))
-    async def test_each_type_the_model_reads_is_taken(self, api, media_type):
+    @pytest.mark.parametrize("fmt", sorted(MIME))
+    async def test_each_photo_type_is_taken(self, api, fmt):
         with a_model():
             response = await api.put(
-                f"/api/recipe-jobs/{KEY}/photos", files=[("files", ("page", b"page", media_type))]
+                f"/api/recipe-jobs/{KEY}/photos", files=[("files", ("page", photo(fmt), MIME[fmt]))]
             )
             await asyncio.gather(*list(main._recipe_job_tasks))
 
@@ -474,7 +494,7 @@ class TestStartingAJob:
         with a_model():
             job = await finished(api, await api.put(
                 f"/api/recipe-jobs/{KEY}/photos",
-                files=[("files", ("page.jpg", b"x" * main.MAX_JOB_PHOTO_BYTES, "image/jpeg"))]
+                files=[("files", ("page.jpg", PAGE + b"\0" * (main.MAX_JOB_PHOTO_BYTES - len(PAGE)), "image/jpeg"))]
                 * main.MAX_JOB_PHOTOS,
             ))
 

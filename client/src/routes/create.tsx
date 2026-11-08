@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, Camera, ImagePlus, Loader2, Sparkles, X } from 'lucide-react'
+import { AlertCircle, Camera, Image as ImageIcon, ImagePlus, Loader2, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AddToListButton } from '@/components/AddToListButton'
 import { PageHeader } from '@/components/PageHeader'
@@ -65,6 +65,15 @@ function CreatePage() {
     setPreviews(urls)
     return () => urls.forEach((u) => URL.revokeObjectURL(u))
   }, [photos])
+
+  // Copy the picked files out before clearing the input: clearing it empties
+  // its FileList, and the state updater reads it later, so reading it there
+  // added nothing and the picker seemed to do nothing.
+  const addPhotos = (input: HTMLInputElement) => {
+    const picked = Array.from(input.files ?? [])
+    input.value = ''
+    if (picked.length > 0) setPhotos((p) => [...p, ...picked])
+  }
 
   const trimmed = text.trim()
   // A link plus anything typed with it ("but use quorn mince") imports the
@@ -154,7 +163,7 @@ function CreatePage() {
             <ul className="flex flex-wrap gap-2">
               {previews.map((src, i) => (
                 <li key={src} className="relative">
-                  <img src={src} alt={`Photo ${i + 1}`} className="size-20 rounded-xl object-cover" />
+                  <PhotoThumb src={src} label={`Photo ${i + 1}`} />
                   <button
                     type="button"
                     aria-label={`Remove photo ${i + 1}`}
@@ -175,10 +184,7 @@ function CreatePage() {
               accept="image/*"
               capture="environment"
               className="hidden"
-              onChange={(e) => {
-                setPhotos((p) => [...p, ...Array.from(e.target.files ?? [])])
-                e.target.value = ''
-              }}
+              onChange={(e) => addPhotos(e.currentTarget)}
             />
             <input
               ref={libraryRef}
@@ -186,10 +192,7 @@ function CreatePage() {
               accept="image/*"
               multiple
               className="hidden"
-              onChange={(e) => {
-                setPhotos((p) => [...p, ...Array.from(e.target.files ?? [])])
-                e.target.value = ''
-              }}
+              onChange={(e) => addPhotos(e.currentTarget)}
             />
             <button
               type="button"
@@ -265,4 +268,25 @@ function CreatePage() {
       </div>
     </main>
   )
+}
+
+/**
+ * A picked photo's thumbnail. Most browsers other than Safari can't draw an
+ * iPhone HEIC photo, so those show a plain tile instead of a broken image;
+ * the server converts them before the model reads them.
+ */
+function PhotoThumb({ src, label }: { src: string; label: string }) {
+  const [broken, setBroken] = useState(false)
+  if (broken) {
+    return (
+      <div
+        role="img"
+        aria-label={label}
+        className="flex size-20 items-center justify-center rounded-xl border border-line bg-sand text-ink-muted"
+      >
+        <ImageIcon className="size-6" />
+      </div>
+    )
+  }
+  return <img src={src} alt={label} onError={() => setBroken(true)} className="size-20 rounded-xl object-cover" />
 }

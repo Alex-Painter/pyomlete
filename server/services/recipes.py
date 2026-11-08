@@ -21,6 +21,7 @@ from data_models import IngredientDocument, ListDocument, RecipeDocument
 from ingredient_structurer import structure_ingredients
 from lib.claude import OPUS, answer_text, async_claude
 from lib.db import vo
+from lib.images import NotAnImage, for_model
 from lib.types import IngredientRecipe, RecipeMetadata, RecipeModelResponse
 from recipe_tagger import tag_later
 from recipe_import import BlockedURL, FetchFailed, ScrapedRecipe, fetch_page, scrape
@@ -120,10 +121,14 @@ async def from_images(images: list[RecipeImage]) -> RecipeDocument:
     categories_str = ", ".join(await category_names())
     image_blocks = []
     for image in images:
-        data = base64.standard_b64encode(image.data).decode("utf-8")
+        try:
+            media_type, raw = for_model(image.media_type, image.data)
+        except NotAnImage:
+            raise Invalid("Each photo must be an image, e.g. a JPEG, PNG or iPhone HEIC photo.")
+        data = base64.standard_b64encode(raw).decode("utf-8")
         image_blocks.append({
             "type": "image",
-            "source": {"type": "base64", "media_type": image.media_type, "data": data},
+            "source": {"type": "base64", "media_type": media_type, "data": data},
         })
     image_word = "this image" if len(images) == 1 else "these images"
     runner = async_claude.beta.messages.tool_runner(

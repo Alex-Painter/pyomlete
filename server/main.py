@@ -63,6 +63,7 @@ from lib.types import (
 )
 from services import lists, memory, recipes, settings
 from services.errors import AlreadyImported
+from lib.images import NotAnImage, for_model
 from services.recipes import RecipeImage
 
 logger = logging.getLogger(__name__)
@@ -976,8 +977,6 @@ MAX_WORKING_RECIPE_JOBS = 4
 # 2000 px. 5 MB is the most the model takes for one image.
 MAX_JOB_PHOTOS = 6
 MAX_JOB_PHOTO_BYTES = 5 * 1024 * 1024
-# The image types the model reads, by what the upload says it is: the bytes are not inspected.
-JOB_PHOTO_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 _recipe_job_tasks: set[asyncio.Task] = set()
 # Keys of starts that have passed the cap and not yet made their task.
@@ -1129,7 +1128,7 @@ async def start_photos_job(key: UUID, files: list[UploadFile], response: Respons
     if len(files) > MAX_JOB_PHOTOS:
         raise too_much
     not_photos = HTTPException(
-        status_code=422, detail="Send at least one photo, each a JPEG, PNG, GIF or WebP."
+        status_code=422, detail="Send at least one photo, each a JPEG, PNG, GIF, WebP or HEIC."
     )
     if not files:
         raise not_photos
@@ -1139,9 +1138,12 @@ async def start_photos_job(key: UUID, files: list[UploadFile], response: Respons
         if len(data) > MAX_JOB_PHOTO_BYTES:
             raise too_much
         # Checked here, before a job exists: a model asked to read nothing invents a recipe.
-        if not data or file.content_type not in JOB_PHOTO_TYPES:
+        # The bytes are opened, so a HEIC or untyped photo is converted and anything else refused.
+        try:
+            media_type, data = for_model(file.content_type, data)
+        except NotAnImage:
             raise not_photos
-        images.append(RecipeImage(file.content_type, data))
+        images.append(RecipeImage(media_type, data))
 
     return await _start_recipe_job(key, "photos", lambda: recipes.from_images(images), response)
 
