@@ -17,6 +17,9 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from pymongo.errors import DuplicateKeyError
+from sentry_sdk.crons import monitor
+
+from lib import monitoring
 
 from chef import memory as chef_memory
 from chef import week
@@ -65,6 +68,19 @@ async def weekly(now: datetime, force: bool = False) -> WeekPlanDocument | None:
     week_of = week.next_week_from(now.date(), s.week_start_weekday) if force else due(now, s)
     if week_of is None:
         return None
+    if force:
+        return await _plan(week_of)
+    # A scheduled run checks in with Sentry, which alerts when a week's run
+    # fails or never comes. The schedule goes with it, so a change in Settings
+    # reaches the monitor on the next run.
+    config = monitoring.weekly_monitor_config(
+        s.weekly_plan_weekday, s.weekly_plan_hour, int(CATCH_UP.total_seconds() // 60)
+    )
+    with monitor(monitoring.WEEKLY_MONITOR, monitor_config=config):
+        return await _plan(week_of)
+
+
+async def _plan(week_of: date) -> WeekPlanDocument | None:
     # Made, skipped or waiting: they've seen this week already.
     if await WeekPlanDocument.find_one(WeekPlanDocument.week_of == week_of):
         return None
@@ -127,4 +143,5 @@ async def _plan_now() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    monitoring.init()
     asyncio.run(_plan_now())
