@@ -17,6 +17,6 @@ States: **to port**, **porting** (iOS PR open), **done**, **not needed** (nothin
 | Every Claude call on the 5.5 family | #140 | | not needed | Server only |
 | Recipe tool loops capped | #141 | | not needed | Server only |
 | PostHog for errors and product events | #138, #144 | | not needed for now | The server sends iOS's errors and events already. Crash and screen events from the app itself need the PostHog iOS package, a dependency only Alex adds in Xcode |
-| Open link on the recipe or list Chef makes | #145 | PR_OPEN | porting | Chef chat's change rows get Open beside Undo |
+| Open link on the recipe or list Chef makes | #145 | #150 | porting | Chef chat's change rows get Open beside Undo |
 | Generate image for a recipe, and photos served by the API | #146 | | to port | `image_url` can now be a path (`/api/recipe-images/{id}`) that must be resolved against the API, as the web's `mediaUrl()` does, or the photo doesn't show on iOS |
 | Web photo import fix, HEIC converted on the server | #147 | | not needed | The web fix is to the browser's file input; the server conversion covers iOS uploads too |
