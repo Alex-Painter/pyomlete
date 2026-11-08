@@ -5,6 +5,8 @@ struct LibraryDay {
     let day: PlanDay
     let items: [ListItem]
     let varietyDays: Int
+    /// The calendar says you're out: no top three until you choose to plan anyway.
+    var busy = false
 }
 
 /// The meal library, inline on Plan rather than in a sheet. On a week list it
@@ -41,7 +43,7 @@ struct MealLibrary: View {
             DayRanking(library: history, day: $0.day, days: days, items: $0.items, varietyDays: $0.varietyDays)
         }
         let rows = query.results(history, today: today, day: ranking)
-        if let ranking, let forDay, forDay.day.plan != .out {
+        if let ranking, let forDay, forDay.day.plan != .out, !forDay.busy {
             TopThree(ranking: ranking, mark: mark, onPick: onPick)
                 .id(forDay.day.date)
         }

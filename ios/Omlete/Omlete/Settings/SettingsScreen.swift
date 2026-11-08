@@ -12,6 +12,7 @@ struct SettingsScreen: View {
     @Environment(AppNavigation.self) private var navigation
     @Environment(Chef.self) private var chef
     @Environment(ChefChat.self) private var chefChat
+    @Environment(CalendarReader.self) private var calendar
 
     @State private var drafts = AisleDrafts()
     /// True from the start: the screen asks as it appears, and must not say it failed before it has.
@@ -53,6 +54,10 @@ struct SettingsScreen: View {
                 PlanningTheWeek(settings: library.planSettings) { next in
                     Task { await library.savePlanSettings(next) }
                 }
+            }
+            // Without the calendar usage key in Info.plist, asking would end the app, so the row waits for it.
+            if calendar.canAsk {
+                UseMyCalendar(calendar: calendar)
             }
             WhatChefKnows(memory: chef.memory) { chefChat.height = .half }
         }
@@ -288,6 +293,26 @@ private struct PlanningTheWeek: View {
                 Pasta on Monday ranks pasta lower until \(settings.untilWeekday).
                 """)
             .accessibilityIdentifier("settings.planningFooter")
+        }
+    }
+}
+
+/// Use my calendar: the phone's own calendar marks busy evenings on the week.
+/// Access is asked for only when this is turned on; a no leaves it off.
+private struct UseMyCalendar: View {
+    let calendar: CalendarReader
+
+    var body: some View {
+        Section {
+            Toggle("Use my calendar", isOn: Binding(
+                get: { calendar.isOn },
+                set: { on in Task { await calendar.setUseCalendar(on) } }))
+                .accessibilityIdentifier("settings.useCalendarToggle")
+        } footer: {
+            Text("""
+                Evenings you're busy show on the week, and a part-busy one puts quick dinners first. \
+                Omlete only reads when you're busy, never changes your calendar, and never changes a list on its own.
+                """)
         }
     }
 }

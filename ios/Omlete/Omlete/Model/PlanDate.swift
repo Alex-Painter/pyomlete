@@ -52,6 +52,7 @@ nonisolated struct PlanDate: Hashable, Comparable, Sendable, Codable, CustomStri
         ((daysSince1970 + 3) % 7 + 7) % 7
     }
 
+    var year: Int { civil.year }
     var month: Int { civil.month }
     var day: Int { civil.day }
 
@@ -175,11 +176,12 @@ nonisolated enum Week {
 
     /// The next evening still to plan after `from`, wrapping round the week, so
     /// filling a week is one tap per dinner. Stays on `from` when none is left.
-    static func nextOpenDay(_ days: [PlanDay], from: PlanDate) -> PlanDate {
+    /// `skip` passes over evenings the calendar says you're out.
+    static func nextOpenDay(_ days: [PlanDay], from: PlanDate, skip: (PlanDate) -> Bool = { _ in false }) -> PlanDate {
         guard let start = days.firstIndex(where: { $0.date == from }) else { return from }
         for step in 1..<days.count {
             let day = days[(start + step) % days.count]
-            if day.plan == .open { return day.date }
+            if day.plan == .open, !skip(day.date) { return day.date }
         }
         return from
     }

@@ -13,6 +13,8 @@ struct PlanScreen: View {
     @Environment(Library.self) private var library
     @Environment(AppNavigation.self) private var navigation
     @Environment(ChefChat.self) private var chefChat
+    @Environment(CalendarReader.self) private var calendar
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var editing: ItemID?
     @State private var isRenaming = false
@@ -20,6 +22,10 @@ struct PlanScreen: View {
     @State private var focus = PlanFocus()
     @State private var query = MealLibraryQuery()
     @State private var today = PlanDate.today()
+    /// What the calendar says about each evening of the week, read live and never written to the list.
+    @State private var evenings: [PlanDate: CalendarDays.Evening] = [:]
+    /// Busy evenings you chose to plan anyway, for this visit: the calendar only suggests.
+    @State private var planAnyway: Set<PlanDate> = []
 
     var body: some View {
         let store = library.list(listID)
@@ -50,6 +56,11 @@ struct PlanScreen: View {
             await store.refresh()
         }
         .task { await library.refreshRecipes() }
+        .task { await calendar.watch() }
+        .task(id: CalendarRead(days: store.replica.current?.days.map(\.date) ?? [], isOn: calendar.isOn, changes: calendar.changes)) {
+            readCalendar(store.replica.current?.days ?? [])
+        }
+        .onChange(of: scenePhase) { if scenePhase == .active { calendar.refreshStatus() } }
         // Only the server can work out a meal's last day once a day is cleared,
         // so the library's "Last had" lines are fetched again after it has heard.
         .onChange(of: store.replica.base?.days) { old, _ in
@@ -158,7 +169,7 @@ struct PlanScreen: View {
             .padding(3)
             .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
             if focus.view == .week {
-                WeekStrip(days: list.days, selected: selected, today: today, title: { library.meal($0)?.title }) {
+                WeekStrip(days: list.days, selected: selected, today: today, title: { library.meal($0)?.title }, evenings: evenings) {
                     focus.select($0)
                 }
             }
@@ -213,7 +224,10 @@ struct PlanScreen: View {
                     let title = day.plan.meal.flatMap(library.meal)?.title ?? "the meal"
                     store.clearDay(day.date, title: title)
                 },
-                onOut: { store.setOut(day.date, $0) })
+                onOut: { store.setOut(day.date, $0) },
+                evening: evenings[day.date],
+                planAnyway: planAnyway.contains(day.date),
+                onPlanAnyway: { planAnyway.insert(day.date) })
         } header: {
             HStack {
                 Text("\(day.date.dayLong) \(day.date.longDate)")
@@ -228,7 +242,30 @@ struct PlanScreen: View {
             addedValue: "Planned for \(day.date.dayLong)",
             mark: { $0.id == day.plan.meal ? .added : .add },
             onPick: { plan($0, on: day, in: store) },
-            forDay: LibraryDay(day: day, items: list.items, varietyDays: library.planSettings.varietyDays))
+            forDay: libraryDay(day, list: list))
+    }
+
+    /// A part-busy evening ranks like a quick night, without setting the day's
+    /// own Quick night; a busy one shows no top three until Plan anyway.
+    private func libraryDay(_ day: PlanDay, list: ListDetail) -> LibraryDay {
+        var ranked = day
+        if case .quick = evenings[day.date] { ranked.quick = true }
+        return LibraryDay(
+            day: ranked, items: list.items, varietyDays: library.planSettings.varietyDays,
+            busy: isBusy(day.date) && day.plan.meal == nil)
+    }
+
+    /// The calendar says you're out, and you haven't chosen to plan anyway.
+    private func isBusy(_ date: PlanDate) -> Bool {
+        evenings[date]?.isBusy == true && !planAnyway.contains(date)
+    }
+
+    private func readCalendar(_ days: [PlanDay]) {
+        guard calendar.isOn, let range = CalendarDays.weekRange(days) else {
+            evenings = [:]
+            return
+        }
+        evenings = CalendarDays.week(calendar.busy(from: range.start, to: range.end), days: days, dinner: .init())
     }
 
     /// A quick night ranks dinners over 30 minutes lower. It belongs to the
@@ -261,7 +298,7 @@ struct PlanScreen: View {
             return
         }
         store.plan(meal.id, on: day.date)
-        if case .ready(let list) = store.phase { focus.planned(day.date, days: list.days) }
+        if case .ready(let list) = store.phase { focus.planned(day.date, days: list.days, skip: isBusy) }
     }
 
     private func mealsStrip(
@@ -374,4 +411,11 @@ struct PlanScreen: View {
         }
         .font(.subheadline)
     }
+}
+
+/// What the calendar read depends on, so it reads again when any of it changes.
+private struct CalendarRead: Equatable {
+    let days: [PlanDate]
+    let isOn: Bool
+    let changes: Int
 }
