@@ -28,8 +28,14 @@ export type ChefMessage = {
   parts: ChefPart[]
 }
 
-/** A change Chef made, with the id that undoes it. */
-export type ChefChange = { done: string; undo: string }
+/** A recipe or list Chef made or found, to open from its reply. */
+export type ChefLink = { kind: 'recipe' | 'list'; id: string }
+
+/**
+ * A change Chef made, with the id that undoes it, and the recipe or list it
+ * made when it made one, so the reply always links to it.
+ */
+export type ChefChange = { done: string; undo: string; link?: ChefLink }
 
 type StreamEvent = { type: string; [key: string]: unknown }
 
@@ -122,10 +128,25 @@ export function changesIn(msg: ChefMessage): ChefChange[] {
   return msg.parts.flatMap((p) => {
     if (p.type !== 'tool' || p.state !== 'done') return []
     const out = p.output as Partial<ChefChange> | null | undefined
-    return out && typeof out.undo === 'string' && typeof out.done === 'string'
-      ? [{ done: out.done, undo: out.undo }]
-      : []
+    if (!out || typeof out.undo !== 'string' || typeof out.done !== 'string')
+      return []
+    const link = linkIn(out)
+    return [{ done: out.done, undo: out.undo, ...(link && { link }) }]
   })
+}
+
+/**
+ * The recipe or list a tool output names. Tools that make one return its id
+ * as `recipe_id` or `list_id` (server/chef/chat.py), and so does
+ * import_recipe when the recipe was already saved.
+ */
+export function linkIn(output: unknown): ChefLink | undefined {
+  if (!output || typeof output !== 'object') return undefined
+  const out = output as Record<string, unknown>
+  if (typeof out.recipe_id === 'string')
+    return { kind: 'recipe', id: out.recipe_id }
+  if (typeof out.list_id === 'string') return { kind: 'list', id: out.list_id }
+  return undefined
 }
 
 /**
