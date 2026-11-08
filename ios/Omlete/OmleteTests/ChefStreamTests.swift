@@ -68,7 +68,7 @@ struct ChefStreamTests {
         #expect(message.parts.count == 3)
         #expect(message.parts.last == .text("Done — it's on Week. 🍲"))
         #expect(message.lastLine == "Done — it's on Week. 🍲")
-        #expect(message.changes == [ChefChange(done: "Added Dal to Week", undo: "a1")])
+        #expect(message.changes == [ChefChange(done: "Added Dal to Week", undo: "a1", link: .list("l1"))])
     }
 
     @Test func aToolKeepsItsInputAndEndsDoneOrFailed() throws {

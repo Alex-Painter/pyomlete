@@ -70,6 +70,14 @@ enum Immersive: Hashable, Identifiable {
         }
     }
 
+    /// The recipe or list Chef made, opened on the tab on show, as a link in its reply.
+    func open(_ link: ChefLink) {
+        switch link {
+        case .recipe(let id): push(.recipe(id), on: tab)
+        case .list(let id): push(.plan(id), on: tab)
+        }
+    }
+
     /// Add a recipe over the tab on show.
     func addRecipe() {
         push(.addRecipe, on: tab)
