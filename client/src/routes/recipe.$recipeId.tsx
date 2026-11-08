@@ -7,6 +7,7 @@ import {
   ArrowUp,
   Check,
   ChefHat,
+  ImagePlus,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -23,7 +24,7 @@ import { StarRating } from '@/components/StarRating'
 import { RecipeHeroImage, RecipeMetaRow } from '@/components/RecipeMetaRow'
 import { useUndo } from '@/components/UndoToast'
 import { useAddRecipeToList } from '@/hooks/useAddToList'
-import { apiFetch, apiJson } from '@/lib/api'
+import { ApiError, apiFetch, apiJson } from '@/lib/api'
 import { groupIngredients } from '@/lib/groupIngredients'
 import { highlightAmounts } from '@/lib/highlightAmounts'
 import { formatQuantity } from '@/lib/parseItems'
@@ -90,6 +91,18 @@ function RecipeDetailPage() {
       }),
     onSuccess: () => {
       setEditing(false)
+      void queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
+      void queryClient.invalidateQueries({ queryKey: ['recipes'] })
+    },
+  })
+
+  // One call to an image model (services/images.py): a few seconds, ~1p.
+  const generateImage = useMutation({
+    mutationFn: () =>
+      apiJson<{ id: string; image_url: string }>(`/api/recipes/${recipeId}/image`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recipe', recipeId] })
       void queryClient.invalidateQueries({ queryKey: ['recipes'] })
     },
@@ -174,11 +187,13 @@ function RecipeDetailPage() {
 
         {recipe && (
           <article className="space-y-6">
-            {recipe.image_url && !editing && (
-              <RecipeHeroImage
+            {!editing && (
+              <RecipePhoto
                 src={recipe.image_url}
-                alt={recipe.title}
-                className="h-56 rounded-2xl sm:h-80"
+                title={recipe.title}
+                generating={generateImage.isPending}
+                error={generateImage.error}
+                onGenerate={() => generateImage.mutate()}
               />
             )}
 
@@ -465,6 +480,11 @@ function RecipeDetailPage() {
         actions={[
           { label: 'Edit recipe', icon: <Pencil className="size-5 text-ink-muted" />, onSelect: startEditing },
           {
+            label: recipe?.image_url ? 'New photo' : 'Generate image',
+            icon: <ImagePlus className="size-5 text-ink-muted" />,
+            onSelect: () => generateImage.mutate(),
+          },
+          {
             label: 'Delete recipe',
             destructive: true,
             icon: <Trash2 className="size-5" />,
@@ -473,5 +493,71 @@ function RecipeDetailPage() {
         ]}
       />
     </main>
+  )
+}
+
+/**
+ * The recipe's photo, with Generate image to make one. With no photo yet the
+ * button fills the space the photo will take; with one it sits on the photo
+ * as New photo.
+ */
+function RecipePhoto({
+  src,
+  title,
+  generating,
+  error,
+  onGenerate,
+}: {
+  src: string | null | undefined
+  title: string
+  generating: boolean
+  error: Error | null
+  onGenerate: () => void
+}) {
+  const message =
+    error instanceof ApiError && typeof error.detail === 'string'
+      ? error.detail
+      : error
+        ? "Couldn't make a photo just now. Try again in a moment."
+        : null
+  return (
+    <div className="space-y-2">
+      {src ? (
+        <div className="relative">
+          <RecipeHeroImage
+            src={src}
+            alt={title}
+            className={cn('h-56 rounded-2xl sm:h-80', generating && 'opacity-60')}
+          />
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generating}
+            className="absolute bottom-3 right-3 flex min-h-[44px] items-center gap-2 rounded-full bg-white/90 px-4 text-sm font-semibold text-ink shadow-sm backdrop-blur hover:bg-white disabled:opacity-80"
+          >
+            {generating ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
+            {generating ? 'Making a photo…' : 'New photo'}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={generating}
+          className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line bg-white/60 text-ink-soft hover:bg-sand hover:text-ink disabled:hover:bg-white/60 sm:h-56"
+        >
+          {generating ? <Loader2 className="size-6 animate-spin" /> : <ImagePlus className="size-6" />}
+          <span className="text-base font-semibold">
+            {generating ? 'Making a photo…' : 'Generate image'}
+          </span>
+          {generating && <span className="text-sm text-ink-muted">This takes a few seconds</span>}
+        </button>
+      )}
+      {message && !generating && (
+        <p role="alert" className="text-sm text-danger">
+          {message}
+        </p>
+      )}
+    </div>
   )
 }

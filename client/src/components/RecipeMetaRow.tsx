@@ -1,5 +1,6 @@
 import { Clock, ExternalLink, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { mediaUrl } from '@/lib/api'
 
 /** Provenance and timings — only ever populated by a URL import. */
 export type RecipeMetadata = {
@@ -82,7 +83,7 @@ export function RecipeHeroImage({
 }) {
   return (
     <img
-      src={src}
+      src={mediaUrl(src)}
       alt={alt}
       loading="lazy"
       onError={(e) => {

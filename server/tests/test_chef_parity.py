@@ -20,6 +20,7 @@ ROUTE_TOOLS = {
     ("PUT", "/api/recipes/{recipe_id}"): "update_recipe",
     ("DELETE", "/api/recipes/{recipe_id}"): "delete_recipe",
     ("PATCH", "/api/recipes/{recipe_id}/ingredients/{ingredient_index}/exclude"): "set_ingredient_on_lists",
+    ("POST", "/api/recipes/{recipe_id}/image"): "generate_recipe_image",
     ("POST", "/api/lists/"): "create_list",
     ("PATCH", "/api/lists/{list_id}"): "rename_list",
     ("DELETE", "/api/lists/{list_id}"): "delete_list",

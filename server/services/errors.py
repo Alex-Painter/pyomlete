@@ -51,3 +51,10 @@ class Unavailable(HTTPException):
 
     def __init__(self, detail: str):
         super().__init__(status_code=503, detail=detail)
+
+
+class NotConfigured(HTTPException):
+    """A feature needs a key the server wasn't given."""
+
+    def __init__(self, detail: str):
+        super().__init__(status_code=503, detail=detail)

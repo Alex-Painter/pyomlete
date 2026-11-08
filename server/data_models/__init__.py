@@ -341,3 +341,24 @@ class CalendarConnectionDocument(Document):
 
     class Settings:
         name = "calendar_connections"
+
+
+class RecipeImageDocument(Document):
+    """A photo made for a recipe (services/images.py), served by the API.
+
+    Kept out of RecipeDocument so listing recipes never loads the bytes. The
+    recipe points at it through `image_url` (`/api/recipe-images/{id}`); an
+    older image stays here when a new one replaces it, so Chef's Undo can put
+    it back.
+    """
+
+    recipe_id: str
+    data: bytes
+    content_type: str = "image/jpeg"
+    model: str
+    prompt: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "recipe_images"
+        indexes = ["recipe_id"]

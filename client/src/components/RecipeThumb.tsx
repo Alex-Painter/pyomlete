@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { UtensilsCrossed } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { mediaUrl } from '@/lib/api'
 
 /**
  * A recipe's photo, or a consistent warm placeholder when it has none (or the
@@ -19,7 +20,7 @@ export function RecipeThumb({
   if (src && !failed) {
     return (
       <img
-        src={src}
+        src={mediaUrl(src)}
         alt=""
         loading="lazy"
         onError={() => setFailed(true)}
