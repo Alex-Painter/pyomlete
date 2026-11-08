@@ -53,11 +53,8 @@ struct RecipeScreen: View {
     private func page(_ recipe: Recipe, in store: CookStore) -> some View {
         List {
             Section {
-                if let picture = recipe.imageURL {
-                    RecipePicture(url: picture)
-                        .frame(height: 220)
-                        .listRowInsets(EdgeInsets())
-                }
+                RecipeHero(picture: recipe.imageURL, photo: store.photo, onGenerate: store.makePhoto)
+                    .listRowInsets(EdgeInsets())
                 header(recipe)
                 actions(recipe, in: store)
             }
@@ -95,6 +92,11 @@ struct RecipeScreen: View {
                     Button("Edit recipe", systemImage: "pencil") { isStartingEdit = true }
                         .disabled(isStartingEdit)
                         .accessibilityIdentifier("recipe.editAction")
+                    Button(recipe.imageURL == nil ? "Generate image" : "New photo", systemImage: "photo.badge.plus") {
+                        store.makePhoto()
+                    }
+                    .disabled(store.photo == .making)
+                    .accessibilityIdentifier("recipe.photoAction")
                     Button("Delete recipe", systemImage: "trash", role: .destructive) {
                         library.deleteRecipe(recipe.id, title: recipe.title)
                         dismiss()
@@ -215,5 +217,75 @@ struct RecipeScreen: View {
             .accessibilityLabel("\(line.ingredient.name): \(isOn ? "on shopping lists" : "not on shopping lists")")
             .accessibilityAddTraits(isOn ? .isSelected : [])
             .accessibilityIdentifier("recipe.onList.\(line.id)")
+    }
+}
+
+/// The recipe's photo, with Generate image to make one. With no photo yet the
+/// button fills the space the photo will take; with one it sits on the photo
+/// as New photo. Why the last try failed shows under it.
+private struct RecipeHero: View {
+    let picture: URL?
+    let photo: PhotoState
+    let onGenerate: () -> Void
+
+    private var making: Bool { photo == .making }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let picture {
+                RecipePicture(url: picture)
+                    .frame(height: 220)
+                    .opacity(making ? 0.6 : 1)
+                    .overlay(alignment: .bottomTrailing) {
+                        Button(action: onGenerate) {
+                            Label {
+                                Text(making ? "Making a photo…" : "New photo")
+                            } icon: {
+                                if making { ProgressView() } else { Image(systemName: "photo.badge.plus") }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(12)
+                        .disabled(making)
+                        .accessibilityIdentifier("recipe.generateImageButton")
+                    }
+            } else {
+                Button(action: onGenerate) {
+                    VStack(spacing: 8) {
+                        if making {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "photo.badge.plus").font(.title2)
+                        }
+                        Text(making ? "Making a photo…" : "Generate image")
+                            .font(.body.weight(.semibold))
+                        if making {
+                            Text("This takes a few seconds")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 160)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .background(Color(.tertiarySystemFill))
+                .disabled(making)
+                .accessibilityIdentifier("recipe.generateImageButton")
+            }
+            if case .failed(let message) = photo {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier("recipe.photoError")
+            }
+        }
     }
 }
