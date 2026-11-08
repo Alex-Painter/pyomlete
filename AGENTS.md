@@ -109,6 +109,10 @@ See `docs/PRD_URL_IMPORT.md` for the design and what's still outstanding.
 
 A native SwiftUI client lives in `ios/` (Xcode project at `ios/Omlete/Omlete.xcodeproj`). It has its own rules, build tooling and prohibitions: read `ios/CLAUDE.md` before touching anything there. The web routes in `client/src/routes` are the spec for each iOS screen.
 
+### Keeping iOS in step with the web
+
+Every change to the web app gets the same change on iOS. When a PR that changes `client/` merges, port it to `ios/` in its own PR, following `ios/CLAUDE.md`, and add or update its row in `docs/IOS_PARITY.md` (the web PR, the iOS PR, and its state). A web PR with nothing to port gets a row saying why. A port changes only what the web change needs, keeps the same behaviour, wording and accessibility identifiers, and is not done until it builds and the iOS tests pass on a Mac.
+
 ## shadcn Components
 
 Install new shadcn components with:
