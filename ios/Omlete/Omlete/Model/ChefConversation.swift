@@ -95,14 +95,41 @@ nonisolated struct ChefTool: Equatable, Sendable {
     var change: ChefChange? {
         guard case .done(let output) = state, let done = output["done"]?.string, let undo = output["undo"]?.string
         else { return nil }
-        return ChefChange(done: done, undo: ChefActionID(undo))
+        return ChefChange(done: done, undo: ChefActionID(undo), link: ChefLink(output))
+    }
+
+    /// import_recipe found the recipe already saved: nothing to undo, but still somewhere to go.
+    var alreadySaved: ChefLink? {
+        guard case .done(let output) = state, output["already_saved"] == .bool(true) else { return nil }
+        return ChefLink(output)
     }
 }
 
-/// A change Chef made, with the id that undoes it.
+/// A change Chef made, with the id that undoes it, and the recipe or list it
+/// made when it made one, so the reply always links to it.
 nonisolated struct ChefChange: Hashable, Sendable {
     let done: String
     let undo: ChefActionID
+    var link: ChefLink? = nil
+}
+
+/// A recipe or list Chef made or found, to open from its reply.
+nonisolated enum ChefLink: Hashable, Sendable {
+    case recipe(RecipeID)
+    case list(ListID)
+
+    /// The recipe or list a tool's output names. Tools that make one return
+    /// its id as `recipe_id` or `list_id` (server/chef/chat.py), and so does
+    /// import_recipe when the recipe was already saved.
+    init?(_ output: JSONValue) {
+        if let id = output["recipe_id"]?.string {
+            self = .recipe(RecipeID(id))
+        } else if let id = output["list_id"]?.string {
+            self = .list(ListID(id))
+        } else {
+            return nil
+        }
+    }
 }
 
 /// Where the user is, as the web names it. Each message to Chef carries the
