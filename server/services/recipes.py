@@ -19,6 +19,7 @@ from pydantic import TypeAdapter
 
 from data_models import IngredientDocument, ListDocument, RecipeDocument
 from ingredient_structurer import structure_ingredients
+from lib import analytics
 from lib.claude import OPUS, answer_text, async_claude
 from lib.db import vo
 from lib.images import NotAnImage, for_model
@@ -36,7 +37,9 @@ recipeSchema = transform_schema(recipeSchema)
 
 
 async def save(
-    recipe: RecipeModelResponse, metadata: RecipeMetadata | None = None
+    recipe: RecipeModelResponse,
+    metadata: RecipeMetadata | None = None,
+    source: str = "other",
 ) -> RecipeDocument:
     new_ingredients = [i for i in recipe.ingredients if i.is_new]
     existing_ingredients = [i for i in recipe.ingredients if not i.is_new]
@@ -80,6 +83,10 @@ async def save(
     )
     await db_recipe.insert()
     tag_later(db_recipe.id)
+    analytics.capture(
+        "recipe created", source=source, ingredients=len(ingredients),
+        new_ingredients=len(new_ingredients),
+    )
     return db_recipe
 
 
@@ -106,7 +113,7 @@ async def generate(prompt: str) -> RecipeDocument:
 
     final_message = await run_until_done(runner)
     recipe = RecipeModelResponse.model_validate_json(answer_text(final_message))
-    return await save(recipe)
+    return await save(recipe, source="describe")
 
 
 class RecipeImage(NamedTuple):
@@ -154,7 +161,7 @@ async def from_images(images: list[RecipeImage]) -> RecipeDocument:
     )
     final_message = await run_until_done(runner)
     recipe = RecipeModelResponse.model_validate_json(answer_text(final_message))
-    return await save(recipe)
+    return await save(recipe, source="photos")
 
 
 # --- Import from URL ---
@@ -313,7 +320,7 @@ async def import_url(url: str, changes: str | None = None) -> RecipeDocument:
     if changes:
         recipe = await _apply_changes(recipe, changes, categories_str)
 
-    return await save(recipe, metadata)
+    return await save(recipe, metadata, source="link")
 
 
 async def get(recipe_id: PydanticObjectId) -> RecipeDocument:

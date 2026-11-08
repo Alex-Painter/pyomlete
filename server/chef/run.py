@@ -17,13 +17,11 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from pymongo.errors import DuplicateKeyError
-from sentry_sdk.crons import monitor
-
-from lib import monitoring
 
 from chef import memory as chef_memory
 from chef import week
 from data_models import UserSettingsDocument, WeekPlanDocument
+from lib import analytics
 from services import settings
 
 logger = logging.getLogger("chef.run")
@@ -68,33 +66,28 @@ async def weekly(now: datetime, force: bool = False) -> WeekPlanDocument | None:
     week_of = week.next_week_from(now.date(), s.week_start_weekday) if force else due(now, s)
     if week_of is None:
         return None
-    if force:
-        return await _plan(week_of)
-    # A scheduled run checks in with Sentry, which alerts when a week's run
-    # fails or never comes. The schedule goes with it, so a change in Settings
-    # reaches the monitor on the next run.
-    config = monitoring.weekly_monitor_config(
-        s.weekly_plan_weekday, s.weekly_plan_hour, int(CATCH_UP.total_seconds() // 60)
-    )
-    with monitor(monitoring.WEEKLY_MONITOR, monitor_config=config):
-        return await _plan(week_of)
-
-
-async def _plan(week_of: date) -> WeekPlanDocument | None:
     # Made, skipped or waiting: they've seen this week already.
     if await WeekPlanDocument.find_one(WeekPlanDocument.week_of == week_of):
         return None
+    # Each run that was due is an event in PostHog, so a week that failed to
+    # plan, or a run that stopped happening, shows on a chart and can alert.
+    run_props = {"week_of": week_of.isoformat(), "forced": force}
     try:
         await chef_memory.distil()
     except Exception:
         # Planning on last week's preferences beats not planning.
         logger.exception("Distil failed; planning with what Chef already knows")
+        run_props["distil_failed"] = True
     try:
         plan, _ = await week.plan(week_of=week_of)
     except DuplicateKeyError:
         # Another instance, mid-deploy, planned it first.
         return None
+    except Exception:
+        analytics.capture("weekly run", outcome="failed", **run_props)
+        raise
     logger.info("Planned the week of %s", week_of)
+    analytics.capture("weekly run", outcome="planned", **run_props)
     return plan
 
 
@@ -143,5 +136,8 @@ async def _plan_now() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    monitoring.init()
-    asyncio.run(_plan_now())
+    analytics.init()
+    try:
+        asyncio.run(_plan_now())
+    finally:
+        analytics.shutdown()

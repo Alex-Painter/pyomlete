@@ -10,6 +10,7 @@ from pydantic_ai import Agent, NativeOutput
 
 from chef import memory as chef_memory
 from data_models import ListDocument, RecipeDocument, SuggestionDocument
+from lib import analytics
 from lib.claude import OPUS, agent_model
 from lib.types import SuggestedMeals, SuggestionRefreshRequest
 from services import memory
@@ -117,4 +118,5 @@ async def refresh(req: SuggestionRefreshRequest) -> list[SuggestionDocument]:
     # One at a time so each document gets its id back for the response.
     for d in docs:
         await d.insert()
+    analytics.capture("suggestions refreshed", cards=len(docs))
     return docs

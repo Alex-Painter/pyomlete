@@ -29,7 +29,7 @@ from data_models import (
     UserSettingsDocument,
     WeekPlanDocument,
 )
-from lib import monitoring
+from lib import analytics
 from lib.db import get_motor_client, init_documents
 from lib.types import (
     CalendarSettingsRequest,
@@ -68,13 +68,12 @@ from services.recipes import RecipeImage
 
 logger = logging.getLogger(__name__)
 
-# Before the app is built, so Sentry's FastAPI integration sees it. Off without SENTRY_DSN.
-monitoring.init()
+# Error tracking and product events in PostHog. Off without POSTHOG_API_KEY.
+analytics.init()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    monitoring.watch_tasks()
     client = get_motor_client()
     await init_documents(client)
     weekly_run = asyncio.create_task(run.keep_planning())
@@ -82,6 +81,7 @@ async def lifespan(app: FastAPI):
     weekly_run.cancel()
     await _end_running_work()
     client.close()
+    analytics.shutdown()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -94,6 +94,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+analytics.add_middleware(app)
 router = APIRouter(prefix="/api")
 
 # The routes only shape requests and responses. What they do lives in
@@ -1169,7 +1170,9 @@ async def chef_chat(request: Request):
     except ValidationError as exc:
         return Response(content=exc.json(), media_type="application/json", status_code=422)
     run_input = adapter.run_input
-    deps = chat.deps_for(run_input.id, (run_input.model_extra or {}).get("page"), adapter.messages)
+    page = (run_input.model_extra or {}).get("page")
+    deps = chat.deps_for(run_input.id, page, adapter.messages)
+    analytics.capture("chef message", page=page.get("kind") if isinstance(page, dict) else None)
     return adapter.streaming_response(adapter.run_stream(deps=deps))
 
 

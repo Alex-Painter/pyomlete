@@ -12,6 +12,7 @@ from beanie.operators import In
 from bson import ObjectId
 
 from data_models import ItemSource, ListDocument, ListItem, PlanDay, RecipeDocument
+from lib import analytics
 from lib.types import ItemUpdateRequest
 from services import recipes
 from services.errors import Conflict, Invalid, NotFound, OutOfRange
@@ -84,6 +85,7 @@ async def create(week_start: date | None = None) -> ListDocument:
             days=[PlanDay(date=week_start + timedelta(days=n)) for n in range(7)],
         )
     await lst.insert()
+    analytics.capture("list created", week=week_start is not None)
     return lst
 
 
