@@ -47,6 +47,21 @@ struct RatingView: Equatable {
     let status: Status
 }
 
+/// Generate image on the recipe page: idle, a photo being made, or why the last try didn't make one.
+enum PhotoState: Equatable {
+    case idle
+    case making
+    case failed(String)
+
+    static let fallback = "Couldn't make a photo just now. Try again in a moment."
+
+    init(failure: APIError, message: String?) {
+        self = failure == .unreachable
+            ? .failed("Couldn't reach Omlete. Making a photo needs a connection.")
+            : .failed(message ?? Self.fallback)
+    }
+}
+
 /// One recipe on this phone, cooked or only looked at. Handed out only by
 /// `Kitchen.cook(_:)`, so there is one instance per recipe, it outlives the
 /// Cook screen, and Cook and the recipe page show the same rating.
@@ -71,6 +86,8 @@ struct RatingView: Equatable {
     private var latest: Recipe?
     private var deletedOnServer = false
     private var delivery: RatingDelivery
+    /// Generate image, which lasts only as long as this launch.
+    private(set) var photo: PhotoState = .idle
 
     @ObservationIgnored private let deps: KitchenDependencies
     @ObservationIgnored private var sleeper: Task<Void, Never>?
@@ -175,6 +192,26 @@ struct RatingView: Equatable {
         saves += 1
         take(saved)
         deps.recipeSaved(saved)
+    }
+
+    /// Asks the server for a photo of the dish (a few seconds, about a penny)
+    /// and shows the recipe with it. Never on its own: a photo costs money,
+    /// so it is made only when someone taps. A second tap while one is being
+    /// made does nothing.
+    func makePhoto() {
+        guard photo != .making else { return }
+        photo = .making
+        Task {
+            switch await deps.api.generateImage(id) {
+            case .made(let url):
+                await fetch(reportingFailure: false)
+                if latest?.imageURL != url, let url { latest?.imageURL = url }
+                if let latest { deps.recipeSaved(latest) }
+                photo = .idle
+            case .failed(let failure, let message):
+                photo = PhotoState(failure: failure, message: message)
+            }
+        }
     }
 
     @discardableResult
