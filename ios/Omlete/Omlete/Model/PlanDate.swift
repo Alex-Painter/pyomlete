@@ -107,8 +107,12 @@ nonisolated extension PlanDate {
     var dayShort: String { Self.shortDays[weekday] }
     /// "Tuesday"
     var dayLong: String { Self.longDays[weekday] }
+    /// "Monday" for 0, as the server numbers weekdays.
+    static func weekdayLong(_ weekday: Int) -> String { longDays[weekday] }
     /// "Tue 20 Oct"
     var shortLabel: String { "\(dayShort) \(day) \(Self.shortMonths[month - 1])" }
+    /// "August"
+    var monthLong: String { Self.longMonths[month - 1] }
     /// "20 October"
     var longDate: String { "\(day) \(Self.longMonths[month - 1])" }
 }
@@ -128,8 +132,37 @@ nonisolated enum DayPlan: Codable, Hashable, Sendable {
 nonisolated struct PlanDay: Codable, Hashable, Sendable, Identifiable {
     let date: PlanDate
     var plan: DayPlan
+    /// A quick night: dinners over 30 minutes sink in the fit score. It belongs
+    /// to the evening, so it stays when a meal goes on or comes off.
+    var quick = false
 
     var id: PlanDate { date }
+}
+
+/// A day saved by a build from before quick nights has none.
+nonisolated extension PlanDay {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decode(PlanDate.self, forKey: .date)
+        plan = try container.decode(DayPlan.self, forKey: .plan)
+        quick = try container.decodeIfPresent(Bool.self, forKey: .quick) ?? false
+    }
+}
+
+/// Settings > Planning the week, from `/api/settings/plan`.
+nonisolated struct PlanSettings: Codable, Equatable, Sendable {
+    static let defaultVarietyDays = 3
+    static let varietyRange = 1...7
+
+    /// 0 is Monday. Saturday by default: the week runs from one shop to the next.
+    var weekStartWeekday: Int
+    /// How many days a base (pasta, rice...) stays off the menu after it is had.
+    var varietyDays: Int
+
+    /// "Pasta on Monday ranks pasta lower until Thursday."
+    var untilWeekday: String {
+        PlanDate.weekdayLong((varietyDays + 1) % 7)
+    }
 }
 
 /// The week's rules that are not about one day, apart from any screen.

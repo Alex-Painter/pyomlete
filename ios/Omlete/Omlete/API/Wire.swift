@@ -38,7 +38,7 @@ nonisolated enum Wire {
     /// A meal wins over Out, as the server keeps it, so the two never arrive together.
     private static func day(_ dto: DayDTO) throws -> PlanDay {
         let plan: DayPlan = if let recipe = dto.recipe_id { .meal(RecipeID(recipe)) } else if dto.status == "out" { .out } else { .open }
-        return PlanDay(date: try planDate(dto.date), plan: plan)
+        return PlanDay(date: try planDate(dto.date), plan: plan, quick: dto.quick ?? false)
     }
 
     private static func planDate(_ text: String) throws -> PlanDate {
@@ -52,11 +52,11 @@ nonisolated enum Wire {
         try text.map(planDate)
     }
 
-    static func dayUpdate(_ plan: DayPlan) throws(APIError) -> Data {
+    static func dayUpdate(_ plan: DayPlan, quick: Bool? = nil) throws(APIError) -> Data {
         switch plan {
-        case .meal(let recipe): try encode(DayUpdateDTO(recipe_id: recipe.rawValue, status: "open"))
-        case .open: try encode(DayUpdateDTO(recipe_id: nil, status: "open"))
-        case .out: try encode(DayUpdateDTO(recipe_id: nil, status: "out"))
+        case .meal(let recipe): try encode(DayUpdateDTO(recipe_id: recipe.rawValue, status: "open", quick: quick))
+        case .open: try encode(DayUpdateDTO(recipe_id: nil, status: "open", quick: quick))
+        case .out: try encode(DayUpdateDTO(recipe_id: nil, status: "out", quick: quick))
         }
     }
 
@@ -69,12 +69,17 @@ nonisolated enum Wire {
         try encode(CategoriesDTO(categories: order.names.enumerated().map { CategoryDTO(name: $1, order: $0) }))
     }
 
-    static func weekStartWeekday(_ data: Data) throws -> Int {
-        let weekday = try JSONDecoder().decode(PlanSettingsDTO.self, from: data).week_start_weekday
-        guard (0...6).contains(weekday) else {
-            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not a weekday: \(weekday)"))
+    /// A server from before the variety window sends only the weekday; the window is then 3.
+    static func planSettings(_ data: Data) throws -> PlanSettings {
+        let dto = try JSONDecoder().decode(PlanSettingsDTO.self, from: data)
+        guard (0...6).contains(dto.week_start_weekday) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not a weekday: \(dto.week_start_weekday)"))
         }
-        return weekday
+        return PlanSettings(weekStartWeekday: dto.week_start_weekday, varietyDays: dto.variety_days ?? PlanSettings.defaultVarietyDays)
+    }
+
+    static func planSettingsBody(_ settings: PlanSettings) throws(APIError) -> Data {
+        try encode(PlanSettingsBodyDTO(week_start_weekday: settings.weekStartWeekday, variety_days: settings.varietyDays))
     }
 
     static func category(_ data: Data) throws -> String {
@@ -91,7 +96,7 @@ nonisolated enum Wire {
                 id: RecipeID($0.id), title: $0.title, imageURL: $0.image_url.flatMap(URL.init(string:)),
                 totalMinutes: $0.total_minutes, rating: $0.rating, sourceName: $0.source_name,
                 ingredientCount: $0.ingredient_count, lastPlannedOn: try planDate($0.last_planned_on),
-                ingredientNames: $0.ingredient_names ?? [], cuisine: $0.cuisine, createdAt: date($0.created_at))
+                ingredientNames: $0.ingredient_names ?? [], cuisine: $0.cuisine, createdAt: date($0.created_at), tags: $0.tags?.tags)
         }
     }
 
@@ -367,21 +372,25 @@ nonisolated private struct DayDTO: Decodable {
     let date: String
     let recipe_id: String?
     let status: String?
+    let quick: Bool?
 }
 
 /// `recipe_id` goes as null to clear a day, so it is written out even when nil.
+/// Left out, `quick` stays as the server has it, so a meal going on keeps the quick night.
 nonisolated private struct DayUpdateDTO: Encodable {
     let recipe_id: String?
     let status: String
+    var quick: Bool? = nil
 
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(recipe_id, forKey: .recipe_id)
         try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(quick, forKey: .quick)
     }
 
     private enum CodingKeys: CodingKey {
-        case recipe_id, status
+        case recipe_id, status, quick
     }
 }
 
@@ -396,6 +405,12 @@ nonisolated private struct CategoryDTO: Codable {
 
 nonisolated private struct PlanSettingsDTO: Decodable {
     let week_start_weekday: Int
+    let variety_days: Int?
+}
+
+nonisolated private struct PlanSettingsBodyDTO: Encodable {
+    let week_start_weekday: Int
+    let variety_days: Int
 }
 
 nonisolated private struct CategorizedDTO: Decodable {
@@ -414,6 +429,20 @@ nonisolated private struct RecipeDTO: Decodable {
     let ingredient_names: [String]?
     let cuisine: String?
     let created_at: String?
+    let tags: TagsDTO?
+}
+
+/// Every field optional, so a recipe tagged in some other shape still loads, untagged.
+nonisolated private struct TagsDTO: Decodable {
+    let base: String?
+    let main: String?
+    let mood: String?
+    let cuisine: String?
+
+    var tags: RecipeTags? {
+        guard let base, let main, let mood, let cuisine else { return nil }
+        return RecipeTags(base: base, main: main, mood: mood, cuisine: cuisine)
+    }
 }
 
 /// A whole recipe is the Mongo document, so its id is `_id`.

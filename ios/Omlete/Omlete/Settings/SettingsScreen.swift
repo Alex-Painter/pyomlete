@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings: the aisles, in the order lists are grouped by, then what Chef
-/// knows. Pushed on the tab
+/// Settings: the aisles, in the order lists are grouped by, then planning the
+/// week, then what Chef knows. Pushed on the tab
 /// it was opened from, not a sheet: every change saves as it is made, so there
 /// is nothing for a Done or a Cancel to mean, and Back returns to that tab.
 ///
@@ -49,6 +49,11 @@ struct SettingsScreen: View {
                     """)
             }
             .disabled(!store.isLoaded)
+            if library.planSettingsKnown {
+                PlanningTheWeek(settings: library.planSettings) { next in
+                    Task { await library.savePlanSettings(next) }
+                }
+            }
             WhatChefKnows(memory: chef.memory) { chefChat.height = .half }
         }
         // Always in edit mode, which is what shows the handles that move an aisle.
@@ -67,6 +72,7 @@ struct SettingsScreen: View {
         }
         .task { await load() }
         .task { await chef.memory.load() }
+        .task { if !library.planSettingsKnown { await library.refresh() } }
         // Back takes no focus from a field, so a rename typed and not yet offered is offered here.
         // The screen's own going, not a row's: a row also goes when a long list scrolls it away.
         .onDisappear { save(drafts.renameAll(in: aisles, beingDeleted: store.beingDeleted)) }
@@ -244,6 +250,44 @@ private struct PreferenceRow: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("settings.forgetPreference.\(preference.subject)")
+        }
+    }
+}
+
+/// The shop day a week starts on, and how long a base (pasta, rice...) stays
+/// off the menu once it has been had, which ranks each evening's meals on Plan.
+private struct PlanningTheWeek: View {
+    let settings: PlanSettings
+    let onChange: (PlanSettings) -> Void
+
+    var body: some View {
+        Section {
+            Picker("Week starts on", selection: Binding(
+                get: { settings.weekStartWeekday },
+                set: { weekday in var next = settings; next.weekStartWeekday = weekday; onChange(next) }
+            )) {
+                ForEach(0..<7, id: \.self) { weekday in
+                    Text(PlanDate.weekdayLong(weekday)).tag(weekday)
+                }
+            }
+            .accessibilityIdentifier("settings.weekStartPicker")
+            Picker("Same base again after", selection: Binding(
+                get: { settings.varietyDays },
+                set: { days in var next = settings; next.varietyDays = days; onChange(next) }
+            )) {
+                ForEach(PlanSettings.varietyRange, id: \.self) { days in
+                    Text(days == 1 ? "1 day" : "\(days) days").tag(days)
+                }
+            }
+            .accessibilityIdentifier("settings.varietyPicker")
+        } header: {
+            Text("Planning the week")
+        } footer: {
+            Text("""
+                A week runs from one shop to the next. Each evening's meals are ranked so the week stays varied. \
+                Pasta on Monday ranks pasta lower until \(settings.untilWeekday).
+                """)
+            .accessibilityIdentifier("settings.planningFooter")
         }
     }
 }

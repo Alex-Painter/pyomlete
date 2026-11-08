@@ -14,6 +14,8 @@ nonisolated struct LibraryIndex: Codable, Equatable, Sendable {
     var deletingRecipes: Set<RecipeID> = []
     /// The weekday a week starts on, as the server last said. Nil until it has.
     var weekStartWeekday: Int?
+    /// How long a base stays off the menu, as the server last said. Nil until it has.
+    var varietyDays: Int?
 }
 
 /// The aisles as they outlive a kill. A file of their own and not part of the
@@ -39,6 +41,7 @@ nonisolated extension LibraryIndex {
         currentList = try container.decodeIfPresent(ListID.self, forKey: .currentList)
         deletingRecipes = try container.decodeIfPresent(Set<RecipeID>.self, forKey: .deletingRecipes) ?? []
         weekStartWeekday = try container.decodeIfPresent(Int.self, forKey: .weekStartWeekday)
+        varietyDays = try container.decodeIfPresent(Int.self, forKey: .varietyDays)
     }
 }
 

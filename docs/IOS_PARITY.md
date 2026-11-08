@@ -10,7 +10,7 @@ States: **to port**, **porting** (iOS PR open), **done**, **not needed** (nothin
 | Cooked tick on a list's meals | #118 | #130 | done | |
 | New list: a plain list or a week ahead | #139 | #139 | done | Open nit: a plain list's Meals section says "Pick this week's meals" |
 | Recipe tags (base, main, mood, cuisine, traits) | #131 | | not needed | Server only; iOS reads the tags for the fit score below |
-| Fit score: each evening ranked, top three, reasons, Quick night, Planning the week in Settings | #132 | | to port | P2-IOS in the plan-the-week build plan; shared cases in `docs/fixtures/fit-score-cases.json` |
+| Fit score: each evening ranked, top three, reasons, Quick night, Planning the week in Settings | #132 | PR_FIT | porting | P2-IOS in the plan-the-week build plan; shared cases in `docs/fixtures/fit-score-cases.json` |
 | Narrow it down (Help me choose) | #133 | | to port | P3-IOS; shared cases in `docs/fixtures/narrow-cases.json`. Builds on the fit score |
 | Calendar on the week: busy, part-busy and free evenings, Settings | #134, #135 | | to port | P4-IOS reads the phone's calendar with EventKit instead of Google sign-in. Needs `NSCalendarsFullAccessUsageDescription` in Info.plist, which only Alex adds |
 | Link import and weekly plan fixes on the new keys and models | #137 | | not needed | Server only |
