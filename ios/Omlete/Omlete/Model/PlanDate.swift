@@ -167,4 +167,29 @@ nonisolated enum Week {
         let start = current.days(to: today) == 6 ? current.adding(days: 7) : current
         return (start, lists.first { $0.weekStart == start }?.id)
     }
+
+    /// The weeks New list offers: the one Plan a week opens and the next two,
+    /// so a week can be planned ahead. Each carries its list when one is
+    /// already made, which is opened rather than a second copy made.
+    static func ahead(
+        today: PlanDate, weekday: Int, lists: [ListSummary], count: Int = 3
+    ) -> [(start: PlanDate, list: ListID?)] {
+        let first = toPlan(today: today, weekday: weekday, lists: lists).start
+        return (0..<count).map { n in
+            let start = first.adding(days: 7 * n)
+            return (start, lists.first { $0.weekStart == start }?.id)
+        }
+    }
+
+    /// "This week, Sat 31 Oct", "Next week, Sat 7 Nov", then "Week of Sat 14
+    /// Nov", with "Open" in front when the week already has a list.
+    static func choiceLabel(start: PlanDate, hasList: Bool, today: PlanDate, weekday: Int) -> String {
+        let ahead = Self.start(for: today, weekday: weekday).days(to: start) / 7
+        let name = switch ahead {
+        case 0: "this week, \(start.shortLabel)"
+        case 1: "next week, \(start.shortLabel)"
+        default: "week of \(start.shortLabel)"
+        }
+        return hasList ? "Open \(name)" : name.prefix(1).uppercased() + name.dropFirst()
+    }
 }

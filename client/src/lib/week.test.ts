@@ -8,6 +8,7 @@ import {
   todayISO,
   weekStartFor,
   weekToPlan,
+  weeksAhead,
 } from './week'
 import type { PlanDay } from './types'
 
@@ -111,5 +112,28 @@ describe('nextOpenDay', () => {
   it('stays put when every evening is decided', () => {
     const days = week('2026-10-17').map((d) => ({ ...d, recipe_id: 'x' }))
     expect(nextOpenDay(days, '2026-10-19')).toBe('2026-10-19')
+  })
+})
+
+describe('weeksAhead', () => {
+  // Weeks start on Saturday (5); 2026-10-17 is a Saturday.
+  it('offers the week Plan a week opens and the two after it', () => {
+    expect(weeksAhead('2026-10-20', 5, []).map((w) => w.weekStart)).toEqual([
+      '2026-10-17',
+      '2026-10-24',
+      '2026-10-31',
+    ])
+  })
+
+  it('starts from next week on the last day of this one', () => {
+    expect(weeksAhead('2026-10-23', 5, [])[0].weekStart).toBe('2026-10-24')
+  })
+
+  it('carries the list already made for a week', () => {
+    const lists = [
+      { id: 'plain', week_start: null },
+      { id: 'next', week_start: '2026-10-24' },
+    ]
+    expect(weeksAhead('2026-10-20', 5, lists).map((w) => w.listId)).toEqual([null, 'next', null])
   })
 })

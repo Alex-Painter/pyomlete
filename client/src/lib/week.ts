@@ -74,6 +74,24 @@ export function weekToPlan(
   return { weekStart, listId: lists.find((l) => l.week_start === weekStart)?.id ?? null }
 }
 
+/**
+ * The weeks New list offers: the one Plan a week opens and the next two, so a
+ * week can be planned ahead. Each carries its list when one is already made,
+ * which is opened rather than a second copy made.
+ */
+export function weeksAhead(
+  today: ISODate,
+  weekday: number,
+  lists: { id: string; week_start: ISODate | null }[],
+  count = 3,
+): { weekStart: ISODate; listId: string | null }[] {
+  const { weekStart: first } = weekToPlan(today, weekday, lists)
+  return Array.from({ length: count }, (_, n) => {
+    const weekStart = addDays(first, 7 * n)
+    return { weekStart, listId: lists.find((l) => l.week_start === weekStart)?.id ?? null }
+  })
+}
+
 export const dayShort = (date: ISODate) => DAY_SHORT[weekdayOf(date)]
 export const dayLong = (date: ISODate) => DAY_LONG[weekdayOf(date)]
 export const dayOfMonth = (date: ISODate) => toUTC(date).getUTCDate()
