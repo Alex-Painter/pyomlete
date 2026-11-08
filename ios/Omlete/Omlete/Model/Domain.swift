@@ -71,6 +71,19 @@ nonisolated struct ListDetail: Codable, Equatable, Sendable {
     var isWeek: Bool { weekStart != nil && !days.isEmpty }
 }
 
+/// What a dinner is built on, for the week's variety rules (`server/recipe_tagger.py`).
+/// Kept as the server's words, so a value added there later still loads.
+nonisolated struct RecipeTags: Codable, Hashable, Sendable {
+    /// rice, pasta, potatoes, bread, noodles or none
+    var base: String
+    /// chicken, beef, pork, lamb, fish, veggie or beans
+    var main: String
+    /// comforting, fresh or different
+    var mood: String
+    /// A cuisine family such as italian or south_east_asian, or other
+    var cuisine: String
+}
+
 nonisolated struct ListSummary: Identifiable, Codable, Equatable, Sendable {
     struct Meal: Codable, Equatable, Sendable {
         let id: RecipeID
@@ -101,6 +114,8 @@ nonisolated struct RecipeSummary: Identifiable, Codable, Equatable, Sendable {
     var ingredientNames: [String] = []
     var cuisine: String? = nil
     var createdAt: Date? = nil
+    /// What the dinner is built on, set by the server after it is saved. Nil until then.
+    var tags: RecipeTags? = nil
 }
 
 /// Where a recipe or an idea came from. A source always has a name to show;
@@ -166,5 +181,6 @@ nonisolated extension RecipeSummary {
         ingredientNames = try container.decodeIfPresent([String].self, forKey: .ingredientNames) ?? []
         cuisine = try container.decodeIfPresent(String.self, forKey: .cuisine)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+        tags = try container.decodeIfPresent(RecipeTags.self, forKey: .tags)
     }
 }

@@ -164,6 +164,12 @@ struct StoreDependencies {
         })
     }
 
+    /// A quick night, or not. Keeps the evening's meal and whether it is out. Works offline.
+    func setQuick(_ date: PlanDate, _ quick: Bool) {
+        guard let day = day(date), day.quick != quick else { return }
+        apply(.setQuick(date, day.plan, quick))
+    }
+
     /// Out for the evening, or back in. An evening with a meal keeps it.
     func setOut(_ date: PlanDate, _ out: Bool) {
         guard let day = day(date), day.plan.meal == nil else { return }

@@ -12,6 +12,7 @@ Two parts. Aisles: the aisles in the order lists are grouped by, each with its n
 - `settings-items-keep-their-aisle` leaves the items of a renamed or deleted aisle under the old name, after every aisle still in the order.
 - `settings-offline` keeps a change made with the API away, shows it, and sends it when the app next comes to the front, is relaunched or loads the aisles. It is written to `aisles.json` whether or not the lists have ever loaded. While the save keeps failing the order stays owed and shown, and the aisles still load and can be changed. A save the server refuses (a 4xx) is put back and the banner says so; only the unit tests cover that (`AisleStoreTests`, `AisleDraftsTests`).
 - `settings-server-answer` shows the order a save answers with, so an aisle the server dropped as a repeat goes at once.
+- `settings-planning` is Planning the week, between the aisles and What Chef knows: Week starts on and Same base again after (1 to 7 days), from `GET /api/settings/plan` and saved with `PUT`. The footer says when pasta is back ("until Friday" at 3 days). A save that fails puts the old value back and says "Couldn't save that. Try again." The section waits for the server's values before it shows.
 - `settings-chef-knows` lists what Chef knows in two groups with the web's stance labels (never Never, avoid Avoid, less Less, more More, prefer Likes). A stance or source this build does not know drops the row. Nothing known reads "Nothing yet…"; a first load that fails says so with Try again (`settings.chefKnows.retryButton`), and a later one that fails keeps the rows.
 - `settings-forget` hides a preference at once and sends `PATCH /api/preferences/<id>` `{"forgotten":true}` at once, with an Undo banner, "Forgot <subject>". Undo puts the row back in its place and sends `{"forgotten":false}` once the forget has been answered. A forget the server does not take puts the row back and says so; only the unit tests cover that (`ChefMemoryTests`).
 - `settings-tell-chef` opens Chef's sheet at half height.
@@ -51,6 +52,8 @@ Preconditions:
 - **Nothing known.** Forget every row, `$V expect "Nothing yet. Chef learns from what you cook and rate"`.
 - **What Chef knows does not load.** `$V api stop`, `$V relaunch`, `$V tap home.settingsButton`, `$V swipe settings.list up`, `$V expect "Couldn't load what Chef knows"`. `$V api start`, `$V tap settings.chefKnows.retryButton`, `$V expect-id settings.preference.mushrooms`.
 - **Not loaded.** `$V api stop`, `$V relaunch`, `$V tap home.settingsButton`, `$V expect "Aisles can be changed once it answers"`. The screenshot shows the rows greyed out with no handles. `$V api start`, `$V tap settings.retryButton`, `$V gone "Aisles can be changed once it answers"`.
+
+- **Planning the week.** Scroll until `settings.varietyPicker` is mid-screen (a row under the navigation bar takes no tap), tap it, then tap `5 days` in the menu by its ref from the XcodeBuildMCP `snapshot_ui` (menu items have no identifiers). `$V expect "until Sunday"`, and `curl -s http://127.0.0.1:8765/api/settings/plan` prints `"variety_days":5`.
 
 ## Gotchas
 

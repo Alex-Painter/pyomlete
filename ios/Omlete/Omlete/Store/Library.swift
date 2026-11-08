@@ -34,6 +34,8 @@ struct CookShelf: Equatable {
     @ObservationIgnored private let deps: StoreDependencies
     @ObservationIgnored private var stores: [ListID: ListStore] = [:]
     @ObservationIgnored private var refreshing: Task<Void, Never>?
+    /// A Planning the week save is out, so a load answered meanwhile does not put the old values back.
+    @ObservationIgnored private var isSavingPlanSettings = false
 
     init(deps: StoreDependencies) {
         self.deps = deps
@@ -160,7 +162,7 @@ struct CookShelf: Equatable {
         aisles.startLoad()
         async let recipes = result { () async throws(APIError) in try await deps.api.recipes() }
         async let units = result { () async throws(APIError) in try await deps.api.units() }
-        async let weekday = result { () async throws(APIError) in try await deps.api.weekStartWeekday() }
+        async let plan = result { () async throws(APIError) in try await deps.api.planSettings() }
 
         switch await lists {
         case .success(let summaries):
@@ -172,7 +174,7 @@ struct CookShelf: Equatable {
         }
         if case .success(let recipes) = await recipes { take(recipes) }
         if case .success(let units) = await units { index.units = units }
-        if case .success(let weekday) = await weekday { index.weekStartWeekday = weekday }
+        if case .success(let plan) = await plan, !isSavingPlanSettings { take(plan) }
         save()
     }
 
@@ -206,6 +208,37 @@ struct CookShelf: Equatable {
 
     /// The shop day the week starts on, as last heard from the server.
     var shopWeekday: Int { index.weekStartWeekday ?? Week.defaultStartWeekday }
+
+    /// Planning the week as last heard from the server, or the defaults until
+    /// it has said (`planSettingsKnown`), which Settings waits for.
+    var planSettings: PlanSettings {
+        PlanSettings(
+            weekStartWeekday: shopWeekday,
+            varietyDays: index.varietyDays ?? PlanSettings.defaultVarietyDays)
+    }
+
+    var planSettingsKnown: Bool { index.weekStartWeekday != nil }
+
+    /// Settings > Planning the week. Shows at once; if the server cannot be
+    /// told it goes back and says so. Needs signal, like the web's.
+    func savePlanSettings(_ settings: PlanSettings) async {
+        let before = planSettings
+        isSavingPlanSettings = true
+        defer { isSavingPlanSettings = false }
+        take(settings)
+        do {
+            take(try await deps.api.savePlanSettings(settings))
+        } catch {
+            if planSettings == settings { take(before) }
+            deps.undo.inform("Couldn't save that. Try again.")
+        }
+    }
+
+    private func take(_ plan: PlanSettings) {
+        index.weekStartWeekday = plan.weekStartWeekday
+        index.varietyDays = plan.varietyDays
+        save()
+    }
 
     private func openWeek(_ pick: (Int) -> PlanDate) async throws(APIError) -> ListID {
         if !hasLoaded || index.weekStartWeekday == nil { await refresh() }

@@ -99,6 +99,11 @@ struct PlanScreen: View {
                 }
             }
             .onChange(of: list.days, initial: true) { focus.choose(in: list.days, today: today) }
+            // A week's library opens on Best for this day; a plain list has no evening to rank for.
+            .onChange(of: list.isWeek, initial: true) {
+                if list.isWeek, query == MealLibraryQuery() { query.sort = .best }
+                if !list.isWeek, query.sort == .best { query.sort = .notLately }
+            }
         }
         .navigationTitle(list.name)
         // A large title would sit under the pinned week.
@@ -214,6 +219,7 @@ struct PlanScreen: View {
                 Text("\(day.date.dayLong) \(day.date.longDate)")
                 Spacer()
                 if day.date == today { Text("Today") }
+                if day.plan != .out { quickButton(day, in: store) }
             }
         }
 
@@ -221,7 +227,30 @@ struct PlanScreen: View {
             heading: "Pick for \(day.date.dayLong)", days: list.days, today: today, query: $query,
             addedValue: "Planned for \(day.date.dayLong)",
             mark: { $0.id == day.plan.meal ? .added : .add },
-            onPick: { plan($0, on: day, in: store) })
+            onPick: { plan($0, on: day, in: store) },
+            forDay: LibraryDay(day: day, items: list.items, varietyDays: library.planSettings.varietyDays))
+    }
+
+    /// A quick night ranks dinners over 30 minutes lower. It belongs to the
+    /// evening, so it stays when a meal goes on.
+    private func quickButton(_ day: PlanDay, in store: ListStore) -> some View {
+        Button {
+            store.setQuick(day.date, !day.quick)
+        } label: {
+            // "Quick", as the web says it at phone width; VoiceOver hears the whole name.
+            Label("Quick", systemImage: "bolt.fill")
+                .font(.footnote.weight(.semibold))
+                .textCase(nil)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 32)
+                .foregroundStyle(day.quick ? Color(.systemBackground) : Color(.secondaryLabel))
+                .background(day.quick ? Color(.label) : Color(.tertiarySystemFill), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Quick night")
+        .accessibilityHint("Dinners over \(MealLibraryQuery.quickMinutes) minutes sink")
+        .accessibilityAddTraits(day.quick ? .isSelected : [])
+        .accessibilityIdentifier("plan.day.quickButton")
     }
 
     /// Tapping the meal already on the evening takes it off; any other goes on

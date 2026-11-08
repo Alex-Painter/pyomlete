@@ -10,6 +10,9 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
     case reorder(category: String, itemIDs: [ItemID])
     case rename(String)
     case setDay(PlanDate, DayPlan)
+    /// A quick night or not. Carries the day as it was when tapped, since the
+    /// server's PUT sets the meal too; that keeps it as it is.
+    case setQuick(PlanDate, DayPlan, Bool)
     case setCooked(RecipeID, Bool)
 
     /// Pure reducer that mirrors what the server does with the same request.
@@ -57,6 +60,10 @@ nonisolated enum ListOp: Codable, Equatable, Sendable {
             guard let index = list.days.firstIndex(where: { $0.date == date }) else { break }
             list.days[index].plan = plan
             if let recipe = plan.meal, !list.recipes.contains(recipe) { list.recipes.append(recipe) }
+
+        case .setQuick(let date, _, let quick):
+            guard let index = list.days.firstIndex(where: { $0.date == date }) else { break }
+            list.days[index].quick = quick
 
         // Only a meal still on the list can be cooked, as on the server.
         case .setCooked(let recipe, let cooked):
@@ -205,7 +212,7 @@ nonisolated struct ListReplica: Codable, Equatable, Sendable {
             case (.patch(let id, _), .delete(let other)) where id == other:
                 return nil
             // Putting a meal on the list merges its ingredients into matching items on the server.
-            case (.patch, .reorder), (.patch, .removeRecipe), (.patch, .setDay(_, .meal)):
+            case (.patch, .reorder), (.patch, .removeRecipe), (.patch, .setDay(_, .meal)), (.patch, .setQuick(_, .meal, _)):
                 return nil
             case (.patch, _):
                 continue
@@ -228,6 +235,12 @@ nonisolated struct ListReplica: Codable, Equatable, Sendable {
             case (.setDay(let date, _), .setDay(let other, _)) where date == other:
                 return frozen ? nil : index
             case (.setDay, _):
+                return nil
+
+            // A later tap carries the day as it is by then, so it replaces the earlier one whole.
+            case (.setQuick(let date, _, _), .setQuick(let other, _, _)) where date == other:
+                return frozen ? nil : index
+            case (.setQuick, _):
                 return nil
 
             // Tick, untick, tick is one request. Only into the latest op, as with a day:

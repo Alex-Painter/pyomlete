@@ -98,6 +98,8 @@ nonisolated struct APIClient: Sendable {
             _ = try await call("PATCH", base, body: try Wire.encode(["name": name]))
         case .setDay(let date, let plan):
             _ = try await call("PUT", "\(base)/days/\(date.iso)", body: try Wire.dayUpdate(plan))
+        case .setQuick(let date, let plan, let quick):
+            _ = try await call("PUT", "\(base)/days/\(date.iso)", body: try Wire.dayUpdate(plan, quick: quick))
         case .setCooked(let recipe, let cooked):
             _ = try await call("PUT", "\(base)/recipes/\(recipe.rawValue)/cooked", body: try Wire.encode(["cooked": cooked]))
         }
@@ -112,9 +114,14 @@ nonisolated struct APIClient: Sendable {
         return .added
     }
 
-    /// The weekday a week starts on, 0 for Monday.
-    func weekStartWeekday() async throws(APIError) -> Int {
-        try await decode(Wire.weekStartWeekday, from: call("GET", "settings/plan"))
+    /// The day a week starts on (0 for Monday) and how long a base stays off the menu.
+    func planSettings() async throws(APIError) -> PlanSettings {
+        try await decode(Wire.planSettings, from: call("GET", "settings/plan"))
+    }
+
+    /// Sends both fields; the server keeps what it is sent and answers with the whole.
+    func savePlanSettings(_ settings: PlanSettings) async throws(APIError) -> PlanSettings {
+        try await decode(Wire.planSettings, from: call("PUT", "settings/plan", body: try Wire.planSettingsBody(settings)))
     }
 
     func aisleOrder() async throws(APIError) -> AisleOrder {
