@@ -212,6 +212,7 @@ private struct UserMessage: View {
 private struct ChefPartView: View {
     let part: ChefPart
     @Environment(ChefChat.self) private var chat
+    @Environment(AppNavigation.self) private var navigation
 
     var body: some View {
         switch part {
@@ -229,6 +230,16 @@ private struct ChefPartView: View {
                 .foregroundStyle(.secondary)
             } else if let change = tool.change {
                 changeRow(change)
+            } else if let link = tool.alreadySaved {
+                HStack(spacing: 8) {
+                    Text("Already in your recipes")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    openButton(link, identifier: "chef.open.\(tool.callID)")
+                }
+                .font(.subheadline)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
             }
         default:
             EmptyView()
@@ -243,6 +254,9 @@ private struct ChefPartView: View {
                 .foregroundStyle(isUndone ? .secondary : .primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("chef.change.\(change.undo.rawValue)")
+            if !isUndone, let link = change.link {
+                openButton(link, identifier: "chef.open.\(change.undo.rawValue)")
+            }
             if !isUndone {
                 Button("Undo", systemImage: "arrow.uturn.backward") { chat.undo([change]) }
                     .fontWeight(.semibold)
@@ -253,6 +267,19 @@ private struct ChefPartView: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 44)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Opens the recipe or list Chef made, and lowers the sheet to its bar so the screen is not under it.
+    private func openButton(_ link: ChefLink, identifier: String) -> some View {
+        Button {
+            navigation.open(link)
+            chat.height = .bar
+        } label: {
+            Label("Open", systemImage: "arrow.up.right")
+        }
+        .fontWeight(.semibold)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier(identifier)
     }
 
     /// Chef writes Markdown; bold and links read better drawn than as asterisks.

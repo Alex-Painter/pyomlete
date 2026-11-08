@@ -82,6 +82,25 @@ nonisolated enum Wire {
         try encode(PlanSettingsBodyDTO(week_start_weekday: settings.weekStartWeekday, variety_days: settings.varietyDays))
     }
 
+    /// Where a picture lives. A photo the API made is kept as a path on the
+    /// API (`/api/recipe-images/...`), so it is resolved against the API's
+    /// address, as the web's `mediaUrl()` does; a full URL (an imported
+    /// recipe's photo) is used as it is.
+    static func media(_ text: String?, base: URL = APIEnvironment.baseURL) -> URL? {
+        guard let text, !text.isEmpty else { return nil }
+        if text.hasPrefix("/api/") { return URL(string: text, relativeTo: base)?.absoluteURL }
+        return URL(string: text)
+    }
+
+    static func generatedImage(_ data: Data) throws -> URL? {
+        media(try JSONDecoder().decode(GeneratedImageDTO.self, from: data).image_url)
+    }
+
+    /// The server's own words for a refusal, when it sent a sentence.
+    static func message(in data: Data) -> String? {
+        (try? JSONDecoder().decode(DetailMessageDTO.self, from: data))?.detail
+    }
+
     static func category(_ data: Data) throws -> String {
         try JSONDecoder().decode(CategorizedDTO.self, from: data).category
     }
@@ -93,7 +112,7 @@ nonisolated enum Wire {
     static func recipes(_ data: Data) throws -> [RecipeSummary] {
         try JSONDecoder().decode([RecipeDTO].self, from: data).map {
             RecipeSummary(
-                id: RecipeID($0.id), title: $0.title, imageURL: $0.image_url.flatMap(URL.init(string:)),
+                id: RecipeID($0.id), title: $0.title, imageURL: media($0.image_url),
                 totalMinutes: $0.total_minutes, rating: $0.rating, sourceName: $0.source_name,
                 ingredientCount: $0.ingredient_count, lastPlannedOn: try planDate($0.last_planned_on),
                 ingredientNames: $0.ingredient_names ?? [], cuisine: $0.cuisine, createdAt: date($0.created_at), tags: $0.tags?.tags)
@@ -164,7 +183,7 @@ nonisolated enum Wire {
             }
             return Suggestion(
                 id: SuggestionID(dto.id), title: dto.title, reason: dto.reason,
-                imageURL: dto.image_url.flatMap(URL.init(string:)), source: source(dto.source_name, dto.source_url),
+                imageURL: media(dto.image_url), source: source(dto.source_name, dto.source_url),
                 totalMinutes: dto.total_minutes, section: DiscoverSection(named: dto.section), stage: stage)
         }
     }
@@ -184,7 +203,7 @@ nonisolated enum Wire {
             meals: try dto.meals.map { meal in
                 WeekMeal(
                     day: try planDate(meal.day), title: meal.title, reason: meal.reason,
-                    recipe: meal.recipe_id.map { RecipeID($0) }, imageURL: meal.image_url.flatMap(URL.init(string:)))
+                    recipe: meal.recipe_id.map { RecipeID($0) }, imageURL: media(meal.image_url))
             }.sorted { $0.day < $1.day })
     }
 
@@ -413,6 +432,14 @@ nonisolated private struct PlanSettingsBodyDTO: Encodable {
     let variety_days: Int
 }
 
+nonisolated private struct GeneratedImageDTO: Decodable {
+    let image_url: String?
+}
+
+nonisolated private struct DetailMessageDTO: Decodable {
+    let detail: String
+}
+
 nonisolated private struct CategorizedDTO: Decodable {
     let category: String
 }
@@ -479,7 +506,7 @@ nonisolated private struct RecipeDetailDTO: Decodable {
                     category: $0.category, isOnList: !($0.excluded_from_list ?? false))
             },
             baseServings: servings.flatMap { $0 > 0 ? $0 : nil }, rating: rating,
-            imageURL: image_url.flatMap(URL.init(string:)), totalMinutes: total_minutes ?? cook_minutes,
+            imageURL: Wire.media(image_url), totalMinutes: total_minutes ?? cook_minutes,
             source: Wire.source(source_name, source_url), createdAt: Wire.date(created_at))
     }
 }

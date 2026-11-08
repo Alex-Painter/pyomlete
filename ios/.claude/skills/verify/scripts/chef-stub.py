@@ -8,7 +8,11 @@ answers POST /api/chef/actions/<id>/undo for that change itself, with 409
 when the item has since been checked or deleted, as the server's Undo does.
 Every other request is passed to the real API unchanged.
 
-A message containing "fail" gets a reply that stops with an error event.
+A message containing "fail" gets a reply that stops with an error event. One
+containing "already" imports a link to a recipe that is already saved, as
+import_recipe answers then: no change, and the id of Verify Fixture Traybake.
+One containing "new list" starts a list through the API and reports it with
+its list_id, as create_list does; its Undo deletes that list.
 
     chef-stub.py <port> <upstream base URL>
 """
@@ -27,8 +31,8 @@ UPSTREAM = sys.argv[2].rstrip("/")
 ITEM = "Verify Chef Lemons"
 # Seconds between steps of a reply, scaled so each step outlasts a capture (about 4 s).
 PACE = float(os.environ.get("OMLETE_IOS_VERIFY_CHEF_STUB_PACE", "1"))
-# undo id -> (list id, item id, summary)
-actions: dict[str, tuple[str, str, str]] = {}
+# undo id -> (list id, item id, summary); item id None for a list the stub started
+actions: dict[str, tuple[str, str | None, str]] = {}
 
 
 def upstream(method, path, body=None):
@@ -115,6 +119,21 @@ class Handler(BaseHTTPRequestHandler):
         send({"type": "text-end", "id": "t1"})
         if "fail" in said.lower():
             send({"type": "error", "errorText": "The stub was asked to fail"})
+        elif "already" in said.lower():
+            recipe = next(r for r in upstream("GET", "/api/recipes/") if "Traybake" in r["title"])
+            send({"type": "tool-input-available", "toolCallId": "c1", "toolName": "import_recipe",
+                  "input": {"url": "https://example.com/verify-fixture-traybake"}}, 8)
+            send({"type": "tool-output-available", "toolCallId": "c1",
+                  "output": {"already_saved": True, "recipe_id": recipe["id"]}}, 2)
+        elif "new list" in said.lower():
+            send({"type": "tool-input-available", "toolCallId": "c1", "toolName": "create_list", "input": {}}, 8)
+            made = upstream("POST", "/api/lists/", {})
+            undo = f"stub{uuid.uuid4().hex[:8]}"
+            summary = f"Started a list, {made['name']}"
+            actions[undo] = (made["id"], None, summary)
+            self.log_message("started list %s, undo %s", made["id"], undo)
+            send({"type": "tool-output-available", "toolCallId": "c1",
+                  "output": {"done": summary, "undo": undo, "list_id": made["id"]}}, 2)
         else:
             send({"type": "tool-input-start", "toolCallId": "ws1", "toolName": "web_search",
                   "providerExecuted": True}, 8)
@@ -134,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
             actions[undo] = (list_id, item_id, summary)
             self.log_message("added %s (%s) to %s, undo %s", ITEM, item_id, list_id, undo)
             send({"type": "tool-output-available", "toolCallId": "c1",
-                  "output": {"done": summary, "undo": undo, "list_id": list_id}}, 8)
+                  "output": {"done": summary, "undo": undo, "item_id": item_id}}, 8)
             send({"type": "text-start", "id": "t2"})
             for word in ["Done. ", "They're ", f"on {name}."]:
                 send({"type": "text-delta", "id": "t2", "delta": word}, 1.5)
@@ -147,6 +166,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def undo(self, undo):
         list_id, item_id, summary = actions[undo]
+        if item_id is None:
+            upstream("DELETE", f"/api/lists/{list_id}")
+            self.log_message("undo %s: deleted list %s", undo, list_id)
+            return self.answer(200, json.dumps({"id": undo, "summary": summary, "undone": True}).encode())
         items = {i["id"]: i for i in upstream("GET", f"/api/lists/{list_id}")["items"]}
         item = items.get(item_id)
         if item is None or item.get("checked"):
