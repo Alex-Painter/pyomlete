@@ -4,6 +4,16 @@ const apiBase =
     ? `https://${rawApiUrl}`
     : rawApiUrl
 
+/**
+ * Where an image lives. A photo the API made is stored as a path on the API
+ * (`/api/recipe-images/...`), so it's resolved against the API's address; a
+ * full URL (an imported recipe's photo) is used as it is.
+ */
+export function mediaUrl<T extends string | null | undefined>(src: T): T {
+  if (src && src.startsWith("/api/")) return `${apiBase}${src}` as T;
+  return src;
+}
+
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${apiBase}${path}`, init);
 }

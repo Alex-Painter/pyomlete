@@ -39,7 +39,7 @@ from lib.types import (
     IngredientRecipe,
     ItemUpdateRequest,
 )
-from services import lists, memory, recipes, settings
+from services import images, lists, memory, recipes, settings
 from services.errors import AlreadyImported
 from services.recipes import RecipeImage
 
@@ -298,6 +298,19 @@ async def rate_recipe(ctx: RunContext[ChatDeps], recipe_id: str, stars: int) -> 
     await change.touching(RecipeDocument, recipe_id)
     recipe = await recipes.rate(_oid(recipe_id), stars)
     return await _done(ctx, change, f"Rated {recipe.title} {stars} stars")
+
+
+@agent.tool
+@_reported
+async def generate_recipe_image(ctx: RunContext[ChatDeps], recipe_id: str) -> dict:
+    """Make a lifelike photo of the finished dish and make it the recipe's picture, replacing any it had.
+
+    Only when the person asks for a photo or picture: each one costs money.
+    """
+    change = Change()
+    await change.touching(RecipeDocument, recipe_id)
+    recipe = await images.generate(_oid(recipe_id), source="chef")
+    return await _done(ctx, change, f"Made a photo for {recipe.title}")
 
 
 @agent.tool

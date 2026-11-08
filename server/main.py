@@ -61,7 +61,7 @@ from lib.types import (
     WeekPlanRequest,
     WeeklyPlanSettings,
 )
-from services import lists, memory, recipes, settings
+from services import images, lists, memory, recipes, settings
 from services.errors import AlreadyImported
 from lib.images import NotAnImage, for_model
 from services.recipes import RecipeImage
@@ -183,6 +183,24 @@ async def toggle_ingredient_exclude(
 ):
     await recipes.set_excluded(recipe_id, ingredient_index, body.excluded)
     return {"index": ingredient_index, "excluded_from_list": body.excluded}
+
+
+@router.post("/recipes/{recipe_id}/image")
+async def generate_recipe_image(recipe_id: PydanticObjectId):
+    """Make a lifelike photo of the dish and make it the recipe's picture."""
+    recipe = await images.generate(recipe_id)
+    return {"id": str(recipe.id), "image_url": recipe.image_url}
+
+
+@router.get("/recipe-images/{image_id}")
+async def get_recipe_image(image_id: PydanticObjectId):
+    image = await images.get_image(image_id)
+    # A new photo gets a new id, so an image never changes under its URL.
+    return Response(
+        content=image.data,
+        media_type=image.content_type,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @router.get("/units")
