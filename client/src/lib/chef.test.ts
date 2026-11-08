@@ -3,6 +3,7 @@ import {
   applyEvent,
   changesIn,
   focusOf,
+  linkIn,
   readEvents,
   toRequestMessages,
 } from './chef'
@@ -54,6 +55,58 @@ describe('applyEvent', () => {
       },
     ])
     expect(changesIn(msg)).toEqual([{ done: 'Added Milk', undo: 'a1' }])
+  })
+
+  it('links a change to the recipe or list it made', () => {
+    const msg = fold([
+      {
+        type: 'tool-input-available',
+        toolCallId: 'c1',
+        toolName: 'create_recipe',
+        input: {},
+      },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'c1',
+        output: {
+          done: 'Added Dal to your recipes',
+          undo: 'a1',
+          recipe_id: 'r9',
+        },
+      },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'c2',
+        toolName: 'create_list',
+        input: {},
+      },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'c2',
+        output: { done: 'Started a list, Weekend', undo: 'a2', list_id: 'l3' },
+      },
+    ])
+    expect(changesIn(msg)).toEqual([
+      {
+        done: 'Added Dal to your recipes',
+        undo: 'a1',
+        link: { kind: 'recipe', id: 'r9' },
+      },
+      {
+        done: 'Started a list, Weekend',
+        undo: 'a2',
+        link: { kind: 'list', id: 'l3' },
+      },
+    ])
+  })
+
+  it('links a recipe that was already saved', () => {
+    expect(linkIn({ already_saved: true, recipe_id: 'r1' })).toEqual({
+      kind: 'recipe',
+      id: 'r1',
+    })
+    expect(linkIn({ done: 'Renamed the list', undo: 'a' })).toBeUndefined()
+    expect(linkIn('No such id')).toBeUndefined()
   })
 
   it('ignores events it has no use for', () => {

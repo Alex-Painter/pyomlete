@@ -20,6 +20,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
+  ArrowUpRight,
   BookOpen,
   ChefHat,
   Globe,
@@ -32,8 +33,15 @@ import {
 } from 'lucide-react'
 import { useUndo } from '@/components/UndoToast'
 import { ApiError } from '@/lib/api'
-import { askChef, changesIn, focusOf, newChatId, undoChange } from '@/lib/chef'
-import type { ChefChange, ChefMessage, ChefPart } from '@/lib/chef'
+import {
+  askChef,
+  changesIn,
+  focusOf,
+  linkIn,
+  newChatId,
+  undoChange,
+} from '@/lib/chef'
+import type { ChefChange, ChefLink, ChefMessage, ChefPart } from '@/lib/chef'
 import { useAreaAboveKeyboard } from '@/lib/keyboard'
 import { useList, useRecipe } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -660,7 +668,19 @@ function AssistantPart({
     )
   }
   const change = changesIn({ id: '', role: 'assistant', parts: [part] }).at(0)
-  if (!change) return null
+  if (!change) {
+    // import_recipe found the recipe already saved: nothing to undo, but
+    // still link to it.
+    const out = part.output as { already_saved?: boolean } | null
+    const link = out?.already_saved ? linkIn(out) : undefined
+    if (!link) return null
+    return (
+      <div className="flex min-h-[36px] items-center gap-2 rounded-lg bg-cream px-3 text-xs">
+        <span className="min-w-0 flex-1">Already in your recipes</span>
+        <OpenLink link={link} />
+      </div>
+    )
+  }
   const isUndone = undone.has(change.undo)
   return (
     <div className="flex min-h-[36px] items-center gap-2 rounded-lg bg-cream px-3 text-xs">
@@ -672,6 +692,7 @@ function AssistantPart({
       >
         {change.done}
       </span>
+      {change.link && !isUndone && <OpenLink link={change.link} />}
       {!isUndone && (
         <button
           type="button"
@@ -683,5 +704,26 @@ function AssistantPart({
         </button>
       )}
     </div>
+  )
+}
+
+/** Opens the recipe or list Chef made, from its chip in the reply. */
+function OpenLink({ link }: { link: ChefLink }) {
+  const className =
+    'flex min-h-[36px] items-center gap-1 px-1 font-semibold text-ink-soft hover:text-ink'
+  return link.kind === 'recipe' ? (
+    <Link
+      to="/recipe/$recipeId"
+      params={{ recipeId: link.id }}
+      className={className}
+    >
+      Open
+      <ArrowUpRight className="size-3.5" />
+    </Link>
+  ) : (
+    <Link to="/list/$listId" params={{ listId: link.id }} className={className}>
+      Open
+      <ArrowUpRight className="size-3.5" />
+    </Link>
   )
 }
