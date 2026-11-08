@@ -3,6 +3,10 @@ import SwiftUI
 /// The selected evening: its meal with its Cooked tick, Cook, Swap and Clear,
 /// an open evening with a one-tap Out, or Out with Plan anyway. Nothing else
 /// here changes when the meal is cooked.
+///
+/// With the calendar on, the card says what it shows for the evening, and only
+/// suggests: an open evening you're busy on offers Out or Plan anyway, and a
+/// part-busy one ranks quick dinners first without turning Quick night on.
 struct DayCard: View {
     let day: PlanDay
     /// The planned meal, known by its title at least.
@@ -14,8 +18,69 @@ struct DayCard: View {
     let onSwap: () -> Void
     let onClear: () -> Void
     let onOut: (Bool) -> Void
+    var evening: CalendarDays.Evening? = nil
+    /// Plan anyway was tapped on this busy evening.
+    var planAnyway = false
+    var onPlanAnyway: () -> Void = {}
+
+    private var busy: CalendarDays.Evening? { evening?.isBusy == true ? evening : nil }
+
+    private var calendarNote: String? {
+        if case .quick(let reason) = evening, day.plan != .out {
+            return "\(reason) on your calendar, so quick dinners come first"
+        }
+        if let reason = busy?.reason, day.plan.meal != nil || planAnyway {
+            return "\(reason) on your calendar"
+        }
+        return nil
+    }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let calendarNote {
+                Label(calendarNote, systemImage: "calendar.badge.clock")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("plan.day.calendarNote")
+            }
+            if day.plan == .open, let reason = busy?.reason, !planAnyway {
+                busyEvening(reason)
+            } else {
+                card
+            }
+        }
+    }
+
+    private func busyEvening(_ reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(reason).fontWeight(.medium)
+                    Text("From your calendar. Out this evening?").foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "calendar.badge.minus").foregroundStyle(.secondary)
+            }
+            .font(.subheadline)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("plan.day.calendarBusy")
+            HStack(spacing: 8) {
+                Button { onOut(true) } label: { actionLabel("Out", systemImage: "moon") }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("plan.day.calendarOutButton")
+                Button(action: onPlanAnyway) { actionLabel("Plan anyway", systemImage: "fork.knife") }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("plan.day.calendarPlanAnywayButton")
+            }
+        }
+        .padding(12)
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(.quaternary, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+        }
+    }
+
+    @ViewBuilder private var card: some View {
         switch day.plan {
         case .meal(let recipe):
             VStack(alignment: .leading, spacing: 12) {

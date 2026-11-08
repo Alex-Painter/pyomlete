@@ -9,6 +9,7 @@ struct OmleteApp: App {
     @State private var navigation: AppNavigation
     @State private var undo: UndoCenter
     @State private var chefChat: ChefChat
+    @State private var calendar = CalendarReader()
 
     init() {
         let undo = UndoCenter()
@@ -47,6 +48,7 @@ struct OmleteApp: App {
                 .environment(navigation)
                 .environment(undo)
                 .environment(chefChat)
+                .environment(calendar)
         }
     }
 }

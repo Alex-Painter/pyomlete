@@ -27,7 +27,8 @@ nonisolated struct PlanFocus: Equatable, Sendable {
     }
 
     /// A meal went on `date`: move on to the next evening still to plan.
-    mutating func planned(_ date: PlanDate, days: [PlanDay]) {
-        selected = Week.nextOpenDay(days, from: date)
+    /// `skip` passes over evenings the calendar says you're out.
+    mutating func planned(_ date: PlanDate, days: [PlanDay], skip: (PlanDate) -> Bool = { _ in false }) {
+        selected = Week.nextOpenDay(days, from: date, skip: skip)
     }
 }

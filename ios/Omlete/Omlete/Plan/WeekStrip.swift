@@ -1,12 +1,15 @@
 import SwiftUI
 
 /// The week at a glance: one button per evening, today marked, with a dot for
-/// a meal, a ring for an evening still to plan and a moon for Out.
+/// a meal, a ring for an evening still to plan and a moon for Out. With the
+/// calendar on, an open evening it says you're out shows a calendar mark.
 struct WeekStrip: View {
     let days: [PlanDay]
     let selected: PlanDate
     let today: PlanDate
     let title: (RecipeID) -> String?
+    /// What the calendar says about each evening, when it is on.
+    var evenings: [PlanDate: CalendarDays.Evening] = [:]
     let onSelect: (PlanDate) -> Void
 
     var body: some View {
@@ -23,7 +26,7 @@ struct WeekStrip: View {
                             .foregroundStyle(day.date == today ? .primary : .secondary)
                         Text("\(day.date.day)")
                             .font(.body.weight(.semibold))
-                        mark(day.plan)
+                        mark(day)
                             .frame(height: 10)
                     }
                     .frame(maxWidth: .infinity, minHeight: 60)
@@ -44,10 +47,14 @@ struct WeekStrip: View {
         }
     }
 
-    @ViewBuilder private func mark(_ plan: DayPlan) -> some View {
-        switch plan {
+    @ViewBuilder private func mark(_ day: PlanDay) -> some View {
+        switch day.plan {
         case .meal:
             Circle().fill(.yellow).frame(width: 8, height: 8)
+        case .open where evenings[day.date]?.isBusy == true:
+            Image(systemName: "calendar.badge.minus")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
         case .open:
             Circle().stroke(.secondary).frame(width: 8, height: 8)
         case .out:
@@ -64,6 +71,7 @@ struct WeekStrip: View {
         case .open: "nothing planned"
         case .out: "out"
         }
-        return "\(when), \(what)"
+        let calendar = day.plan == .out ? nil : evenings[day.date]?.reason
+        return "\(when), \(what)\(calendar.map { ", calendar: \($0)" } ?? "")"
     }
 }
