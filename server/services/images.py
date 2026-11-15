@@ -47,8 +47,9 @@ def configured() -> bool:
 
 
 # How much of the method goes into the prompt. FLUX.2 reads long prompts, but
-# past a few hundred words the style and the "finished dish" brief get diluted.
-METHOD_BUDGET = 900
+# past a few hundred words the dish and its look get diluted, so the method is
+# kept short and goes last.
+METHOD_BUDGET = 700
 STEP_LIMIT = 220
 # A method shorter than this ("Cook it.") says nothing about how the dish
 # looks, so the main ingredients stand in for it.
@@ -87,39 +88,44 @@ def prompt_for(recipe: RecipeDocument) -> str:
     and a pile of spice on the plate. So the prompt describes the cooked
     result: the title, the recipe's own description and the method, which says
     what each ingredient becomes. Ingredients are named only when the method is
-    too thin to say what the dish is, and the model is told plainly that no raw
-    ingredient appears. See docs/DESIGN.md (Recipe photos).
+    too thin to say what the dish is.
+
+    Following Black Forest Labs' FLUX.2 guide: the dish comes first, because
+    earlier words weigh more; the look comes next and the method last, as
+    supporting detail; a named camera, lens and aperture rather than
+    "professional photo"; real textures and small imperfections for realism;
+    and every instruction is positive, because FLUX.2 has no negative prompt
+    and "no garlic" draws its attention to garlic. See docs/DESIGN.md (Recipe
+    photos).
     """
     cuisine = f" {recipe.cuisine}" if recipe.cuisine else ""
     parts = [
-        f"A realistic, appetising photo of a finished, home-cooked{cuisine} dish: "
-        f"{recipe.title}, plated and served, ready to eat."
+        f"Food photography of {recipe.title}, a finished home-cooked{cuisine} dish, "
+        "plated and ready to eat."
     ]
     if recipe.description:
-        parts.append(f"About the dish: {_shorten(recipe.description, 300)}")
+        parts.append(_shorten(recipe.description, 300))
+    parts.append(
+        "Everything on the plate is cooked and finished as the recipe serves it: sauces "
+        "smooth and glossy, spooned over or pooled beneath, spices and aromatics cooked "
+        "into the food, butter melted into the sauce, herbs freshly chopped. The plate "
+        "holds only the finished food with a clean rim, a simple ceramic plate or bowl "
+        "on a wooden kitchen table beside a folded linen napkin."
+    )
+    parts.append(
+        "Shot on a Sony A7 IV with a 90mm macro lens at f/2.8, 45-degree angle, soft "
+        "natural window light from the side, sharp focus on the food and a softly "
+        "blurred background. Real textures: browned and crisp edges, glossy sauce, "
+        "crumbs, drips and small imperfections, a generous home portion, true-to-life "
+        "colours. Natural and unstyled, like a real photo taken at the table."
+    )
     method = _method_for(recipe)
     if len(method) >= THIN_METHOD:
-        parts.append(
-            f"How it is cooked, so the photo shows the result of these steps: {method}"
-        )
+        parts.append(f"How it was cooked: {method}")
     else:
         shown = [i.name for i in recipe.ingredients if not i.excluded_from_list][:6]
         if shown:
             parts.append(f"It is cooked with {', '.join(shown)}, all cooked into the dish.")
-    parts.append(
-        "Show only the finished dish as it comes to the table, after every step of the "
-        "method: sauces made and spooned over, spices and aromatics cooked in, butter "
-        "melted. No raw or uncooked ingredients on or around the plate: no piles of "
-        "spice or flour, no whole garlic cloves, raw onions or shallots, no pats of "
-        "butter, no ingredients laid out beside the dish. A garnish only if the "
-        "method serves it, such as chopped herbs or a lemon wedge."
-    )
-    parts.append(
-        "Served on a simple ceramic plate or bowl on a wooden kitchen table. "
-        "Editorial food photography, soft natural window light, 45-degree angle, "
-        "shallow depth of field, true-to-life colours and textures. "
-        "No text, no labels, no hands, no people."
-    )
     return " ".join(parts)
 
 

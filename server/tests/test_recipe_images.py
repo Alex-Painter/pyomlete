@@ -180,7 +180,11 @@ def test_prompt_describes_the_cooked_dish_not_its_ingredients():
     assert "Spoon the melted butter sauce over the celeriac steaks" in prompt
     # No list of raw ingredients for the model to lay out on the plate.
     assert "made with" not in prompt and "cooked with" not in prompt
-    assert "No raw or uncooked ingredients" in prompt
+    # The dish leads (FLUX.2 weighs earlier words more) and the method trails.
+    assert prompt.startswith("Food photography of Celeriac Steaks")
+    assert prompt.index("Everything on the plate is cooked") < prompt.index("How it was cooked")
+    # FLUX.2 has no negative prompt, and "no garlic" draws garlic.
+    assert " no " not in prompt.lower() and "without" not in prompt.lower()
 
 
 def test_a_long_method_keeps_the_finishing_steps():
