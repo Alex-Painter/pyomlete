@@ -143,3 +143,58 @@ async def test_fal_data_uri_and_link_answers_are_both_read(monkeypatch):
 
     seen["mode"] = "link"
     assert await images._ask_model("p") == (b"png-bytes", "image/png")
+
+
+def _recipe(title: str, steps: list[str], *ingredients: str, description: str | None = None):
+    from lib.types import IngredientRecipe
+
+    return RecipeDocument(
+        title=title,
+        instructions=steps,
+        ingredients=[IngredientRecipe(name=n, unit="g", amount=100) for n in ingredients],
+        description=description,
+    )
+
+
+CELERIAC_STEPS = [
+    "Heat the oven to 200C. Peel the celeriac and cut it into four thick steaks.",
+    "Brush the steaks with oil, season and roast for 40 minutes, turning once, until golden and tender.",
+    "Meanwhile, soften the butter and beat in the garlic, shallot, curry powder, mustard and herbs to make the Café de Paris butter.",
+    "Melt the flavoured butter in a small pan until foaming.",
+    "Spoon the melted butter sauce over the celeriac steaks and serve with watercress.",
+]
+
+
+def test_prompt_describes_the_cooked_dish_not_its_ingredients():
+    celeriac = _recipe(
+        "Celeriac Steaks with Café de Paris Sauce",
+        CELERIAC_STEPS,
+        "celeriac", "butter", "garlic", "shallot", "curry powder",
+        description="Roasted celeriac with a rich spiced butter sauce.",
+    )
+    prompt = images.prompt_for(celeriac)
+
+    assert "Celeriac Steaks with Café de Paris Sauce" in prompt
+    assert "rich spiced butter sauce" in prompt
+    # The method is what tells the model the butter becomes a sauce.
+    assert "Spoon the melted butter sauce over the celeriac steaks" in prompt
+    # No list of raw ingredients for the model to lay out on the plate.
+    assert "made with" not in prompt and "cooked with" not in prompt
+    assert "No raw or uncooked ingredients" in prompt
+
+
+def test_a_long_method_keeps_the_finishing_steps():
+    steps = [f"Prep step {n}: " + "chop and stir " * 15 for n in range(12)]
+    steps.append("Plate the stew in bowls and scatter over parsley.")
+    prompt = images.prompt_for(_recipe("Beef stew", steps, "beef"))
+
+    assert "Plate the stew in bowls and scatter over parsley." in prompt
+    assert "Prep step 0:" not in prompt
+    assert len(prompt) < 2000
+
+
+def test_a_thin_method_falls_back_to_the_main_ingredients():
+    prompt = images.prompt_for(_recipe("Chickpea curry", ["Cook it."], "chickpeas", "spinach"))
+
+    assert "chickpeas, spinach, all cooked into the dish" in prompt
+    assert "How it is cooked" not in prompt
