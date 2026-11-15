@@ -20,7 +20,9 @@ const soup = {
 
 function Library({ onPick }: { onPick: (r: RecipeSummary) => void }) {
   // As on Plan: a drag starts once the mouse has moved 6px.
-  const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }))
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+  )
   return (
     <DndContext sensors={sensors}>
       <DayLibrary
@@ -85,5 +87,34 @@ describe('DayLibrary', () => {
     fireEvent.keyDown(row(), { key: 'Enter', code: 'Enter' })
     fireEvent.click(row())
     expect(onPick).toHaveBeenCalledWith(soup)
+  })
+
+  describe('sort', () => {
+    afterEach(() => localStorage.clear())
+
+    const sortBox = () => screen.getByRole<HTMLSelectElement>('combobox', { name: 'Sort' })
+
+    it('remembers the sort picked, for the next visit to any list', () => {
+      render(<Library onPick={vi.fn()} />)
+      expect(sortBox().value).toBe('not-lately')
+      fireEvent.change(sortBox(), { target: { value: 'az' } })
+      cleanup()
+      render(<Library onPick={vi.fn()} />)
+      expect(sortBox().value).toBe('az')
+    })
+
+    it('picking the default again clears what was kept', () => {
+      localStorage.setItem('omlete.library.sort.list', 'quickest')
+      render(<Library onPick={vi.fn()} />)
+      expect(sortBox().value).toBe('quickest')
+      fireEvent.change(sortBox(), { target: { value: 'not-lately' } })
+      expect(localStorage.getItem('omlete.library.sort.list')).toBeNull()
+    })
+
+    it("ignores a kept sort this library doesn't offer", () => {
+      localStorage.setItem('omlete.library.sort.list', 'best')
+      render(<Library onPick={vi.fn()} />)
+      expect(sortBox().value).toBe('not-lately')
+    })
   })
 })
