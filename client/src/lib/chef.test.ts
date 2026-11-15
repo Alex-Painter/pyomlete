@@ -3,6 +3,7 @@ import {
   applyEvent,
   changesIn,
   focusOf,
+  inputHint,
   linkIn,
   readEvents,
   toRequestMessages,
@@ -202,5 +203,27 @@ describe('focusOf', () => {
       kind: 'page',
       name: 'Omlete',
     })
+  })
+})
+
+describe('inputHint', () => {
+  it('lists plain values and leaves out database ids', () => {
+    expect(
+      inputHint({
+        list_id: '6731f0c2a1b2c3d4e5f60718',
+        name: 'Oat milk',
+        amount: 2,
+      }),
+    ).toBe('Oat milk · 2')
+  })
+
+  it('joins lists of words and cuts long hints short', () => {
+    expect(inputHint({ aisles: ['Fruit', 'Dairy'] })).toBe('Fruit, Dairy')
+    expect(inputHint({ description: 'a'.repeat(80) }, 10)).toBe('aaaaaaaaa…')
+  })
+
+  it('is empty when there is nothing to show', () => {
+    expect(inputHint(undefined)).toBe('')
+    expect(inputHint({ recipe_id: '6731f0c2a1b2c3d4e5f60718' })).toBe('')
   })
 })
