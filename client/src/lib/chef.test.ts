@@ -3,6 +3,7 @@ import {
   applyEvent,
   changesIn,
   focusOf,
+  fromRequestMessages,
   linkIn,
   readEvents,
   toRequestMessages,
@@ -202,5 +203,53 @@ describe('focusOf', () => {
       kind: 'page',
       name: 'Omlete',
     })
+  })
+})
+
+describe('fromRequestMessages', () => {
+  it('reads a kept chat back as the request it was sent as', () => {
+    const messages: ChefMessage[] = [
+      {
+        id: 'u1',
+        role: 'user',
+        parts: [
+          { type: 'text', text: 'Add milk' },
+          { type: 'file', mediaType: 'image/png', url: 'data:x' },
+        ],
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool',
+            toolCallId: 'c1',
+            toolName: 'add_item',
+            state: 'done',
+            input: { name: 'milk' },
+            output: { done: 'Added milk', undo: 'u' },
+          },
+          { type: 'text', text: 'Added.' },
+        ],
+      },
+    ]
+    const sent = toRequestMessages(messages) as Parameters<
+      typeof fromRequestMessages
+    >[0]
+    expect(fromRequestMessages(sent)).toEqual(messages)
+  })
+
+  it('shows a photo that was not kept, and leaves it out of the next request', () => {
+    const [msg] = fromRequestMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        parts: [{ type: 'file', mediaType: 'image/png', url: '' }],
+      },
+    ])
+    expect(msg.parts).toEqual([
+      { type: 'file', mediaType: 'image/png', url: '' },
+    ])
+    expect(toRequestMessages([msg])[0].parts).toEqual([])
   })
 })

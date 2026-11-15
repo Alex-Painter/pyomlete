@@ -18,6 +18,7 @@ import main
 from chef import chat
 from data_models import (
     ChefActionDocument,
+    ChefChatDocument,
     IngredientDocument,
     ListDocument,
     ListItem,
@@ -40,6 +41,7 @@ async def api():
             ListDocument,
             UserSettingsDocument,
             ChefActionDocument,
+            ChefChatDocument,
             MealLogDocument,
             PreferenceDocument,
         ],
@@ -315,3 +317,64 @@ async def test_changing_ingredients_needs_the_method_too(api):
     after = await RecipeDocument.get(recipe.id)
     assert [i.name for i in after.ingredients] == ["lentils", "red pepper"]
     assert after.instructions == ["Dice the 1 red pepper.", "Cook it with the 200g lentils."]
+
+
+# --- History ---
+
+
+async def test_a_chat_is_kept_and_can_be_opened_again(api):
+    recipe = await a_recipe()
+    lst = await a_list()
+    model, _ = calling(
+        ("add_recipe_to_list", {"list_id": str(lst.id), "recipe_id": str(recipe.id)}),
+        reply="Added Dal.",
+    )
+    photo = {"type": "file", "mediaType": "image/png", "url": "data:image/png;base64,iVBORw0KGgo="}
+    await say(api, model, "Put dal on my weekend list", files=[photo])
+
+    chats = (await api.get("/api/chef/chats")).json()
+    assert [(c["id"], c["title"]) for c in chats] == [("chat-1", "Put dal on my weekend list")]
+
+    chat_ = (await api.get("/api/chef/chats/chat-1")).json()
+    user, reply = chat_["messages"]
+    # The photo keeps its place but not its bytes.
+    assert user["parts"] == [
+        {"type": "text", "text": "Put dal on my weekend list"},
+        {"type": "file", "mediaType": "image/png", "url": ""},
+    ]
+    tool, text = reply["parts"]
+    assert tool["type"] == "tool-add_recipe_to_list"
+    assert tool["state"] == "output-available"
+    assert text == {"type": "text", "text": "Added Dal."}
+    assert chat_["undoable"] == [tool["output"]["undo"]]
+    assert chat_["undone"] == []
+
+    await api.post(f"/api/chef/actions/{tool['output']['undo']}/undo")
+    chat_ = (await api.get("/api/chef/chats/chat-1")).json()
+    assert chat_["undoable"] == []
+    assert chat_["undone"] == [tool["output"]["undo"]]
+
+
+async def test_carrying_on_a_chat_replaces_what_was_kept(api):
+    model, _ = calling(reply="Hello.")
+    await say(api, model, "Hi")
+    kept = (await api.get("/api/chef/chats/chat-1")).json()["messages"]
+
+    body = chat_body("And again")
+    body["messages"] = [*kept, {"id": "m3", "role": "user", "parts": [{"type": "text", "text": "And again"}]}]
+    with chat.agent.override(model=calling(reply="Hello again.")[0]):
+        r = await api.post("/api/chef/chat", json=body)
+    assert r.status_code == 200
+
+    chats = (await api.get("/api/chef/chats")).json()
+    assert [c["title"] for c in chats] == ["Hi"]
+    texts = [
+        p["text"]
+        for m in (await api.get("/api/chef/chats/chat-1")).json()["messages"]
+        for p in m["parts"]
+    ]
+    assert texts == ["Hi", "Hello.", "And again", "Hello again."]
+
+
+async def test_an_unknown_chat_is_404(api):
+    assert (await api.get("/api/chef/chats/nope")).status_code == 404

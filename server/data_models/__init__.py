@@ -362,3 +362,23 @@ class RecipeImageDocument(Document):
     class Settings:
         name = "recipe_images"
         indexes = ["recipe_id"]
+
+
+class ChefChatDocument(Document):
+    """A conversation with Chef, so it can be opened again (chef/history.py).
+
+    The id is the chat id the client sends with each message. `messages` is
+    the conversation in the AI SDK's UI message format, the same shape the
+    client sends, so a reopened chat can carry on. Photos are left out: six
+    of them would be larger than a Mongo document can be.
+    """
+
+    id: str
+    title: str
+    messages: list[dict]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "chef_chats"
+        indexes = [IndexModel([("updated_at", ASCENDING)])]
