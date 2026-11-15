@@ -1,8 +1,8 @@
 """Recipe photos: a lifelike picture of the dish, made on fal.ai and kept in Mongo.
 
 One call to an image model per photo, no Claude in between: the prompt is
-built from the recipe's title and main ingredients, which is enough for a
-picture of the dish and costs nothing extra. The model is FLUX.2 [dev] by
+built from the recipe's title, description and method, so the model draws the
+cooked, plated dish rather than its raw ingredients, and costs nothing extra. The model is FLUX.2 [dev] by
 default (about $0.012 a photo, a few seconds); `FAL_IMAGE_MODEL` swaps it for
 any other fal text-to-image model, such as `fal-ai/flux/krea` or
 `fal-ai/imagen4/preview/fast`. See docs/DESIGN.md (Recipe photos) for why.
@@ -46,18 +46,87 @@ def configured() -> bool:
     return bool(os.environ.get("FAL_KEY"))
 
 
+# How much of the method goes into the prompt. FLUX.2 reads long prompts, but
+# past a few hundred words the dish and its look get diluted, so the method is
+# kept short and goes last.
+METHOD_BUDGET = 700
+STEP_LIMIT = 220
+# A method shorter than this ("Cook it.") says nothing about how the dish
+# looks, so the main ingredients stand in for it.
+THIN_METHOD = 80
+
+
+def _shorten(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+def _method_for(recipe: RecipeDocument) -> str:
+    """The method, shortened to fit, keeping the last steps when it must cut.
+
+    The last steps say how the dish is finished and served, which is what the
+    photo shows, so they're the ones kept.
+    """
+    kept: list[str] = []
+    used = 0
+    for step in reversed([s for s in recipe.instructions if s.strip()]):
+        step = _shorten(step, STEP_LIMIT)
+        if kept and used + len(step) > METHOD_BUDGET:
+            break
+        kept.insert(0, step)
+        used += len(step) + 1
+    return " ".join(kept)
+
+
 def prompt_for(recipe: RecipeDocument) -> str:
-    """Describe the finished dish the way a food photographer's brief would."""
-    shown = [i.name for i in recipe.ingredients if not i.excluded_from_list][:6]
-    with_what = f", made with {', '.join(shown)}" if shown else ""
+    """Describe the finished dish the way a food photographer's brief would.
+
+    An image model takes a list of ingredients literally: given "butter,
+    garlic, shallots, curry powder" it scatters a pat of butter, whole cloves
+    and a pile of spice on the plate. So the prompt describes the cooked
+    result: the title, the recipe's own description and the method, which says
+    what each ingredient becomes. Ingredients are named only when the method is
+    too thin to say what the dish is.
+
+    Following Black Forest Labs' FLUX.2 guide: the dish comes first, because
+    earlier words weigh more; the look comes next and the method last, as
+    supporting detail; a named camera, lens and aperture rather than
+    "professional photo"; real textures and small imperfections for realism;
+    and every instruction is positive, because FLUX.2 has no negative prompt
+    and "no garlic" draws its attention to garlic. See docs/DESIGN.md (Recipe
+    photos).
+    """
     cuisine = f" {recipe.cuisine}" if recipe.cuisine else ""
-    return (
-        f"A realistic, appetising photo of home-cooked{cuisine} {recipe.title}{with_what}, "
-        "plated and ready to eat on a simple ceramic plate or bowl on a wooden kitchen table. "
-        "Editorial food photography, soft natural window light, 45-degree angle, "
-        "shallow depth of field, true-to-life colours and textures. "
-        "No text, no labels, no hands, no people."
+    parts = [
+        f"Food photography of {recipe.title}, a finished home-cooked{cuisine} dish, "
+        "plated and ready to eat."
+    ]
+    if recipe.description:
+        parts.append(_shorten(recipe.description, 300))
+    parts.append(
+        "Everything on the plate is cooked and finished as the recipe serves it: sauces "
+        "smooth and glossy, spooned over or pooled beneath, spices and aromatics cooked "
+        "into the food, butter melted into the sauce, herbs freshly chopped. The plate "
+        "holds only the finished food with a clean rim, a simple ceramic plate or bowl "
+        "on a wooden kitchen table beside a folded linen napkin."
     )
+    parts.append(
+        "Shot on a Sony A7 IV with a 90mm macro lens at f/2.8, 45-degree angle, soft "
+        "natural window light from the side, sharp focus on the food and a softly "
+        "blurred background. Real textures: browned and crisp edges, glossy sauce, "
+        "crumbs, drips and small imperfections, a generous home portion, true-to-life "
+        "colours. Natural and unstyled, like a real photo taken at the table."
+    )
+    method = _method_for(recipe)
+    if len(method) >= THIN_METHOD:
+        parts.append(f"How it was cooked: {method}")
+    else:
+        shown = [i.name for i in recipe.ingredients if not i.excluded_from_list][:6]
+        if shown:
+            parts.append(f"It is cooked with {', '.join(shown)}, all cooked into the dish.")
+    return " ".join(parts)
 
 
 async def _ask_model(prompt: str) -> tuple[bytes, str]:
