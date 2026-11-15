@@ -17,13 +17,15 @@ import {
 } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
   ArrowUpRight,
   BookOpen,
   ChefHat,
+  ChevronLeft,
   Globe,
+  History,
   ImagePlus,
   ListChecks,
   Loader2,
@@ -39,7 +41,9 @@ import {
   askChef,
   changesIn,
   focusOf,
+  getChat,
   linkIn,
+  listChats,
   newChatId,
   undoChange,
 } from '@/lib/chef'
@@ -120,6 +124,15 @@ export function ChefProvider({ children }: { children: ReactNode }) {
     [height, setHeight],
   )
   const open = height !== 'closed'
+  const wide = useWide()
+  // Shop and Cook take the whole phone screen, with no tab bar to sit on.
+  const fullscreen = useRouterState({
+    select: (st) => /^\/(shop|cook)\//.test(st.location.pathname),
+  })
+  // Held here rather than in the panel, so closing Chef keeps the chat.
+  const convo = useConversation(
+    wide ? open : !fullscreen && (height === 'half' || height === 'full'),
+  )
   return (
     <ChefContext.Provider value={{ height, setHeight, toggle }}>
       {/* The sidebar takes its width from the page rather than covering it. */}
@@ -132,7 +145,7 @@ export function ChefProvider({ children }: { children: ReactNode }) {
       >
         {children}
       </div>
-      <Chef />
+      <Chef convo={convo} wide={wide} fullscreen={fullscreen} />
     </ChefContext.Provider>
   )
 }
@@ -161,6 +174,8 @@ function useConversation(inView: boolean) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [undone, setUndone] = useState<Set<string>>(new Set())
+  // Changes in a reopened chat that can no longer be undone.
+  const [locked, setLocked] = useState<Set<string>>(new Set())
   const abort = useRef<AbortController | null>(null)
   const inViewRef = useRef(inView)
   inViewRef.current = inView
@@ -262,24 +277,54 @@ function useConversation(inView: boolean) {
     abort.current?.abort()
     setMessages([])
     setError(null)
+    setUndone(new Set())
+    setLocked(new Set())
     setChatId(newChatId())
   }, [])
 
-  return { messages, busy, error, undone, send, undo, reset }
+  /** Carry on a past chat from where it was left. */
+  const open = useCallback(async (id: string) => {
+    abort.current?.abort()
+    setError(null)
+    try {
+      const chat = await getChat(id)
+      const undoable = new Set(chat.undoable)
+      const ids = chat.messages.flatMap((m) => changesIn(m).map((c) => c.undo))
+      setChatId(chat.id)
+      setMessages(chat.messages)
+      setUndone(new Set(chat.undone))
+      setLocked(new Set(ids.filter((u) => !undoable.has(u))))
+    } catch {
+      setError("Couldn't open that chat. Try again?")
+    }
+  }, [])
+
+  return {
+    chatId,
+    messages,
+    busy,
+    error,
+    undone,
+    locked,
+    send,
+    undo,
+    reset,
+    open,
+  }
 }
 
-function Chef() {
+type Convo = ReturnType<typeof useConversation>
+
+function Chef({
+  convo,
+  wide,
+  fullscreen,
+}: {
+  convo: Convo
+  wide: boolean
+  fullscreen: boolean
+}) {
   const { height, setHeight } = useChef()
-  const wide = useWide()
-  // Shop and Cook take the whole phone screen, with no tab bar to sit on.
-  const fullscreen = useRouterState({
-    select: (st) => /^\/(shop|cook)\//.test(st.location.pathname),
-  })
-  const convo = useConversation(
-    wide
-      ? height !== 'closed'
-      : !fullscreen && (height === 'half' || height === 'full'),
-  )
 
   if (height === 'closed' || (fullscreen && !wide)) return null
 
@@ -291,13 +336,41 @@ function Chef() {
         style={{ width: CHEF_WIDTH_CSS }}
       >
         <ChefResizeHandle />
-        <Header onClose={() => setHeight('closed')} onReset={convo.reset} />
-        <Conversation {...convo} />
+        <Panel convo={convo} onClose={() => setHeight('closed')} />
       </aside>
     )
   }
 
   return <PhoneSheet height={height} setHeight={setHeight} convo={convo} />
+}
+
+/** The header and either the chat or the list of past chats. */
+function Panel({ convo, onClose }: { convo: Convo; onClose: () => void }) {
+  const [showHistory, setShowHistory] = useState(false)
+  return (
+    <>
+      <Header
+        showHistory={showHistory}
+        onHistory={() => setShowHistory((v) => !v)}
+        onClose={onClose}
+        onReset={() => {
+          convo.reset()
+          setShowHistory(false)
+        }}
+      />
+      {showHistory ? (
+        <PastChats
+          current={convo.messages.length ? convo.chatId : null}
+          onOpen={(id) => {
+            setShowHistory(false)
+            if (id !== convo.chatId) void convo.open(id)
+          }}
+        />
+      ) : (
+        <Conversation {...convo} />
+      )}
+    </>
+  )
 }
 
 const SHEET_HEIGHTS: Record<Exclude<ChefHeight, 'closed'>, string> = {
@@ -319,7 +392,7 @@ function PhoneSheet({
 }: {
   height: Exclude<ChefHeight, 'closed'>
   setHeight: (h: ChefHeight) => void
-  convo: ReturnType<typeof useConversation>
+  convo: Convo
 }) {
   const drag = useRef<{ y: number } | null>(null)
   const [typing, setTyping] = useState(false)
@@ -396,26 +469,50 @@ function PhoneSheet({
           </span>
         </button>
       ) : (
-        <>
-          <Header onClose={() => setHeight('closed')} onReset={convo.reset} />
-          <Conversation {...convo} />
-        </>
+        <Panel convo={convo} onClose={() => setHeight('closed')} />
       )}
     </section>
   )
 }
 
 function Header({
+  showHistory,
+  onHistory,
   onClose,
   onReset,
 }: {
+  showHistory: boolean
+  onHistory: () => void
   onClose: () => void
   onReset: () => void
 }) {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2">
-      <ChefHat className="size-5" />
-      <h2 className="flex-1 text-base font-semibold">Chef</h2>
+      {showHistory ? (
+        <button
+          type="button"
+          aria-label="Back to chat"
+          onClick={onHistory}
+          className="-ml-2 flex size-10 items-center justify-center rounded-full text-ink-muted hover:bg-sand hover:text-ink"
+        >
+          <ChevronLeft className="size-5" />
+        </button>
+      ) : (
+        <ChefHat className="size-5" />
+      )}
+      <h2 className="flex-1 text-base font-semibold">
+        {showHistory ? 'Past chats' : 'Chef'}
+      </h2>
+      {!showHistory && (
+        <button
+          type="button"
+          aria-label="Past chats"
+          onClick={onHistory}
+          className="flex size-10 items-center justify-center rounded-full text-ink-muted hover:bg-sand hover:text-ink"
+        >
+          <History className="size-5" />
+        </button>
+      )}
       <button
         type="button"
         aria-label="New chat"
@@ -436,14 +533,84 @@ function Header({
   )
 }
 
+const dayFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+})
+const timeFormat = new Intl.DateTimeFormat(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
+/** Today's chats by time, older ones by day. */
+function when(iso: string) {
+  // The server writes UTC without a zone.
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`)
+  return d.toDateString() === new Date().toDateString()
+    ? timeFormat.format(d)
+    : dayFormat.format(d)
+}
+
+/** Past conversations, newest first. Tapping one carries it on. */
+function PastChats({
+  current,
+  onOpen,
+}: {
+  current: string | null
+  onOpen: (id: string) => void
+}) {
+  const chats = useQuery({ queryKey: ['chef-chats'], queryFn: listChats })
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+      {chats.isPending ? (
+        <Loader2
+          className="mx-4 my-3 size-4 animate-spin text-ink-muted"
+          aria-label="Loading past chats"
+        />
+      ) : chats.isError ? (
+        <p className="px-4 py-3 text-sm text-danger">
+          Couldn't load past chats. Try again?
+        </p>
+      ) : chats.data.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-ink-muted">
+          Your chats with Chef will show here.
+        </p>
+      ) : (
+        <ul>
+          {chats.data.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => onOpen(c.id)}
+                aria-current={c.id === current ? 'true' : undefined}
+                className={cn(
+                  'flex min-h-[44px] w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-cream',
+                  c.id === current && 'bg-cream',
+                )}
+              >
+                <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                <span className="shrink-0 text-xs text-ink-muted">
+                  {when(c.updated_at)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function Conversation({
   messages,
   busy,
   error,
   undone,
+  locked,
   send,
   undo,
-}: ReturnType<typeof useConversation>) {
+}: Convo) {
   const [text, setText] = useState('')
   const [photos, setPhotos] = useState<{ mediaType: string; url: string }[]>([])
   const [photoError, setPhotoError] = useState<string | null>(null)
@@ -506,6 +673,7 @@ function Conversation({
             key={m.id}
             message={m}
             undone={undone}
+            locked={locked}
             onUndo={(c) => void undo([c])}
           />
         ))}
@@ -620,10 +788,12 @@ function Focus() {
 function Message({
   message,
   undone,
+  locked,
   onUndo,
 }: {
   message: ChefMessage
   undone: Set<string>
+  locked: Set<string>
   onUndo: (c: ChefChange) => void
 }) {
   if (message.role === 'user') {
@@ -631,7 +801,17 @@ function Message({
       <div className="ml-8 flex flex-col items-end gap-1">
         {message.parts.map((p, i) =>
           p.type === 'file' ? (
-            <img key={i} src={p.url} alt="" className="max-h-32 rounded-xl" />
+            p.url ? (
+              <img key={i} src={p.url} alt="" className="max-h-32 rounded-xl" />
+            ) : (
+              <p
+                key={i}
+                className="flex items-center gap-1.5 rounded-2xl bg-sand px-3 py-2 text-xs text-ink-muted"
+              >
+                <ImagePlus className="size-3.5" aria-hidden />
+                Photo
+              </p>
+            )
           ) : p.type === 'text' ? (
             <p
               key={i}
@@ -647,7 +827,13 @@ function Message({
   return (
     <div className="mr-4 space-y-1.5 text-sm">
       {message.parts.map((p, i) => (
-        <AssistantPart key={i} part={p} undone={undone} onUndo={onUndo} />
+        <AssistantPart
+          key={i}
+          part={p}
+          undone={undone}
+          locked={locked}
+          onUndo={onUndo}
+        />
       ))}
     </div>
   )
@@ -656,10 +842,12 @@ function Message({
 function AssistantPart({
   part,
   undone,
+  locked,
   onUndo,
 }: {
   part: ChefPart
   undone: Set<string>
+  locked: Set<string>
   onUndo: (c: ChefChange) => void
 }) {
   if (part.type === 'text')
@@ -668,7 +856,7 @@ function AssistantPart({
   return (
     <>
       <ChefToolCall part={part} />
-      <ChangeChip part={part} undone={undone} onUndo={onUndo} />
+      <ChangeChip part={part} undone={undone} locked={locked} onUndo={onUndo} />
     </>
   )
 }
@@ -677,10 +865,12 @@ function AssistantPart({
 function ChangeChip({
   part,
   undone,
+  locked,
   onUndo,
 }: {
   part: Extract<ChefPart, { type: 'tool' }>
   undone: Set<string>
+  locked: Set<string>
   onUndo: (c: ChefChange) => void
 }) {
   const change = changesIn({ id: '', role: 'assistant', parts: [part] }).at(0)
@@ -710,7 +900,7 @@ function ChangeChip({
         {change.done}
       </span>
       {change.link && !isUndone && <OpenLink link={change.link} />}
-      {!isUndone && (
+      {!isUndone && !locked.has(change.undo) && (
         <button
           type="button"
           onClick={() => onUndo(change)}

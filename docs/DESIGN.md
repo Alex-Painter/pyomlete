@@ -171,6 +171,7 @@ Chef is the proactive suggestions agent. Its job is the "more variety" half of t
 - **Cards, not recipes.** A suggestion is a title, a reason it suits you, and optionally a photo and source link (`SuggestionDocument`). Saving one turns it into a recipe in the background; from a link it's imported, otherwise Claude writes it.
 - **Where cards come from.** Today, Refresh on Discover (`POST /api/suggestions/refresh`) asks Claude for ideas from your taste: ratings, "Not for me" dismissals, recent lists and Tune settings. Any agent can also post cards to `POST /api/suggestions/`.
 - **Taste is learned, not configured.** Ratings after cooking and "Not for me" are the signals. **Clear** (`POST /api/suggestions/clear`) is different: it tidies the feed and teaches Chef nothing, so you can clear without worrying about skewing future picks.
+- **Chats are kept.** Closing Chef or starting a new chat loses nothing: the server keeps each conversation when Chef finishes a reply (`chef/history.py`, `GET /api/chef/chats`), and Past chats in Chef's header reopens one to carry on. The server writes it rather than the client, so a chat is kept whichever app it came from. Photos are not kept (six could pass Mongo's document limit), so a reopened chat shows where they were. A change older than a week shows without Undo, because its undo record has expired.
 
 ## Planned (v2)
 

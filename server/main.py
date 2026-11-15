@@ -5,7 +5,7 @@ import re
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from beanie import PydanticObjectId, UpdateResponse
 from beanie.operators import In
@@ -18,9 +18,10 @@ from pymongo.errors import DuplicateKeyError
 
 from chef import actions as chef_actions
 import calendar_google
-from chef import chat, discover, run, week
+from chef import chat, discover, history, run, week
 from data_models import (
     CategoryConfig,
+    ChefChatDocument,
     ListDocument,
     PreferenceDocument,
     RecipeDocument,
@@ -1191,7 +1192,44 @@ async def chef_chat(request: Request):
     page = (run_input.model_extra or {}).get("page")
     deps = chat.deps_for(run_input.id, page, adapter.messages)
     analytics.capture("chef message", page=page.get("kind") if isinstance(page, dict) else None)
-    return adapter.streaming_response(adapter.run_stream(deps=deps))
+
+    async def keep(result) -> None:
+        # Losing the record of a chat mustn't lose the reply itself.
+        if not run_input.id:
+            return
+        try:
+            await history.save(run_input.id, run_input.messages, result.new_messages(), str(uuid4()))
+        except Exception:
+            logger.exception("Couldn't keep Chef chat %s", run_input.id)
+
+    return adapter.streaming_response(adapter.run_stream(deps=deps, on_complete=keep))
+
+
+@router.get("/chef/chats")
+async def chef_chats():
+    """Past conversations with Chef, newest first: id, title and when it was last used."""
+    return [
+        {"id": c.id, "title": c.title, "updated_at": c.updated_at}
+        for c in await history.recent()
+    ]
+
+
+@router.get("/chef/chats/{chat_id}")
+async def chef_chat_history(chat_id: str):
+    """One past conversation, to open again. `undoable` and `undone` are the
+    ids of its changes that can still be undone and that were."""
+    found = await ChefChatDocument.get(chat_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    undoable, undone = await history.undo_state(found.messages)
+    analytics.capture("chef chat reopened")
+    return {
+        "id": found.id,
+        "title": found.title,
+        "messages": found.messages,
+        "undoable": undoable,
+        "undone": undone,
+    }
 
 
 @router.post("/chef/actions/{action_id}/undo")

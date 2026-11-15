@@ -160,7 +160,8 @@ export function toRequestMessages(messages: ChefMessage[]) {
     role: m.role,
     parts: m.parts.flatMap((p): object[] => {
       if (p.type === 'text') return p.text ? [p] : []
-      if (p.type === 'file') return [p]
+      // A reopened chat's photos were not kept (server/chef/history.py).
+      if (p.type === 'file') return p.url ? [p] : []
       if (p.providerExecuted || p.state !== 'done') return []
       return [
         {
@@ -173,6 +174,72 @@ export function toRequestMessages(messages: ChefMessage[]) {
       ]
     }),
   }))
+}
+
+type StoredPart = {
+  type: string
+  text?: string
+  mediaType?: string
+  url?: string
+  toolCallId?: string
+  input?: unknown
+  output?: unknown
+  errorText?: string
+  state?: string
+}
+
+/**
+ * A kept conversation as the app shows it: the inverse of
+ * `toRequestMessages`, since the server keeps the chat in that shape.
+ */
+export function fromRequestMessages(
+  messages: { id: string; role: string; parts: StoredPart[] }[],
+): ChefMessage[] {
+  return messages.flatMap((m): ChefMessage[] => {
+    if (m.role !== 'user' && m.role !== 'assistant') return []
+    const parts = m.parts.flatMap((p): ChefPart[] => {
+      if (p.type === 'text')
+        return p.text ? [{ type: 'text', text: p.text }] : []
+      if (p.type === 'file')
+        return [
+          { type: 'file', mediaType: p.mediaType ?? '', url: p.url ?? '' },
+        ]
+      if (p.type.startsWith('tool-') && p.toolCallId)
+        return [
+          {
+            type: 'tool',
+            toolCallId: p.toolCallId,
+            toolName: p.type.slice(5),
+            state: p.state === 'output-error' ? 'error' : 'done',
+            input: p.input,
+            output: p.state === 'output-error' ? p.errorText : p.output,
+          },
+        ]
+      return []
+    })
+    return [{ id: m.id, role: m.role, parts }]
+  })
+}
+
+export type ChefChatSummary = { id: string; title: string; updated_at: string }
+
+export function listChats() {
+  return apiJson<ChefChatSummary[]>('/api/chef/chats')
+}
+
+/**
+ * A past chat, with which of its changes can still be undone and which were.
+ * Older changes are neither: Undo is kept for a week.
+ */
+export async function getChat(id: string) {
+  const chat = await apiJson<{
+    id: string
+    title: string
+    messages: { id: string; role: string; parts: StoredPart[] }[]
+    undoable: string[]
+    undone: string[]
+  }>(`/api/chef/chats/${encodeURIComponent(id)}`)
+  return { ...chat, messages: fromRequestMessages(chat.messages) }
 }
 
 /** The events in a server-sent event stream, as they arrive. */
