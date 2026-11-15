@@ -19,10 +19,12 @@ import {
   initialLibraryQuery,
   libraryReducer,
   queryLibrary,
+  saveSort,
+  storedSort,
   tagFilters,
   withWeekHistory,
 } from '@/lib/libraryQuery'
-import type { DayRanking, LibrarySort } from '@/lib/libraryQuery'
+import type { DayRanking, LibraryKind, LibrarySort } from '@/lib/libraryQuery'
 import { dayLong } from '@/lib/week'
 import type { ISODate, ListItem, PlanDay, RecipeSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -74,7 +76,15 @@ export function DayLibrary({
   /** Set on a week: rank for this evening. */
   forDay?: LibraryDay
 }) {
+  const kind: LibraryKind = forDay ? 'day' : 'list'
   const [query, dispatch] = useReducer(libraryReducer, forDay ? initialDayQuery : initialLibraryQuery)
+  // The sort you last picked is kept in this browser for every list, so it
+  // isn't chosen again on each visit. Read after mount, as the server render
+  // can't see storage.
+  useEffect(() => {
+    const sort = storedSort(kind)
+    if (sort) dispatch({ kind: 'sort', sort })
+  }, [kind])
   const library = useMemo(() => withWeekHistory(recipes ?? [], days), [recipes, days])
   const ranking = useMemo(() => {
     if (!forDay) return null
@@ -140,7 +150,9 @@ export function DayLibrary({
           value={query.sort}
           onChange={(e) => {
             const sort = sorts.find((s) => s.id === e.target.value)
-            if (sort) dispatch({ kind: 'sort', sort: sort.id satisfies LibrarySort })
+            if (!sort) return
+            dispatch({ kind: 'sort', sort: sort.id satisfies LibrarySort })
+            saveSort(kind, sort.id)
           }}
           className="h-11 max-w-[42%] shrink-0 rounded-xl border border-line bg-white px-2 text-sm font-medium outline-none focus:ring-2 focus:ring-ring"
         >

@@ -80,6 +80,40 @@ export type LibraryQuery = {
 export const initialLibraryQuery: LibraryQuery = { text: '', sort: 'not-lately', filters: [] }
 export const initialDayQuery: LibraryQuery = { ...initialLibraryQuery, sort: 'best' }
 
+/** Which library a sort belongs to: a week's evening, or a plain list. */
+export type LibraryKind = 'day' | 'list'
+
+const SORT_KEYS: Record<LibraryKind, string> = {
+  day: 'omlete.library.sort.day',
+  list: 'omlete.library.sort.list',
+}
+
+/**
+ * The sort last picked in this kind of library, on any list, or null for the
+ * default. Each kind keeps its own, so picking A to Z while adding to a plain
+ * list never takes Best for this day away from the week.
+ */
+export function storedSort(kind: LibraryKind): LibrarySort | null {
+  try {
+    const raw = localStorage.getItem(SORT_KEYS[kind])
+    const allowed = kind === 'day' ? [BEST_SORT, ...SORTS] : SORTS
+    return allowed.find((s) => s.id === raw)?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Keeps the sort for the next visit; the default is kept as no entry. */
+export function saveSort(kind: LibraryKind, sort: LibrarySort): void {
+  const fallback = kind === 'day' ? initialDayQuery.sort : initialLibraryQuery.sort
+  try {
+    if (sort === fallback) localStorage.removeItem(SORT_KEYS[kind])
+    else localStorage.setItem(SORT_KEYS[kind], sort)
+  } catch {
+    // Storage can be off (private windows); the sort lasts until reload.
+  }
+}
+
 export type LibraryAction =
   | { kind: 'search'; text: string }
   | { kind: 'sort'; sort: LibrarySort }
