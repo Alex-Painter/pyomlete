@@ -89,7 +89,7 @@ function DiscoverPage() {
           </span>
         </div>
       )}
-      <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-page px-4 pt-3 pb-6 sm:px-6 sm:py-10">
         <PageHeader
           title="Discover"
           subtitle="New things to cook, picked for you by Chef."
@@ -194,7 +194,7 @@ function Shelf({ title, children }: { title: string; children: React.ReactNode }
   return (
     <section aria-label={title}>
       <h2 className="mb-3 text-lg font-semibold">{title}</h2>
-      <div className="no-scrollbar -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-3 sm:*:w-auto">
+      <div className="no-scrollbar -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-3 xl:grid-cols-4 sm:*:w-auto">
         {children}
       </div>
     </section>

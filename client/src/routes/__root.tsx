@@ -110,7 +110,7 @@ function NavBar() {
     <>
       {/* Desktop top nav, the same width as the pages under it */}
       <nav className="hidden sm:block bg-white border-b border-line sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-6 flex items-center gap-2 h-14">
+        <div className="max-w-page mx-auto px-6 flex items-center gap-2 h-14">
           <Link to="/" className="text-xl font-bold tracking-tight text-ink mr-6">
             Omlete
           </Link>

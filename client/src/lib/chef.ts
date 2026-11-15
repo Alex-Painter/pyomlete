@@ -322,3 +322,25 @@ export function undoChange(id: string) {
     { method: 'POST' },
   )
 }
+
+const OBJECT_ID = /^[0-9a-f]{24}$/
+
+/**
+ * A one-line hint of what a tool was asked, for its row in the reply: the
+ * input's plain values, without database ids, which say nothing to a person.
+ * The full input is one tap away.
+ */
+export function inputHint(input: unknown, max = 60): string {
+  if (!input || typeof input !== 'object') return ''
+  const values = Object.values(input as Record<string, unknown>).flatMap(
+    (v) => {
+      if (typeof v === 'string') return OBJECT_ID.test(v) ? [] : [v]
+      if (typeof v === 'number' || typeof v === 'boolean') return [String(v)]
+      if (Array.isArray(v) && v.every((x) => typeof x === 'string'))
+        return [v.join(', ')]
+      return []
+    },
+  )
+  const hint = values.join(' · ').replace(/\s+/g, ' ').trim()
+  return hint.length > max ? `${hint.slice(0, max - 1)}…` : hint
+}

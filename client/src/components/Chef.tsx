@@ -15,7 +15,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -33,6 +33,8 @@ import {
   SquarePen,
   X,
 } from 'lucide-react'
+import { ChefResizeHandle } from '@/components/ChefResizeHandle'
+import { ChefToolCall } from '@/components/ChefToolCall'
 import { useUndo } from '@/components/UndoToast'
 import { ApiError } from '@/lib/api'
 import {
@@ -46,6 +48,7 @@ import {
   undoChange,
 } from '@/lib/chef'
 import type { ChefChange, ChefLink, ChefMessage, ChefPart } from '@/lib/chef'
+import { CHEF_WIDTH_CSS } from '@/lib/chefWidth'
 import { useAreaAboveKeyboard } from '@/lib/keyboard'
 import { useList, useRecipe } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -133,7 +136,13 @@ export function ChefProvider({ children }: { children: ReactNode }) {
   return (
     <ChefContext.Provider value={{ height, setHeight, toggle }}>
       {/* The sidebar takes its width from the page rather than covering it. */}
-      <div className={cn('transition-[padding]', open && 'lg:pr-[380px]')}>
+      <div
+        className={cn(
+          'transition-[padding] [.chef-resizing_&]:transition-none',
+          open && 'lg:pr-[var(--chef-side)]',
+        )}
+        style={{ '--chef-side': CHEF_WIDTH_CSS } as CSSProperties}
+      >
         {children}
       </div>
       <Chef convo={convo} wide={wide} fullscreen={fullscreen} />
@@ -323,8 +332,10 @@ function Chef({
     return (
       <aside
         aria-label="Chef"
-        className="fixed inset-y-0 right-0 z-40 flex w-[380px] flex-col border-l border-line bg-white"
+        className="fixed inset-y-0 right-0 z-40 flex flex-col border-l border-line bg-white"
+        style={{ width: CHEF_WIDTH_CSS }}
       >
+        <ChefResizeHandle />
         <Panel convo={convo} onClose={() => setHeight('closed')} />
       </aside>
     )
@@ -842,25 +853,33 @@ function AssistantPart({
   if (part.type === 'text')
     return part.text ? <p className="whitespace-pre-wrap">{part.text}</p> : null
   if (part.type !== 'tool') return null
+  return (
+    <>
+      <ChefToolCall part={part} />
+      <ChangeChip part={part} undone={undone} locked={locked} onUndo={onUndo} />
+    </>
+  )
+}
 
-  if (part.state === 'running') {
-    return (
-      <p className="flex items-center gap-1.5 text-xs text-ink-muted">
-        {part.toolName === 'web_search' ? (
-          <Globe className="size-3.5" />
-        ) : (
-          <Loader2 className="size-3.5 animate-spin" />
-        )}
-        {part.toolName === 'web_search' ? 'Searching the web…' : 'Working…'}
-      </p>
-    )
-  }
+/** The change a finished tool call made, with Undo, or the recipe it found. */
+function ChangeChip({
+  part,
+  undone,
+  locked,
+  onUndo,
+}: {
+  part: Extract<ChefPart, { type: 'tool' }>
+  undone: Set<string>
+  locked: Set<string>
+  onUndo: (c: ChefChange) => void
+}) {
   const change = changesIn({ id: '', role: 'assistant', parts: [part] }).at(0)
   if (!change) {
     // import_recipe found the recipe already saved: nothing to undo, but
     // still link to it.
     const out = part.output as { already_saved?: boolean } | null
-    const link = out?.already_saved ? linkIn(out) : undefined
+    const link =
+      part.state === 'done' && out?.already_saved ? linkIn(out) : undefined
     if (!link) return null
     return (
       <div className="flex min-h-[36px] items-center gap-2 rounded-lg bg-cream px-3 text-xs">
