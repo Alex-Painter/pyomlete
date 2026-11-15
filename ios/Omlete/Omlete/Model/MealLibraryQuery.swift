@@ -114,6 +114,38 @@ nonisolated struct MealLibraryQuery: Equatable, Sendable {
         }
     }
 
+    /// Which library a sort belongs to: a week's evening, or a plain list.
+    /// Each keeps its own remembered sort, as the web's `storedSort` does.
+    enum Kind: String, Sendable {
+        case day, list
+
+        /// Where the phone keeps the sort, matching the web's key.
+        var defaultsKey: String { "omlete.library.sort.\(rawValue)" }
+
+        /// A week opens on Best for this day; a plain list has no evening to rank for.
+        var defaultSort: Sort { self == .day ? .best : .notLately }
+
+        func offers(_ sort: Sort) -> Bool { sort != .best || self == .day }
+    }
+
+    /// The sort last picked in this kind of library on any list, or the
+    /// default. A stored sort this kind doesn't offer is ignored.
+    static func rememberedSort(_ kind: Kind, defaults: UserDefaults = .standard) -> Sort {
+        defaults.string(forKey: kind.defaultsKey)
+            .flatMap(Sort.init(rawValue:))
+            .flatMap { kind.offers($0) ? $0 : nil }
+            ?? kind.defaultSort
+    }
+
+    /// Keeps the sort for the next visit; the default is kept as no entry.
+    static func remember(_ sort: Sort, for kind: Kind, defaults: UserDefaults = .standard) {
+        if sort == kind.defaultSort || !kind.offers(sort) {
+            defaults.removeObject(forKey: kind.defaultsKey)
+        } else {
+            defaults.set(sort.rawValue, forKey: kind.defaultsKey)
+        }
+    }
+
     static let quickMinutes = 30
     static let notLatelyDays = 21
     static let favouriteRating = 4

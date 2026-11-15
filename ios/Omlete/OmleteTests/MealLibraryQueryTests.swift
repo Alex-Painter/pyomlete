@@ -162,3 +162,37 @@ struct PlanFocusTests {
         #expect(focus.selected == Self.date("2026-10-20"))
     }
 }
+
+/// The web's `storedSort` and `saveSort` (DayLibrary sort tests), on `UserDefaults`.
+struct RememberedSortTests {
+    private let defaults = UserDefaults(suiteName: "RememberedSortTests.\(UUID().uuidString)")!
+
+    @Test func eachKindOpensOnItsDefaultWithNothingStored() {
+        #expect(MealLibraryQuery.rememberedSort(.day, defaults: defaults) == .best)
+        #expect(MealLibraryQuery.rememberedSort(.list, defaults: defaults) == .notLately)
+    }
+
+    @Test func aPickedSortIsRememberedForThatKindOnly() {
+        MealLibraryQuery.remember(.aToZ, for: .list, defaults: defaults)
+
+        #expect(MealLibraryQuery.rememberedSort(.list, defaults: defaults) == .aToZ)
+        #expect(MealLibraryQuery.rememberedSort(.day, defaults: defaults) == .best)
+        #expect(defaults.string(forKey: "omlete.library.sort.list") == "aToZ")
+    }
+
+    @Test func pickingTheDefaultAgainClearsTheEntry() {
+        MealLibraryQuery.remember(.quickest, for: .day, defaults: defaults)
+        MealLibraryQuery.remember(.best, for: .day, defaults: defaults)
+
+        #expect(defaults.object(forKey: "omlete.library.sort.day") == nil)
+        #expect(MealLibraryQuery.rememberedSort(.day, defaults: defaults) == .best)
+    }
+
+    @Test func aStoredSortTheLibraryDoesNotOfferIsIgnored() {
+        defaults.set("best", forKey: "omlete.library.sort.list")
+        #expect(MealLibraryQuery.rememberedSort(.list, defaults: defaults) == .notLately)
+
+        defaults.set("bogus", forKey: "omlete.library.sort.day")
+        #expect(MealLibraryQuery.rememberedSort(.day, defaults: defaults) == .best)
+    }
+}
