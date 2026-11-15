@@ -32,6 +32,7 @@ import {
   X,
 } from 'lucide-react'
 import { ChefResizeHandle } from '@/components/ChefResizeHandle'
+import { ChefToolCall } from '@/components/ChefToolCall'
 import { useUndo } from '@/components/UndoToast'
 import { ApiError } from '@/lib/api'
 import {
@@ -664,25 +665,31 @@ function AssistantPart({
   if (part.type === 'text')
     return part.text ? <p className="whitespace-pre-wrap">{part.text}</p> : null
   if (part.type !== 'tool') return null
+  return (
+    <>
+      <ChefToolCall part={part} />
+      <ChangeChip part={part} undone={undone} onUndo={onUndo} />
+    </>
+  )
+}
 
-  if (part.state === 'running') {
-    return (
-      <p className="flex items-center gap-1.5 text-xs text-ink-muted">
-        {part.toolName === 'web_search' ? (
-          <Globe className="size-3.5" />
-        ) : (
-          <Loader2 className="size-3.5 animate-spin" />
-        )}
-        {part.toolName === 'web_search' ? 'Searching the web…' : 'Working…'}
-      </p>
-    )
-  }
+/** The change a finished tool call made, with Undo, or the recipe it found. */
+function ChangeChip({
+  part,
+  undone,
+  onUndo,
+}: {
+  part: Extract<ChefPart, { type: 'tool' }>
+  undone: Set<string>
+  onUndo: (c: ChefChange) => void
+}) {
   const change = changesIn({ id: '', role: 'assistant', parts: [part] }).at(0)
   if (!change) {
     // import_recipe found the recipe already saved: nothing to undo, but
     // still link to it.
     const out = part.output as { already_saved?: boolean } | null
-    const link = out?.already_saved ? linkIn(out) : undefined
+    const link =
+      part.state === 'done' && out?.already_saved ? linkIn(out) : undefined
     if (!link) return null
     return (
       <div className="flex min-h-[36px] items-center gap-2 rounded-lg bg-cream px-3 text-xs">
