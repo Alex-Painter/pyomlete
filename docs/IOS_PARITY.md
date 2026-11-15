@@ -20,3 +20,4 @@ States: **to port**, **porting** (iOS PR open), **done**, **not needed** (nothin
 | Open link on the recipe or list Chef makes | #145 | #150 | done | Chef chat's change rows get Open beside Undo |
 | Generate image for a recipe, and photos served by the API | #146 | #149 | done | `image_url` can now be a path (`/api/recipe-images/{id}`) that must be resolved against the API, as the web's `mediaUrl()` does, or the photo doesn't show on iOS |
 | Web photo import fix, HEIC converted on the server | #147 | | not needed | The web fix is to the browser's file input; the server conversion covers iOS uploads too |
+| Desktop pages use the screen's width | (this PR) | | not needed | Desktop web only: phone layouts are unchanged. The iOS app runs on iPad too (device family 1,2), where SwiftUI fills the width with no cap; giving iPad the same two-column library and aisles is an iPad layout job of its own, not a port of this change |

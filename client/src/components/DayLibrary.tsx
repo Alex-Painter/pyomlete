@@ -103,7 +103,7 @@ export function DayLibrary({
   )
 
   return (
-    <section id={id} aria-labelledby={`${id}-heading`} className="scroll-mt-48 pt-5">
+    <section id={id} aria-labelledby={`${id}-heading`} className="@container scroll-mt-48 pt-5">
       <h2 id={`${id}-heading`} className="mb-3 text-lg font-semibold">
         {heading}
       </h2>
@@ -195,7 +195,7 @@ export function DayLibrary({
         </p>
       )}
 
-      <ul className="space-y-1">
+      <ul className="space-y-1 @4xl:grid @4xl:grid-cols-2 @4xl:gap-x-4 @4xl:gap-y-1 @4xl:space-y-0">
         {rows.map((r) => (
           <LibraryRow
             key={r.id}

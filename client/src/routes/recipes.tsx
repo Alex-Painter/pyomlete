@@ -85,7 +85,7 @@ function RecipeLibrary() {
 
   return (
     <main className="min-h-screen bg-cream text-ink">
-      <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-page px-4 pt-3 pb-6 sm:px-6 sm:py-10">
         <PageHeader title="Recipes" subtitle={recipes ? `${recipes.length} saved` : undefined} />
 
         {recipes && recipes.length > 0 && (
@@ -188,7 +188,7 @@ function RecipeLibrary() {
         )}
 
         {shown.length > 0 && view === 'grid' && (
-          <ul className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+          <ul className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {shown.map((r) => (
               <li key={r.id}>
                 <Link
