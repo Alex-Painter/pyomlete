@@ -15,7 +15,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -31,6 +31,7 @@ import {
   SquarePen,
   X,
 } from 'lucide-react'
+import { ChefResizeHandle } from '@/components/ChefResizeHandle'
 import { useUndo } from '@/components/UndoToast'
 import { ApiError } from '@/lib/api'
 import {
@@ -42,6 +43,7 @@ import {
   undoChange,
 } from '@/lib/chef'
 import type { ChefChange, ChefLink, ChefMessage, ChefPart } from '@/lib/chef'
+import { CHEF_WIDTH_CSS } from '@/lib/chefWidth'
 import { useAreaAboveKeyboard } from '@/lib/keyboard'
 import { useList, useRecipe } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -120,7 +122,13 @@ export function ChefProvider({ children }: { children: ReactNode }) {
   return (
     <ChefContext.Provider value={{ height, setHeight, toggle }}>
       {/* The sidebar takes its width from the page rather than covering it. */}
-      <div className={cn('transition-[padding]', open && 'lg:pr-[380px]')}>
+      <div
+        className={cn(
+          'transition-[padding] [.chef-resizing_&]:transition-none',
+          open && 'lg:pr-[var(--chef-side)]',
+        )}
+        style={{ '--chef-side': CHEF_WIDTH_CSS } as CSSProperties}
+      >
         {children}
       </div>
       <Chef />
@@ -278,8 +286,10 @@ function Chef() {
     return (
       <aside
         aria-label="Chef"
-        className="fixed inset-y-0 right-0 z-40 flex w-[380px] flex-col border-l border-line bg-white"
+        className="fixed inset-y-0 right-0 z-40 flex flex-col border-l border-line bg-white"
+        style={{ width: CHEF_WIDTH_CSS }}
       >
+        <ChefResizeHandle />
         <Header onClose={() => setHeight('closed')} onReset={convo.reset} />
         <Conversation {...convo} />
       </aside>
