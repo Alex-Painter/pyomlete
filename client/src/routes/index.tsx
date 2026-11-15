@@ -96,7 +96,7 @@ function HomePage() {
 
   return (
     <main className="min-h-screen bg-cream text-ink">
-      <div className="mx-auto max-w-5xl px-4 pt-3 pb-6 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-page px-4 pt-3 pb-6 sm:px-6 sm:py-10">
         <PageHeader
           title="Home"
           subtitle="Plan the week, shop, cook."
@@ -151,7 +151,7 @@ function HomePage() {
         )}
 
         {visible && visible.length > 0 && (
-          <ul className="grid gap-3 sm:grid-cols-2">
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {visible.map((list) => (
               <li key={list.id} className="relative">
                 <Link
@@ -282,7 +282,7 @@ function CookFromList({ hidden }: { hidden: Set<string> }) {
       <h2 id="cook-from-list" className="mb-3 text-lg font-semibold">
         Cook from {current.name}
       </h2>
-      <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:px-0 lg:grid-cols-4">
+      <ul className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:px-0 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
         {current.recipes.map((r) => {
           const d = details.get(r.id)
           return (

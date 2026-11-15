@@ -22,3 +22,4 @@ States: **to port**, **porting** (iOS PR open), **done**, **not needed** (nothin
 | Web photo import fix, HEIC converted on the server | #147 | | not needed | The web fix is to the browser's file input; the server conversion covers iOS uploads too |
 | Recipe photos show the finished dish, prompted from the method | #154 | | not needed | Server only: the prompt is built in `server/services/images.py`; iOS calls the same `POST /recipes/{id}/image` |
 | Resizable Chef sidebar on wide windows | #156 | | not needed | Web sidebar only; iOS has the sheet |
+| Desktop pages use the screen's width | #157 | | not needed | Desktop web only: phone layouts are unchanged. The iOS app runs on iPad too (device family 1,2), where SwiftUI fills the width with no cap; giving iPad the same two-column library and aisles is an iPad layout job of its own, not a port of this change |

@@ -149,7 +149,7 @@ function RecipeDetailPage() {
 
   return (
     <main className="min-h-screen bg-cream pb-24 text-ink">
-      <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-8">
         <div className="mb-4 flex items-center justify-between">
           <BackLink
             to="/recipes"
@@ -457,7 +457,7 @@ function RecipeDetailPage() {
       {/* Save / Cancel stay in reach however far down the edit goes. */}
       {editing && (
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-line bg-white/95 px-4 py-3 backdrop-blur sm:bottom-0">
-          <div className="mx-auto flex max-w-5xl justify-end gap-2">
+          <div className="mx-auto flex max-w-6xl justify-end gap-2">
             <Button variant="ghost" onClick={() => setEditing(false)} className="min-h-[44px] text-ink-soft">
               Cancel
             </Button>

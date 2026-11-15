@@ -54,6 +54,7 @@ import type { Evening } from '@/lib/calendarDays'
 import { dayLong, defaultDay, nextOpenDay, todayISO } from '@/lib/week'
 import type { ISODate, ListDetail, ListItem, PlanDay, RecipeSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useMediaQuery } from '@/lib/useMediaQuery'
 
 type PlanSearch = {
   sheet?: 'rename'
@@ -163,7 +164,7 @@ function PlanPage() {
 
   if (error || !list) {
     return (
-      <main className="mx-auto min-h-screen max-w-5xl bg-cream px-4">
+      <main className="mx-auto min-h-screen max-w-page bg-cream px-4">
         <BackButton />
         <ErrorState
           error={error}
@@ -255,10 +256,7 @@ function PlanPage() {
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-line bg-cream/95 backdrop-blur safe-area-top sm:top-14">
         <div
-          className={cn(
-            'mx-auto flex max-w-5xl items-center gap-2 px-2 py-2 sm:px-6',
-            isWeek && 'lg:max-w-6xl',
-          )}
+          className="mx-auto flex max-w-page items-center gap-2 px-2 py-2 sm:px-6"
         >
           <BackButton />
           <button
@@ -279,7 +277,7 @@ function PlanPage() {
           </Link>
         </div>
         {selectedDay && (
-          <div className="mx-auto max-w-5xl space-y-2 px-4 pb-2 sm:px-6 lg:hidden">
+          <div className="mx-auto max-w-page space-y-2 px-4 pb-2 sm:px-6 lg:hidden">
             <ViewSwitch view={state.view} onChange={(view) => dispatch({ kind: 'show', view })} />
             {state.view === 'week' && (
               <WeekStrip
@@ -478,7 +476,7 @@ function WeekPlan({
       onDragEnd={onDragEnd}
       onDragCancel={() => setDragging(null)}
     >
-      <div className="mx-auto max-w-5xl px-4 pb-10 sm:px-6 lg:grid lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-8">
+      <div className="mx-auto max-w-page px-4 pb-10 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_clamp(340px,30%,30rem)] lg:items-start lg:gap-8 xl:gap-10">
         <div className={cn(view === 'week' ? 'block' : 'hidden', 'lg:block')}>
           {/* Pinned, so a meal deep in the library can still be dragged onto a day. */}
           <div className="sticky top-[7.3rem] z-20 hidden bg-cream pb-2 pt-6 lg:block">
@@ -653,7 +651,7 @@ function PlainPlan({
     adding.has(r.id) ? 'busy' : onList.has(r.id) ? 'added' : 'add'
 
   return (
-    <div className="mx-auto max-w-5xl px-4 pb-10 sm:px-6 lg:grid lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-x-8">
+    <div className="mx-auto max-w-page px-4 pb-10 sm:px-6 lg:grid lg:grid-cols-[clamp(340px,28%,420px)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-x-8 xl:gap-x-10">
       <div className="lg:col-start-1 lg:row-start-1">
         <MealsPanel
           meals={meals}
@@ -700,7 +698,7 @@ function ItemsSection({
   const unchecked = list.items.filter((i) => !i.checked)
   const checked = list.items.filter((i) => i.checked)
   return (
-    <section aria-labelledby="items-heading" className="pt-4 lg:pt-6">
+    <section aria-labelledby="items-heading" className="@container pt-4 lg:pt-6">
       <div className="mb-3 flex items-baseline justify-between">
         <h2 id="items-heading" className="text-lg font-semibold">
           Items <span className="font-normal text-ink-muted">({unchecked.length})</span>
@@ -877,6 +875,9 @@ function ItemsByCategory({
   onReorder: (category: string, ids: string[]) => void
 }) {
   const [activeId, setActiveId] = useState<string | null>(null)
+  // Aisles can sit side by side on a wide screen, so a mouse may drag sideways
+  // there. Phones keep drags vertical.
+  const freeDrag = useMediaQuery('(min-width: 1280px)')
   const order = new Map(categories.map((c, i) => [c, i]))
   const groups = new Map<string, ListItem[]>()
   for (const item of items) {
@@ -928,12 +929,14 @@ function ItemsByCategory({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
-      modifiers={[restrictToVerticalAxis]}
+      modifiers={freeDrag ? undefined : [restrictToVerticalAxis]}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className="space-y-4">
+      {/* Aisles flow into two columns when the list has the room (a plain list on a
+          wide screen), so the whole list is in view at once. */}
+      <div className="flex flex-col gap-4 @3xl:block @3xl:columns-2 @3xl:gap-6 @3xl:*:mb-4 @3xl:*:break-inside-avoid">
         {sorted.map(([category, catItems]) => (
           <CategoryGroup key={category} category={category} highlight={activeId != null}>
             <SortableContext items={catItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>

@@ -6,6 +6,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Desktop page width: wide enough to use a big screen, see docs/DESIGN.md (Desktop width). */
+  --container-page: 100rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
