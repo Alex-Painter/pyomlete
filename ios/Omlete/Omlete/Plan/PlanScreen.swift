@@ -110,10 +110,10 @@ struct PlanScreen: View {
                 }
             }
             .onChange(of: list.days, initial: true) { focus.choose(in: list.days, today: today) }
-            // A week's library opens on Best for this day; a plain list has no evening to rank for.
+            // Opens on the sort last picked in this kind of library, on any list,
+            // or its default: Best for this day on a week, Not had lately on a plain list.
             .onChange(of: list.isWeek, initial: true) {
-                if list.isWeek, query == MealLibraryQuery() { query.sort = .best }
-                if !list.isWeek, query.sort == .best { query.sort = .notLately }
+                query.sort = MealLibraryQuery.rememberedSort(list.isWeek ? .day : .list)
             }
         }
         .navigationTitle(list.name)

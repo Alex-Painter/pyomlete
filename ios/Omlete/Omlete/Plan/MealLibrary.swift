@@ -99,6 +99,7 @@ struct MealLibrary: View {
             ForEach(MealLibraryQuery.Sort.allCases.filter { $0 != .best || forDay != nil }, id: \.self) { sort in
                 Button {
                     query.sort = sort
+                    MealLibraryQuery.remember(sort, for: forDay == nil ? .list : .day)
                 } label: {
                     if query.sort == sort {
                         Label(sort.title, systemImage: "checkmark")
